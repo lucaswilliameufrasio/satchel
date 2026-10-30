@@ -2,6 +2,10 @@
 
 mod error;
 mod format;
+mod sync;
 
 pub use error::Error;
 pub use format::{DeviceId, Location, S3Store, backup_directory, init};
+pub use sync::{
+    CatalogEntry, Client, Cursor, Follow, MarkedConflict, SyncOutcome, cursors, read_version,
+};

@@ -6,8 +6,8 @@ use rand::Rng;
 
 use rustic_backend::BackendOptions;
 use rustic_core::{
-    BackupOptions, ConfigOptions, Credentials, KeyOptions, PathList, Repository, RepositoryOptions,
-    SnapshotOptions,
+    BackupOptions, ConfigOptions, Credentials, IndexedFullStatus, KeyOptions, PathList, Repository,
+    RepositoryOptions, SnapshotOptions,
 };
 
 use crate::Error;
@@ -190,6 +190,23 @@ fn open_new(location: &Location, password: &str, device_id: &DeviceId) -> Result
 
 fn repository_options() -> RepositoryOptions {
     RepositoryOptions::default().no_cache(true)
+}
+
+pub(crate) fn open_indexed(
+    location: &Location,
+    password: &str,
+) -> Result<Repository<IndexedFullStatus>, Error> {
+    require_password(password)?;
+    let backends = location
+        .backend_options()?
+        .to_backends()
+        .map_err(Error::repository)?;
+    Repository::new(&repository_options(), &backends)
+        .map_err(Error::repository)?
+        .open(&Credentials::password(password))
+        .map_err(Error::repository)?
+        .to_indexed()
+        .map_err(Error::repository)
 }
 
 fn require_password(password: &str) -> Result<(), Error> {

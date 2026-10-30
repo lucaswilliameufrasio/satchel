@@ -25,6 +25,26 @@ pub enum Error {
         path: PathBuf,
     },
 
+    /// A catalog path is absolute, empty, or walks upward.
+    #[error("path `{path}` is not a relative file path")]
+    Path {
+        /// The rejected path.
+        path: String,
+    },
+
+    /// The controlled clock is negative.
+    #[error("clock must be zero or later")]
+    Clock,
+
+    /// A snapshot does not contain the requested file.
+    #[error("snapshot `{snapshot}` has no file `{path}`")]
+    MissingFile {
+        /// Snapshot id that was read.
+        snapshot: String,
+        /// Relative path that was missing.
+        path: String,
+    },
+
     /// rustic or the storage backend rejected the operation.
     #[error("{message}")]
     Repository {

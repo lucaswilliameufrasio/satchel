@@ -14,7 +14,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-`cargo test` includes the unit tests and `official_restic_restores_a_snapshot_and_the_key_file_stays_opaque`, which creates a temporary repository, writes one snapshot, and restores it with `restic`.
+`cargo test` includes the unit tests, `official_restic_restores_a_snapshot_and_the_key_file_stays_opaque`, and `two_clients_follow_see_once_always_delete_and_conflict`. The first creates a temporary repository, writes one snapshot, and restores it with `restic`. The second runs two headless clients against one local repository and checks see, download once, always-follow, delete, and a marked conflict.
 
 ## Not covered here
 
