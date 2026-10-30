@@ -5,3 +5,5 @@ Sincronização cifrada e versionada de arquivos e pastas no storage da própria
 Não há servidor obrigatório. Cada aparelho fala com o storage. O pareamento entre aparelhos só entrega a configuração.
 
 O plano e o andamento estão em [`docs/plano.md`](docs/plano.md) e [`docs/progresso.md`](docs/progresso.md).
+
+O núcleo está em `crates/satchel-core`. As verificações estão em [`TESTING_STANDARD.md`](TESTING_STANDARD.md).
