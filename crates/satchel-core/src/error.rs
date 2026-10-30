@@ -36,6 +36,10 @@ pub enum Error {
     #[error("clock must be zero or later")]
     Clock,
 
+    /// S3, R2, or B2 is missing versioning, or a lifecycle rule deletes objects.
+    #[error("object storage needs versioning enabled and no lifecycle rule that deletes objects")]
+    ObjectProtection,
+
     /// A snapshot does not contain the requested file.
     #[error("snapshot `{snapshot}` has no file `{path}`")]
     MissingFile {

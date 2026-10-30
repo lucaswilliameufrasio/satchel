@@ -14,7 +14,13 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-`cargo test` includes the unit tests, `official_restic_restores_a_snapshot_and_the_key_file_stays_opaque`, and `two_clients_follow_see_once_always_delete_and_conflict`. The first creates a temporary repository, writes one snapshot, and restores it with `restic`. The second runs two headless clients against one local repository and checks see, download once, always-follow, delete, and a marked conflict.
+`cargo test` includes the unit tests and three integration tests:
+
+- `official_restic_restores_a_snapshot_and_the_key_file_stays_opaque` writes one snapshot and restores it with `restic`.
+- `two_clients_follow_see_once_always_delete_and_conflict` runs two headless clients against one local repository.
+- `recovery_password_restores_the_same_bytes_as_official_restic` restores the newest snapshot with the core and with `restic`.
+
+`check_setup` is covered by unit tests. Those tests pass the versioning state in as a value. They do not call S3, R2, or B2.
 
 ## Not covered here
 

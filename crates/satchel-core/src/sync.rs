@@ -795,6 +795,33 @@ pub fn cursors(location: &Location, password: &str) -> Result<Vec<Cursor>, Error
     Ok(listed)
 }
 
+/// Write the newest snapshot into an empty directory.
+///
+/// Only the recovery password and the repository location are required.
+/// This follows the same snapshot `restic restore latest` would choose.
+pub fn restore_latest(
+    location: &Location,
+    password: &str,
+    destination: &Path,
+) -> Result<(), Error> {
+    let repo = open_indexed(location, password)?;
+    let snaps = load_snaps(&repo)?;
+    let Some(snap) = snaps.iter().max_by(|left, right| {
+        (left.time_unix, left.id.as_str()).cmp(&(right.time_unix, right.id.as_str()))
+    }) else {
+        return Err(Error::repository("repository has no satchel snapshot"));
+    };
+    fs::create_dir_all(destination).map_err(Error::repository)?;
+    for (path, meta) in &snap.files {
+        if meta.is_dir {
+            continue;
+        }
+        let bytes = read_snapshot_file(&repo, snap.tree, path)?;
+        write_under(destination, path, &bytes)?;
+    }
+    Ok(())
+}
+
 /// Read one file from a snapshot. This is the history path, not the sync queue.
 pub fn read_version(
     location: &Location,
