@@ -112,6 +112,8 @@ impl Location {
                     "secret_access_key".to_string(),
                     store.secret_access_key.clone(),
                 );
+                options.insert("disable_config_load".to_string(), "true".to_string());
+                options.insert("disable_ec2_metadata".to_string(), "true".to_string());
                 Ok(BackendOptions::default()
                     .repository("opendal:s3")
                     .options(options))
@@ -272,6 +274,20 @@ mod tests {
         assert_eq!(
             options.options.get("root").map(String::as_str),
             Some("prefix")
+        );
+        assert_eq!(
+            options
+                .options
+                .get("disable_config_load")
+                .map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            options
+                .options
+                .get("disable_ec2_metadata")
+                .map(String::as_str),
+            Some("true")
         );
     }
 }

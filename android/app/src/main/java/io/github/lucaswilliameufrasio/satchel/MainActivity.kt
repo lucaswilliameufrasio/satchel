@@ -25,6 +25,7 @@ import io.github.lucaswilliameufrasio.satchel.catalog.CatalogSession
 import io.github.lucaswilliameufrasio.satchel.catalog.CatalogSource
 import io.github.lucaswilliameufrasio.satchel.catalog.CoreCatalog
 import io.github.lucaswilliameufrasio.satchel.catalog.Follow
+import io.github.lucaswilliameufrasio.satchel.catalog.SharedCatalog
 import io.github.lucaswilliameufrasio.satchel.catalog.followLabel
 import io.github.lucaswilliameufrasio.satchel.catalog.rowDetails
 import io.github.lucaswilliameufrasio.satchel.catalog.rowTitle
@@ -38,12 +39,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val fixture = intent.getBooleanExtra(EXTRA_FIXTURE, false)
         val sampleRoot = File(cacheDir, "sample").absolutePath
-        val session = CatalogSession(sourceFor(fixture, sampleRoot))
+        val storePath = intent.getStringExtra(EXTRA_STORE)
+        val session = CatalogSession(sourceFor(fixture, sampleRoot, storePath))
         setContent {
             MaterialTheme {
                 var screen by remember { mutableStateOf<CatalogScreenState>(CatalogScreenState.Loading) }
                 val scope = rememberCoroutineScope()
-                LaunchedEffect(fixture) {
+                LaunchedEffect(fixture, storePath) {
                     screen = withContext(Dispatchers.IO) {
                         openCatalog(session)
                     }
@@ -78,9 +80,14 @@ private sealed interface CatalogScreenState {
 
 internal const val EXTRA_FIXTURE = "satchel.fixture"
 
-internal fun sourceFor(fixture: Boolean, sampleRoot: String): CatalogSource {
+internal const val EXTRA_STORE = "satchel.store"
+
+internal fun sourceFor(fixture: Boolean, sampleRoot: String, storePath: String?): CatalogSource {
     if (fixture) {
         return FixtureCatalog()
+    }
+    if (!storePath.isNullOrEmpty()) {
+        return SharedCatalog(storePath)
     }
     return CoreCatalog(sampleRoot)
 }

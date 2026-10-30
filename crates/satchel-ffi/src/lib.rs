@@ -9,8 +9,8 @@ use std::path::Path;
 use jni::EnvUnowned;
 use jni::objects::{JClass, JString};
 use jni::sys::{jbyteArray, jstring};
-use satchel_core::{Client, DeviceId, Follow, Location, cursors, init, read_version};
-use serde::Serialize;
+use satchel_core::{Client, DeviceId, Follow, Location, S3Store, cursors, init, read_version};
+use serde::{Deserialize, Serialize};
 
 const PASSWORD: &str = "recovery-password";
 const PUBLISHER: &str = "0123456789abcdef0123456789abcdef";
@@ -50,8 +50,16 @@ fn sample_catalog(root: &Path) -> Result<String, CatalogFailure> {
     let reader = DeviceId::parse(READER).map_err(|_| CatalogFailure)?;
     let client = Client::open(reader, root.join("work"), PASSWORD).map_err(|_| CatalogFailure)?;
     let entries = client.catalog(&location).map_err(|_| CatalogFailure)?;
+    let json = rows_json(&entries)?;
+    if json.contains(PAYLOAD) {
+        return Err(CatalogFailure);
+    }
+    Ok(json)
+}
+
+fn rows_json(entries: &[satchel_core::CatalogEntry]) -> Result<String, CatalogFailure> {
     let mut rows = Vec::new();
-    for entry in &entries {
+    for entry in entries {
         rows.push(RowJson {
             path: &entry.path,
             directory: entry.is_directory,
@@ -61,11 +69,7 @@ fn sample_catalog(root: &Path) -> Result<String, CatalogFailure> {
             follow: entry.follow,
         });
     }
-    let json = serde_json::to_string(&rows).map_err(|_| CatalogFailure)?;
-    if json.contains(PAYLOAD) {
-        return Err(CatalogFailure);
-    }
-    Ok(json)
+    serde_json::to_string(&rows).map_err(|_| CatalogFailure)
 }
 
 fn read_sample(root: &Path, path: &str) -> Result<Vec<u8>, CatalogFailure> {
@@ -111,6 +115,60 @@ fn ensure_sample(root: &Path) -> Result<Location, CatalogFailure> {
     Ok(location)
 }
 
+#[derive(Deserialize)]
+struct StoreSpec {
+    bucket: String,
+    endpoint: String,
+    region: String,
+    prefix: String,
+    access_key_id: String,
+    secret_access_key: String,
+    password: String,
+    work: String,
+}
+
+fn catalog_store(spec_path: &Path) -> Result<String, CatalogFailure> {
+    let (location, spec) = open_store(spec_path)?;
+    let reader = DeviceId::parse(READER).map_err(|_| CatalogFailure)?;
+    let client = Client::open(reader, &spec.work, &spec.password).map_err(|_| CatalogFailure)?;
+    let entries = client.catalog(&location).map_err(|_| CatalogFailure)?;
+    rows_json(&entries)
+}
+
+fn read_store(spec_path: &Path, path: &str) -> Result<Vec<u8>, CatalogFailure> {
+    let (location, spec) = open_store(spec_path)?;
+    let listed = cursors(&location, &spec.password).map_err(|_| CatalogFailure)?;
+    let mut chosen: Option<&satchel_core::Cursor> = None;
+    for cursor in &listed {
+        let replace = match chosen {
+            None => true,
+            Some(current) => cursor.time_unix > current.time_unix,
+        };
+        if replace {
+            chosen = Some(cursor);
+        }
+    }
+    let Some(cursor) = chosen else {
+        return Err(CatalogFailure);
+    };
+    read_version(&location, &spec.password, &cursor.snapshot_id, path).map_err(|_| CatalogFailure)
+}
+
+fn open_store(spec_path: &Path) -> Result<(Location, StoreSpec), CatalogFailure> {
+    let text = fs::read_to_string(spec_path).map_err(|_| CatalogFailure)?;
+    let spec: StoreSpec = serde_json::from_str(&text).map_err(|_| CatalogFailure)?;
+    let store = S3Store::new(
+        spec.bucket.clone(),
+        spec.endpoint.clone(),
+        spec.region.clone(),
+        spec.prefix.clone(),
+        spec.access_key_id.clone(),
+        spec.secret_access_key.clone(),
+    )
+    .map_err(|_| CatalogFailure)?;
+    Ok((Location::S3(store), spec))
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_sampleCatalog<
     'local,
@@ -149,6 +207,50 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
                 return Err(CatalogFailure);
             }
             let bytes = read_sample(Path::new(&root_text), &path_text)?;
+            let array = env.byte_array_from_slice(&bytes)?;
+            Ok(array.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_catalogStore<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    spec: JString<'local>,
+) -> jstring {
+    unowned
+        .with_env(|env| -> Result<jstring, CatalogFailure> {
+            let text = spec.try_to_string(env)?;
+            if text.is_empty() {
+                return Err(CatalogFailure);
+            }
+            let json = catalog_store(Path::new(&text))?;
+            let value = env.new_string(json)?;
+            Ok(value.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_readStore<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    spec: JString<'local>,
+    path: JString<'local>,
+) -> jbyteArray {
+    unowned
+        .with_env(|env| -> Result<jbyteArray, CatalogFailure> {
+            let spec_text = spec.try_to_string(env)?;
+            let path_text = path.try_to_string(env)?;
+            if spec_text.is_empty() || path_text.is_empty() {
+                return Err(CatalogFailure);
+            }
+            let bytes = read_store(Path::new(&spec_text), &path_text)?;
             let array = env.byte_array_from_slice(&bytes)?;
             Ok(array.into_raw())
         })

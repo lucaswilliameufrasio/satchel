@@ -1,6 +1,6 @@
 # Testing standard
 
-Local checks use the Rust toolchain already installed and a local directory. They do not call S3, R2, B2, or any other network service.
+Local checks use the Rust toolchain already installed and a local directory. `cargo test` does not start Docker and does not call S3, R2, B2, or any other network service.
 
 The integration test needs the official `restic` binary. The pinned build used here is 0.19.1 for `linux/amd64`, kept outside git at `.satchel/bin/restic`. `RESTIC_BIN` overrides that path.
 
@@ -39,6 +39,16 @@ gradle -p android test
 
 `sampleOmitsFileBytesUntilReadFile` is an instrumented test. It needs `libsatchel_ffi.so` for `x86_64-linux-android`, which is not committed. Build it with the NDK clang `x86_64-linux-android26-clang` as both `CC_x86_64_linux_android` and `CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER`, then copy the release library to `android/app/src/main/jniLibs/x86_64/`. That directory is gitignored. Install the debug APK and the androidTest APK on an emulator and run `AndroidJUnitRunner`. The checked run used a dedicated AVD, `satchel_api35`, image `system-images/android-35/google_apis/x86_64`, headless.
 
+`desktop_publishes_and_the_phone_reads_metadata_only` is ignored. It runs only when `FLOCI_ENDPOINT` is a local Floci URL:
+
+```text
+FLOCI_ENDPOINT=http://127.0.0.1:<port> cargo test -p satchel-core --test floci_flow -- --ignored
+```
+
+The test creates a bucket, enables versioning, requires `GetBucketLifecycleConfiguration` to fail, publishes `notes/from-desktop.txt`, and checks that a second client lists that name as `see` without writing the work copy. Official `restic` 0.19.1 then restores the same bytes from `s3:<endpoint>/<bucket>/repo` with `-o s3.bucket-lookup=path`. The checked run used image `floci/floci:2.3.0`, published on `127.0.0.1` only, with access key `test`. `FLOCI_PHONE_SPEC`, when set, writes a mode `0600` spec and replaces `127.0.0.1` with `10.0.2.2`.
+
+`SharedStoreTest` is an instrumented test. Pass the spec path with `-e storeSpec <path>`. It needs the `INTERNET` permission and `libsatchel_ffi.so`. The checked run on `satchel_api35` showed `notes/from-desktop.txt`, `2023-11-14T22:13:20Z`, the desktop id, and Ver. The work file stayed absent before and after Baixar agora. `readStore` returned the bytes.
+
 ## Not covered here
 
-Opening a real S3 bucket. The S3 options are checked in a unit test and are not sent anywhere.
+A real S3, R2, or B2 bucket. The tray does not publish to the bucket. The Floci clients both open with the recovery password fixture; a second device key is not created. A mark on the phone is not written back as a new snapshot. iOS is not covered.

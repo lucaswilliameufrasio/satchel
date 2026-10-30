@@ -8,13 +8,30 @@ import org.json.JSONArray
  * The JSON has no file bytes. Marks live in this session. They are not written
  * back as a new snapshot.
  */
-class CoreCatalog(private val root: String) : CatalogSource {
+class CoreCatalog(root: String) : CatalogSource by SessionMarks(
+    listJson = { NativeCatalog.sampleCatalog(root) },
+    readBytes = { path -> NativeCatalog.readFile(root, path) },
+)
+
+/**
+ * Catalog of a repository described by a local JSON spec.
+ *
+ * The spec is a path, not the secret itself. Marks stay in this session.
+ */
+class SharedCatalog(specPath: String) : CatalogSource by SessionMarks(
+    listJson = { NativeCatalog.catalogStore(specPath) },
+    readBytes = { path -> NativeCatalog.readStore(specPath, path) },
+)
+
+private class SessionMarks(
+    private val listJson: () -> String,
+    private val readBytes: (String) -> ByteArray,
+) : CatalogSource {
     private val present = mutableSetOf<String>()
     private val saved = mutableMapOf<String, Follow>()
 
     override fun listMetadata(): List<CatalogRow> {
-        val text = NativeCatalog.sampleCatalog(root)
-        val array = JSONArray(text)
+        val array = JSONArray(listJson())
         val rows = mutableListOf<CatalogRow>()
         for (index in 0 until array.length()) {
             val item = array.getJSONObject(index)
@@ -44,7 +61,7 @@ class CoreCatalog(private val root: String) : CatalogSource {
     }
 
     override fun readContent(path: String): ByteArray {
-        val bytes = NativeCatalog.readFile(root, path)
+        val bytes = readBytes(path)
         present.add(path)
         return bytes
     }
@@ -85,4 +102,8 @@ object NativeCatalog {
     external fun sampleCatalog(root: String): String
 
     external fun readFile(root: String, path: String): ByteArray
+
+    external fun catalogStore(specPath: String): String
+
+    external fun readStore(specPath: String, path: String): ByteArray
 }
