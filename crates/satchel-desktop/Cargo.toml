@@ -1,0 +1,20 @@
+[package]
+name = "satchel-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Desktop tray for one folder, the OS keystore, and device pairing."
+
+[dependencies]
+keyring = { version = "3", default-features = false, features = ["sync-secret-service"] }
+ksni = { version = "0.3", features = ["blocking"] }
+rand = "0.10"
+satchel-core = { path = "../satchel-core" }
+satchel-pair = { path = "../satchel-pair" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
