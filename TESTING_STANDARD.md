@@ -29,6 +29,16 @@ cargo test
 
 `check_setup` is covered by unit tests. Those tests pass the versioning state in as a value. They do not call S3, R2, or B2. Pairing tests stay on local sockets. They do not scan a subnet and they do not open a camera.
 
+`cargo test -p satchel-ffi --lib` builds a private repository and checks that the catalog JSON names `kept.txt` as `see` and does not contain the file bytes. `read_sample` returns those bytes afterwards.
+
+The Android unit tests live in `android/` and do not load the native library. Run them with Gradle 8.14, `ANDROID_HOME` set to the SDK, and `JAVA_HOME` set to JDK 17 or 21. `android/local.properties` is gitignored and only holds `sdk.dir`.
+
+```text
+gradle -p android test
+```
+
+`sampleOmitsFileBytesUntilReadFile` is an instrumented test. It needs `libsatchel_ffi.so` for `x86_64-linux-android`, which is not committed. Build it with the NDK clang `x86_64-linux-android26-clang` as both `CC_x86_64_linux_android` and `CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER`, then copy the release library to `android/app/src/main/jniLibs/x86_64/`. That directory is gitignored. Install the debug APK and the androidTest APK on an emulator and run `AndroidJUnitRunner`. The checked run used a dedicated AVD, `satchel_api35`, image `system-images/android-35/google_apis/x86_64`, headless.
+
 ## Not covered here
 
 Opening a real S3 bucket. The S3 options are checked in a unit test and are not sent anywhere.

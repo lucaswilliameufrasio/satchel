@@ -248,9 +248,8 @@ impl Client {
             }
         }
         for path in paths {
-            let Some(follow) = follow_for(&follows, &path) else {
-                continue;
-            };
+            // A new phone has no marks yet. The row is still metadata, as Ver.
+            let follow = follow_for(&follows, &path).unwrap_or(Follow::See);
             let Some(Winner::Present {
                 time_unix, size, ..
             }) = found.get(&path)

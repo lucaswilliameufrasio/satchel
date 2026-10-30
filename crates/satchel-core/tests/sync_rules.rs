@@ -37,6 +37,17 @@ fn two_clients_follow_see_once_always_delete_and_conflict() {
     assert_eq!(first_cursor.parent_id, None);
     assert_eq!(first_cursor.time_unix, clock);
 
+    let first_look = client_b.catalog(&location).expect("first catalog");
+    let unseen = first_look
+        .iter()
+        .find(|entry| entry.path == "notes/a.txt")
+        .expect("metadata before a mark");
+    assert_eq!(unseen.follow, Follow::See);
+    assert!(
+        !work_b.join("notes/a.txt").exists(),
+        "first look downloads nothing"
+    );
+
     clock += 10;
     client_b.follow("notes/a.txt", Follow::See).expect("see");
     client_b.set_clock(clock).expect("clock");

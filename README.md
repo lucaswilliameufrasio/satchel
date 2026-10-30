@@ -6,4 +6,4 @@ Não há servidor obrigatório. Cada aparelho fala com o storage. O pareamento e
 
 O plano e o andamento estão em [`docs/plano.md`](docs/plano.md) e [`docs/progresso.md`](docs/progresso.md).
 
-O núcleo está em `crates/satchel-core`. O pareamento está em `crates/satchel-pair`. A bandeja está em `crates/satchel-desktop`. As verificações estão em [`TESTING_STANDARD.md`](TESTING_STANDARD.md).
+O núcleo está em `crates/satchel-core`. O pareamento está em `crates/satchel-pair`. A bandeja está em `crates/satchel-desktop`. O catálogo Android está em `android/`, e a ponte com o núcleo está em `crates/satchel-ffi`. As verificações estão em [`TESTING_STANDARD.md`](TESTING_STANDARD.md).

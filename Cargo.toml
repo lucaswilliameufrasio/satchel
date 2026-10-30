@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/satchel-core", "crates/satchel-pair", "crates/satchel-desktop"]
+members = [
+    "crates/satchel-core",
+    "crates/satchel-pair",
+    "crates/satchel-desktop",
+    "crates/satchel-ffi",
+]
 
 [workspace.package]
 edition = "2024"

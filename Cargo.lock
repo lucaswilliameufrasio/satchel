@@ -4197,6 +4197,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "satchel-ffi"
+version = "0.1.0"
+dependencies = [
+ "jni",
+ "satchel-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "satchel-pair"
 version = "0.1.0"
 dependencies = [
