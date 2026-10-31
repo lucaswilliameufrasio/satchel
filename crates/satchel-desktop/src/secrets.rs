@@ -3,15 +3,17 @@ use std::sync::{Mutex, MutexGuard};
 
 use crate::Error;
 
-/// The two secrets the OS keystore holds for this profile.
+/// Secrets the OS keystore holds for this profile.
 ///
 /// The device key password is created at approval time and is not one of these.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Account {
     /// Opens the repository with official restic. It is never put in an invite.
     RecoveryPassword,
-    /// Lets a device use the bucket. It is not the recovery password.
+    /// Desktop credential. It can delete packs, indexes, snapshots, and keys.
     BucketCredential,
+    /// Credential sent to a phone. It is not the recovery password and not the desktop key.
+    PhoneCredential,
 }
 
 impl Account {
@@ -19,6 +21,7 @@ impl Account {
         match self {
             Self::RecoveryPassword => "recovery-password",
             Self::BucketCredential => "bucket-credential",
+            Self::PhoneCredential => "phone-credential",
         }
     }
 }

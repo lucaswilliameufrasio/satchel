@@ -8,7 +8,9 @@ mod error;
 mod profile;
 mod secrets;
 
-pub use app::{Desktop, TrayCommand, TrayItem, TrayView, default_config_dir};
+pub use app::{
+    Desktop, PublishReport, TrayCommand, TrayItem, TrayView, default_config_dir, phone_grant_secret,
+};
 pub use error::Error;
-pub use profile::Profile;
+pub use profile::{ObjectStore, Profile};
 pub use secrets::{Account, KeyringStore, MemoryStore, SecretStore};

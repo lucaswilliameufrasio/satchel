@@ -1,15 +1,22 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use rand::Rng;
-use satchel_core::{DeviceId, Location, add_device_key, remove_device_key};
-use satchel_pair::{ApprovalRequest, Decision, DeviceSecrets, ListenConfig, Offer, PairingSession};
+use satchel_core::{
+    DeviceId, DeviceKeyRecord, Location, S3Store, SetupCheck, StorageKind, add_device_key,
+    check_setup, list_other_device_keys, probe_object_protection, publish_folder,
+    remove_device_key,
+};
+use satchel_pair::{
+    ApprovalRequest, Decision, DeviceSecrets, Invite, ListenConfig, Offer, PairingSession,
+};
+use serde::Deserialize;
 
 use crate::Error;
-use crate::profile::{self, Profile};
+use crate::profile::{self, ObjectStore, Profile};
 use crate::secrets::{Account, SecretStore};
 
 /// What one tray menu row does.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TrayCommand {
     /// Label only.
     None,
@@ -21,8 +28,23 @@ pub enum TrayCommand {
     Approve,
     /// Send nothing.
     Deny,
+    /// Publish the folder into the repository.
+    Publish,
+    /// Read device keys for the revoke rows.
+    LoadDevices,
+    /// Delete one device key. The id is 64 hex characters and is not a secret.
+    Revoke(String),
     /// Leave the app.
     Quit,
+}
+
+/// What one publish wrote, and whether object versioning protects it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PublishReport {
+    /// Snapshot cursor after the publish.
+    pub outcome: satchel_core::SyncOutcome,
+    /// Ready for object storage, or a warning for a local folder.
+    pub protection: SetupCheck,
 }
 
 /// One row in the tray menu.
@@ -34,6 +56,8 @@ pub struct TrayItem {
     pub enabled: bool,
     /// What a click does.
     pub command: TrayCommand,
+    /// PNG shown on the row. Used for the invite QR.
+    pub icon_png: Option<Vec<u8>>,
 }
 
 /// Menu contents derived from the desktop state.
@@ -53,6 +77,7 @@ pub struct Desktop {
     profile: Option<Profile>,
     session: Option<PairingSession>,
     pending: Option<ApprovalRequest>,
+    device_keys: Option<Vec<DeviceKeyRecord>>,
 }
 
 impl Desktop {
@@ -66,6 +91,7 @@ impl Desktop {
             profile,
             session: None,
             pending: None,
+            device_keys: None,
         })
     }
 
@@ -87,6 +113,69 @@ impl Desktop {
         let profile = profile::create(&self.config_dir, folder, repository, device_id)?;
         self.profile = Some(profile);
         Ok(())
+    }
+
+    /// Remember an S3-compatible bucket. The access keys stay in the keystore.
+    pub fn attach_object_store(&mut self, object_store: ObjectStore) -> Result<(), Error> {
+        let Some(profile) = self.profile.clone() else {
+            return Err(Error::Profile);
+        };
+        let updated = profile::attach_object_store(&self.config_dir, &profile, object_store)?;
+        self.profile = Some(updated);
+        Ok(())
+    }
+
+    /// Publish the folder. A local folder warns that versioning is absent.
+    pub fn publish(&mut self, store: &dyn SecretStore) -> Result<PublishReport, Error> {
+        let Some(profile) = self.profile.clone() else {
+            return Err(Error::Profile);
+        };
+        let Some(recovery_password) = store.get(Account::RecoveryPassword)? else {
+            return Err(Error::MissingRecovery);
+        };
+        let location = self.open_location(store)?;
+        let protection = self.object_protection(store)?;
+        let outcome = publish_folder(
+            &location,
+            &recovery_password,
+            &profile.device_id,
+            &profile.folder,
+        )?;
+        Ok(PublishReport {
+            outcome,
+            protection,
+        })
+    }
+
+    /// Read device keys that can be revoked. The recovery key is not included.
+    pub fn load_device_keys(&mut self, store: &dyn SecretStore) -> Result<(), Error> {
+        let Some(profile) = self.profile.clone() else {
+            return Err(Error::Profile);
+        };
+        let Some(recovery_password) = store.get(Account::RecoveryPassword)? else {
+            return Err(Error::MissingRecovery);
+        };
+        let location = self.open_location(store)?;
+        self.device_keys = Some(list_other_device_keys(
+            &location,
+            &recovery_password,
+            &profile.device_id,
+        )?);
+        Ok(())
+    }
+
+    /// Delete one device key. The key that opened the repository stays.
+    pub fn revoke_device_key(
+        &mut self,
+        store: &dyn SecretStore,
+        key_id: &str,
+    ) -> Result<(), Error> {
+        let Some(recovery_password) = store.get(Account::RecoveryPassword)? else {
+            return Err(Error::MissingRecovery);
+        };
+        let location = self.open_location(store)?;
+        remove_device_key(&location, &recovery_password, key_id)?;
+        self.load_device_keys(store)
     }
 
     /// Start listening. Discovery follows `config.advertise` and ends when the session is dropped.
@@ -140,23 +229,30 @@ impl Desktop {
         let Some(profile) = self.profile.clone() else {
             return Err(Error::Profile);
         };
-        let Some(bucket_credential) = store.get(Account::BucketCredential)? else {
-            return Err(Error::MissingSecret);
-        };
         let Some(recovery_password) = store.get(Account::RecoveryPassword)? else {
             return Err(Error::MissingRecovery);
         };
+        let Some(maintenance) = store.get(Account::BucketCredential)? else {
+            return Err(Error::MissingSecret);
+        };
+        if maintenance.is_empty() {
+            return Err(Error::MissingSecret);
+        }
+        let Some(phone_secret) = store.get(Account::PhoneCredential)? else {
+            return Err(Error::MissingPhoneCredential);
+        };
         let device_id = DeviceId::parse(&self.pending.as_ref().expect("pending").device_id)?;
         let device_key_password = new_device_password();
-        let location = Location::Directory(profile.repository.clone());
+        let location = self.open_location(store)?;
         let key_id = add_device_key(
             &location,
             &recovery_password,
             &device_id,
             &device_key_password,
         )?;
+        let bucket_credential = phone_grant_secret(profile.object_store.as_ref(), &phone_secret)?;
         let secrets = DeviceSecrets {
-            endpoint: path_endpoint(&profile.repository),
+            endpoint: grant_endpoint(&profile),
             bucket_credential,
             device_key_password,
         };
@@ -241,12 +337,30 @@ impl Desktop {
                 true,
                 TrayCommand::CloseAddDevice,
             ));
+            if let Ok(invite) = Invite::decode(&offer.invite)
+                && let Ok(png) = satchel_pair::invite_qr_png(&invite)
+            {
+                let mut qr = item("QR".to_string(), false, TrayCommand::None);
+                qr.icon_png = Some(png);
+                items.push(qr);
+            }
         } else if self.profile.is_some() {
+            items.push(item("Sync".to_string(), true, TrayCommand::Publish));
             items.push(item(
                 "Add device".to_string(),
                 true,
                 TrayCommand::OpenAddDevice,
             ));
+            items.push(item("Devices".to_string(), true, TrayCommand::LoadDevices));
+            if let Some(keys) = &self.device_keys {
+                for key in keys {
+                    items.push(item(
+                        format!("Revoke {}", key.device_id.as_str()),
+                        true,
+                        TrayCommand::Revoke(key.key_id.clone()),
+                    ));
+                }
+            }
         }
         items.push(item("Quit".to_string(), true, TrayCommand::Quit));
         TrayView {
@@ -283,11 +397,103 @@ fn item(label: String, enabled: bool, command: TrayCommand) -> TrayItem {
         label,
         enabled,
         command,
+        icon_png: None,
     }
 }
 
-fn path_endpoint(path: &Path) -> String {
-    path.display().to_string()
+fn grant_endpoint(profile: &Profile) -> String {
+    if let Some(store) = &profile.object_store {
+        return store.endpoint.clone();
+    }
+    profile.repository.display().to_string()
+}
+
+/// Credential placed in the grant. A directory keeps the stored text. An object
+/// store adds the bucket coordinates to the phone access key.
+pub fn phone_grant_secret(
+    object_store: Option<&ObjectStore>,
+    phone_secret: &str,
+) -> Result<String, Error> {
+    if phone_secret.is_empty() {
+        return Err(Error::PhoneCredential);
+    }
+    let Some(object_store) = object_store else {
+        return Ok(phone_secret.to_string());
+    };
+    let access: AccessKey =
+        serde_json::from_str(phone_secret).map_err(|_| Error::PhoneCredential)?;
+    if access.access_key_id.is_empty() || access.secret_access_key.is_empty() {
+        return Err(Error::PhoneCredential);
+    }
+    let body = serde_json::json!({
+        "access_key_id": access.access_key_id,
+        "secret_access_key": access.secret_access_key,
+        "bucket": object_store.bucket,
+        "region": object_store.region,
+        "prefix": object_store.prefix,
+    });
+    serde_json::to_string(&body).map_err(|_| Error::PhoneCredential)
+}
+
+#[derive(Deserialize)]
+struct AccessKey {
+    access_key_id: String,
+    secret_access_key: String,
+}
+
+impl Desktop {
+    fn open_location(&self, store: &dyn SecretStore) -> Result<Location, Error> {
+        let Some(profile) = self.profile.as_ref() else {
+            return Err(Error::Profile);
+        };
+        let Some(object_store) = profile.object_store.as_ref() else {
+            return Ok(Location::Directory(profile.repository.clone()));
+        };
+        let Some(maintenance) = store.get(Account::BucketCredential)? else {
+            return Err(Error::MissingSecret);
+        };
+        let access: AccessKey =
+            serde_json::from_str(&maintenance).map_err(|_| Error::MissingSecret)?;
+        if access.access_key_id.is_empty() || access.secret_access_key.is_empty() {
+            return Err(Error::MissingSecret);
+        }
+        let s3 = S3Store::new(
+            object_store.bucket.clone(),
+            object_store.endpoint.clone(),
+            object_store.region.clone(),
+            object_store.prefix.clone(),
+            access.access_key_id,
+            access.secret_access_key,
+        )?;
+        Ok(Location::S3(s3))
+    }
+
+    fn object_protection(&self, store: &dyn SecretStore) -> Result<SetupCheck, Error> {
+        let Some(profile) = self.profile.as_ref() else {
+            return Err(Error::Profile);
+        };
+        let Some(object_store) = profile.object_store.as_ref() else {
+            return check_setup(StorageKind::Directory, None, false).map_err(Error::from);
+        };
+        let Some(maintenance) = store.get(Account::BucketCredential)? else {
+            return Err(Error::MissingSecret);
+        };
+        let access: AccessKey =
+            serde_json::from_str(&maintenance).map_err(|_| Error::MissingSecret)?;
+        let probed = probe_object_protection(
+            &object_store.endpoint,
+            &object_store.bucket,
+            &object_store.region,
+            &access.access_key_id,
+            &access.secret_access_key,
+        )?;
+        check_setup(
+            StorageKind::S3,
+            probed.versioning,
+            probed.lifecycle_deletes_objects,
+        )
+        .map_err(Error::from)
+    }
 }
 
 fn new_device_password() -> String {

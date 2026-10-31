@@ -67,11 +67,13 @@ impl Tray for SatchelTray {
         let mut items = Vec::new();
         for item in view.items {
             let command = item.command;
+            let icon_data = item.icon_png.unwrap_or_default();
             items.push(MenuItem::Standard(StandardItem {
                 label: item.label,
                 enabled: item.enabled,
+                icon_data,
                 activate: Box::new(move |tray: &mut Self| {
-                    tray.run_command(command);
+                    tray.run_command(command.clone());
                 }),
                 ..Default::default()
             }));
@@ -108,6 +110,29 @@ impl SatchelTray {
             TrayCommand::Deny => {
                 let mut desktop = lock_desktop(&self.desktop);
                 if let Err(err) = desktop.deny_pending() {
+                    eprintln!("satchel-desktop: {err}");
+                }
+            }
+            TrayCommand::Publish => {
+                let mut desktop = lock_desktop(&self.desktop);
+                match desktop.publish(self.secrets.as_ref()) {
+                    Ok(report) => {
+                        if report.protection == satchel_core::SetupCheck::Unprotected {
+                            eprintln!("satchel-desktop: this folder has no object versioning");
+                        }
+                    }
+                    Err(err) => eprintln!("satchel-desktop: {err}"),
+                }
+            }
+            TrayCommand::LoadDevices => {
+                let mut desktop = lock_desktop(&self.desktop);
+                if let Err(err) = desktop.load_device_keys(self.secrets.as_ref()) {
+                    eprintln!("satchel-desktop: {err}");
+                }
+            }
+            TrayCommand::Revoke(key_id) => {
+                let mut desktop = lock_desktop(&self.desktop);
+                if let Err(err) = desktop.revoke_device_key(self.secrets.as_ref(), &key_id) {
                     eprintln!("satchel-desktop: {err}");
                 }
             }

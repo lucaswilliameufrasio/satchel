@@ -22,9 +22,17 @@ pub enum Error {
     #[error("pairing is already open")]
     AlreadyPairing,
 
-    /// Approve was asked for and the keystore has no bucket credential.
+    /// Approve was asked for and the keystore has no desktop bucket credential.
     #[error("the bucket credential is not in the keystore")]
     MissingSecret,
+
+    /// Approve was asked for and the keystore has no phone bucket credential.
+    #[error("the phone credential is not in the keystore")]
+    MissingPhoneCredential,
+
+    /// The phone credential cannot be sent as a bucket grant.
+    #[error("the phone credential is not usable")]
+    PhoneCredential,
 
     /// Approve was asked for and the keystore has no recovery password.
     #[error("the recovery password is not in the keystore")]
