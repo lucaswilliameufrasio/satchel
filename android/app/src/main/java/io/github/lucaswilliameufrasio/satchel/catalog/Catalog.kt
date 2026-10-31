@@ -18,6 +18,15 @@ fun followLabel(follow: Follow): String {
     }
 }
 
+/** Wire value stored in a snapshot description. */
+internal fun followWire(follow: Follow): String {
+    return when (follow) {
+        Follow.See -> "see"
+        Follow.Once -> "once"
+        Follow.Always -> "always"
+    }
+}
+
 /**
  * One catalog row.
  *

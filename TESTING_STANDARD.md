@@ -30,7 +30,9 @@ cargo test
 
 `check_setup` is covered by unit tests. Those tests pass the versioning state in as a value. They do not call S3, R2, or B2. Pairing tests stay on local sockets. They do not scan a subnet and they do not open a camera.
 
-`cargo test -p satchel-ffi --lib` builds a private repository and checks that the catalog JSON names `kept.txt` as `see` and does not contain the file bytes. `read_sample` returns those bytes afterwards.
+`cargo test -p satchel-ffi --lib` builds a private repository and checks that the catalog JSON names `kept.txt` as `see` and does not contain the file bytes. `read_sample` returns those bytes afterwards and still does not write the work copy. `mark_sample` with `once` then writes a snapshot, the work copy, and a later catalog reads `once` without including the file bytes. An unknown follow name fails before that write.
+
+`phone_mark_reopens_from_a_new_snapshot` publishes one file from a desktop client, then a phone client stores `once` as a new snapshot. A new phone process reads that mark, and the desktop catalog lists both device ids. Storing `see` removes the phone from that list and does not delete the copy already downloaded.
 
 The Android unit tests live in `android/` and do not load the native library. Run them with Gradle 8.14, `ANDROID_HOME` set to the SDK, and `JAVA_HOME` set to JDK 17 or 21. `android/local.properties` is gitignored and only holds `sdk.dir`.
 
@@ -46,4 +48,4 @@ gradle -p android test
 
 ## Not covered here
 
-A real S3, R2, or B2 bucket. The tray does not publish to the bucket. The Floci clients both open with the recovery password fixture. A mark on the phone is not written back as a new snapshot. iOS is not covered.
+A real S3, R2, or B2 bucket. The tray does not publish to the bucket. The Floci clients both open with the recovery password fixture. The Android screen was not opened again after the mark started writing a snapshot. iOS is not covered.

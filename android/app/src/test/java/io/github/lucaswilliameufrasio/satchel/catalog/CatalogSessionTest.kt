@@ -7,6 +7,13 @@ import org.junit.Test
 
 class CatalogSessionTest {
     @Test
+    fun followWireMatchesTheSnapshotNames() {
+        assertEquals("see", followWire(Follow.See))
+        assertEquals("once", followWire(Follow.Once))
+        assertEquals("always", followWire(Follow.Always))
+    }
+
+    @Test
     fun openShowsMetadataAndDoesNotReadContent() {
         val source = RecordingCatalog()
         val session = CatalogSession(source)

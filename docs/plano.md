@@ -72,6 +72,10 @@ A primeira abertura mostra o catálogo, sem baixar o conteúdo. Os três estados
 
 Aprovar grava um arquivo em `keys/` para a senha daquele aparelho. O id no arquivo é o id opaco que o aparelho enviou depois do código, não o nome. O aparelho abre o repositório com essa senha. O `restic` oficial também. A senha de recuperação continua abrindo e não entra no convite. Revogar apaga esse arquivo, e a senha do aparelho deixa de abrir.
 
+### 7. Marca do aparelho
+
+A marca escolhida num aparelho vira um snapshot novo. Outro processo desse aparelho lê Ver, Baixar agora ou Sincronizar sempre desse snapshot. Baixar agora grava a cópia uma vez. Sincronizar sempre coloca o aparelho na lista de quem mantém o arquivo. Ver não baixa.
+
 ## Fora destes passos
 
 Provedor de documentos do iOS, YubiKey no iPhone, OAuth, pasta grande, relay de push e apagamento remoto.

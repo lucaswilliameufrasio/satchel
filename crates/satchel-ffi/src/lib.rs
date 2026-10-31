@@ -1,6 +1,7 @@
 //! JNI catalog for Android.
 //!
 //! `sampleCatalog` builds a private repository and returns metadata only.
+//! `markSample` and `markStore` write that device's follow into a new snapshot.
 //! File bytes are available from `readFile` after a mark asks for them.
 
 use std::fs;
@@ -135,6 +136,51 @@ fn catalog_store(spec_path: &Path) -> Result<String, CatalogFailure> {
     rows_json(&entries)
 }
 
+fn mark_sample(root: &Path, path: &str, follow: &str) -> Result<(), CatalogFailure> {
+    let follow = parse_follow(follow)?;
+    let location = ensure_sample(root)?;
+    publish_mark(&location, root.join("work"), PASSWORD, path, follow)
+}
+
+fn mark_store(spec_path: &Path, path: &str, follow: &str) -> Result<(), CatalogFailure> {
+    let follow = parse_follow(follow)?;
+    let (location, spec) = open_store(spec_path)?;
+    publish_mark(
+        &location,
+        Path::new(&spec.work),
+        &spec.password,
+        path,
+        follow,
+    )
+}
+
+fn publish_mark(
+    location: &Location,
+    work: impl Into<std::path::PathBuf>,
+    password: &str,
+    path: &str,
+    follow: Follow,
+) -> Result<(), CatalogFailure> {
+    let reader = DeviceId::parse(READER).map_err(|_| CatalogFailure)?;
+    let mut client = Client::open(reader, work, password).map_err(|_| CatalogFailure)?;
+    client.follow(path, follow).map_err(|_| CatalogFailure)?;
+    client.sync(location).map_err(|_| CatalogFailure)?;
+    Ok(())
+}
+
+fn parse_follow(text: &str) -> Result<Follow, CatalogFailure> {
+    if text == "see" {
+        return Ok(Follow::See);
+    }
+    if text == "once" {
+        return Ok(Follow::Once);
+    }
+    if text == "always" {
+        return Ok(Follow::Always);
+    }
+    Err(CatalogFailure)
+}
+
 fn read_store(spec_path: &Path, path: &str) -> Result<Vec<u8>, CatalogFailure> {
     let (location, spec) = open_store(spec_path)?;
     let listed = cursors(&location, &spec.password).map_err(|_| CatalogFailure)?;
@@ -214,6 +260,52 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_markSample<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    root: JString<'local>,
+    path: JString<'local>,
+    follow: JString<'local>,
+) {
+    unowned
+        .with_env(|env| -> Result<(), CatalogFailure> {
+            let root_text = root.try_to_string(env)?;
+            let path_text = path.try_to_string(env)?;
+            let follow_text = follow.try_to_string(env)?;
+            if root_text.is_empty() || path_text.is_empty() || follow_text.is_empty() {
+                return Err(CatalogFailure);
+            }
+            mark_sample(Path::new(&root_text), &path_text, &follow_text)
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_markStore<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    spec: JString<'local>,
+    path: JString<'local>,
+    follow: JString<'local>,
+) {
+    unowned
+        .with_env(|env| -> Result<(), CatalogFailure> {
+            let spec_text = spec.try_to_string(env)?;
+            let path_text = path.try_to_string(env)?;
+            let follow_text = follow.try_to_string(env)?;
+            if spec_text.is_empty() || path_text.is_empty() || follow_text.is_empty() {
+                return Err(CatalogFailure);
+            }
+            mark_store(Path::new(&spec_text), &path_text, &follow_text)
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_catalogStore<
     'local,
 >(
@@ -263,7 +355,7 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{PAYLOAD, read_sample, sample_catalog};
+    use super::{PAYLOAD, READER, mark_sample, read_sample, sample_catalog};
 
     struct TempRoot(PathBuf);
 
@@ -287,5 +379,19 @@ mod tests {
         assert!(!root.0.join("work").join("kept.txt").exists());
         let bytes = read_sample(&root.0, "kept.txt").expect("read");
         assert_eq!(bytes, PAYLOAD.as_bytes());
+        assert!(!root.0.join("work").join("kept.txt").exists());
+        assert!(mark_sample(&root.0, "kept.txt", "nope").is_err());
+        mark_sample(&root.0, "kept.txt", "once").expect("mark");
+        assert_eq!(
+            fs::read(root.0.join("work").join("kept.txt")).expect("work"),
+            PAYLOAD.as_bytes()
+        );
+        let marked = sample_catalog(&root.0).expect("marked catalog");
+        assert!(marked.contains("\"follow\":\"once\""));
+        assert!(marked.contains(READER));
+        assert!(
+            !marked.contains(PAYLOAD),
+            "marked catalog includes file bytes"
+        );
     }
 }

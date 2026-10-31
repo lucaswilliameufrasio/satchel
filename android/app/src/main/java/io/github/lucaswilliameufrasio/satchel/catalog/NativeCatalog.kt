@@ -5,27 +5,33 @@ import org.json.JSONArray
 /**
  * Catalog backed by the Rust core.
  *
- * The JSON has no file bytes. Marks live in this session. They are not written
- * back as a new snapshot.
+ * The JSON has no file bytes. A mark is written into a new snapshot.
  */
 class CoreCatalog(root: String) : CatalogSource by SessionMarks(
     listJson = { NativeCatalog.sampleCatalog(root) },
     readBytes = { path -> NativeCatalog.readFile(root, path) },
+    persist = { path, follow ->
+        NativeCatalog.markSample(root, path, followWire(follow))
+    },
 )
 
 /**
  * Catalog of a repository described by a local JSON spec.
  *
- * The spec is a path, not the secret itself. Marks stay in this session.
+ * The spec is a path, not the secret itself. A mark is written into a new snapshot.
  */
 class SharedCatalog(specPath: String) : CatalogSource by SessionMarks(
     listJson = { NativeCatalog.catalogStore(specPath) },
     readBytes = { path -> NativeCatalog.readStore(specPath, path) },
+    persist = { path, follow ->
+        NativeCatalog.markStore(specPath, path, followWire(follow))
+    },
 )
 
 private class SessionMarks(
     private val listJson: () -> String,
     private val readBytes: (String) -> ByteArray,
+    private val persist: (String, Follow) -> Unit,
 ) : CatalogSource {
     private val present = mutableSetOf<String>()
     private val saved = mutableMapOf<String, Follow>()
@@ -67,6 +73,7 @@ private class SessionMarks(
     }
 
     override fun remember(path: String, follow: Follow) {
+        persist(path, follow)
         saved[path] = follow
     }
 
@@ -102,6 +109,10 @@ object NativeCatalog {
     external fun sampleCatalog(root: String): String
 
     external fun readFile(root: String, path: String): ByteArray
+
+    external fun markSample(root: String, path: String, follow: String)
+
+    external fun markStore(specPath: String, path: String, follow: String)
 
     external fun catalogStore(specPath: String): String
 
