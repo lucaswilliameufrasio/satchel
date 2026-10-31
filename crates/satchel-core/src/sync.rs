@@ -18,7 +18,7 @@ use rustic_core::{
 };
 
 use crate::Error;
-use crate::format::{DeviceId, Location, open_indexed};
+use crate::format::{DeviceId, Location, init, open_indexed};
 
 const STATE_VERSION: u32 = 1;
 const CONFLICT_MARK: &str = ".satchel-conflict-";
@@ -784,6 +784,33 @@ fn remote_present_bytes(
 }
 
 /// Read cursors from every satchel snapshot.
+/// Publish every regular file in `folder` as Sincronizar sempre.
+///
+/// The repository is created when its config object is absent. The password is
+/// any key that already opens an existing repository, or the recovery password
+/// used to create it.
+pub fn publish_folder(
+    location: &Location,
+    password: &str,
+    device_id: &DeviceId,
+    folder: &Path,
+) -> Result<SyncOutcome, Error> {
+    if !folder.is_dir() {
+        return Err(Error::SourceDirectory {
+            path: folder.to_path_buf(),
+        });
+    }
+    if !location.config_present()? {
+        init(location, password, device_id)?;
+    }
+    let mut client = Client::open(device_id.clone(), folder, password)?;
+    let files = regular_files(folder)?;
+    for path in files {
+        client.follow(&path, Follow::Always)?;
+    }
+    client.sync(location)
+}
+
 pub fn cursors(location: &Location, password: &str) -> Result<Vec<Cursor>, Error> {
     let repo = open_indexed(location, password)?;
     let snaps = load_snaps(&repo)?;
@@ -819,6 +846,36 @@ pub fn restore_latest(
         write_under(destination, path, &bytes)?;
     }
     Ok(())
+}
+
+/// Read the bytes this device keeps for `path`.
+///
+/// A Baixar agora pin names the snapshot that was downloaded. Without a pin,
+/// the snapshot that currently holds the file is used. A later mark does not
+/// have to copy those bytes into its own tree.
+pub fn read_followed(
+    location: &Location,
+    password: &str,
+    device_id: &DeviceId,
+    path: &str,
+) -> Result<Vec<u8>, Error> {
+    let path = normalize_path(path)?;
+    let repo = open_indexed(location, password)?;
+    let snaps = load_snaps(&repo)?;
+    let latest = latest_by_device(&snaps);
+    if let Some(our) = our_snap(&latest, device_id.as_str())
+        && let Some(pinned) = our.state.once.get(&path)
+    {
+        return read_tree_at(&repo, &snaps, pinned, &path);
+    }
+    let found = winners(&latest);
+    let Some(Winner::Present { snapshot_id, .. }) = found.get(&path) else {
+        return Err(Error::MissingFile {
+            snapshot: String::new(),
+            path,
+        });
+    };
+    read_tree_at(&repo, &snaps, snapshot_id, &path)
 }
 
 /// Read one file from a snapshot. This is the history path, not the sync queue.
@@ -1238,6 +1295,41 @@ fn work_is_empty(work: &Path) -> Result<bool, Error> {
         }
     }
     Ok(true)
+}
+
+fn regular_files(folder: &Path) -> Result<Vec<String>, Error> {
+    let mut files = Vec::new();
+    let mut pending = vec![(folder.to_path_buf(), String::new())];
+    while let Some((dir, prefix)) = pending.pop() {
+        for entry in fs::read_dir(&dir).map_err(Error::repository)? {
+            let entry = entry.map_err(Error::repository)?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if name.ends_with(".satchel-read") || name.ends_with(".satchel-write") {
+                continue;
+            }
+            let rel = if prefix.is_empty() {
+                name.to_string()
+            } else {
+                format!("{prefix}/{name}")
+            };
+            let metadata = fs::symlink_metadata(entry.path()).map_err(Error::repository)?;
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+            if metadata.is_dir() {
+                pending.push((entry.path(), rel));
+                continue;
+            }
+            if !metadata.is_file() || is_marked(&rel) {
+                continue;
+            }
+            files.push(rel);
+        }
+    }
+    Ok(files)
 }
 
 fn scan_followed(

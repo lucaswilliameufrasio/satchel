@@ -13,8 +13,8 @@ use std::process::{Command, Output};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use satchel_core::{
-    Client, DeviceId, Follow, Location, S3Store, SetupCheck, StorageKind, Versioning, check_setup,
-    init, read_version,
+    Client, DeviceId, Follow, Location, S3Store, SetupCheck, StorageKind, add_device_key,
+    check_setup, probe_object_protection, publish_folder, read_version,
 };
 use testcontainers::bollard::models::PortBinding;
 use testcontainers::core::{IntoContainerPort, WaitFor};
@@ -24,6 +24,7 @@ use testcontainers::{GenericImage, ImageExt};
 const DESKTOP: &str = "0123456789abcdef0123456789abcdef";
 const PHONE: &str = "fedcba9876543210fedcba9876543210";
 const PASSWORD: &str = "recovery-password";
+const DEVICE_PASSWORD: &str = "device-key-password";
 const ACCESS_KEY: &str = "test";
 const SECRET_KEY: &str = "test";
 
@@ -47,31 +48,16 @@ fn desktop_publishes_and_the_phone_reads_metadata_only() {
             "Status=Enabled",
         ],
     );
-    let versioning = aws_stdout(
-        endpoint,
-        &[
-            "s3api",
-            "get-bucket-versioning",
-            "--bucket",
-            bucket.as_str(),
-        ],
-    );
-    assert!(versioning.contains("Enabled"));
-    let lifecycle = aws_output(
-        endpoint,
-        &[
-            "s3api",
-            "get-bucket-lifecycle-configuration",
-            "--bucket",
-            bucket.as_str(),
-        ],
-    );
-    assert!(
-        !lifecycle.status.success(),
-        "lifecycle status {}",
-        lifecycle.status
-    );
-    let gate = check_setup(StorageKind::S3, Some(Versioning::Enabled), false).expect("gate");
+    let probed = probe_object_protection(endpoint, &bucket, "us-east-1", ACCESS_KEY, SECRET_KEY)
+        .expect("probe");
+    assert_eq!(probed.versioning, Some(satchel_core::Versioning::Enabled));
+    assert!(!probed.lifecycle_deletes_objects);
+    let gate = check_setup(
+        StorageKind::S3,
+        probed.versioning,
+        probed.lifecycle_deletes_objects,
+    )
+    .expect("gate");
     assert_eq!(gate, SetupCheck::Ready);
 
     let location = s3_location(&bucket, endpoint);
@@ -80,17 +66,12 @@ fn desktop_publishes_and_the_phone_reads_metadata_only() {
     fs::create_dir_all(source.join("notes")).expect("source");
     fs::write(source.join("notes/from-desktop.txt"), "desk-bytes").expect("file");
     let desktop_id = DeviceId::parse(DESKTOP).expect("desktop id");
-    init(&location, PASSWORD, &desktop_id).expect("init");
-    let mut desktop = Client::open(desktop_id, &source, PASSWORD).expect("desktop");
-    desktop
-        .follow("notes/from-desktop.txt", Follow::Always)
-        .expect("follow");
-    desktop.set_clock(1_700_000_000).expect("clock");
-    desktop.sync(&location).expect("desktop sync");
+    publish_folder(&location, PASSWORD, &desktop_id, &source).expect("publish");
+    let phone_id = DeviceId::parse(PHONE).expect("phone id");
+    add_device_key(&location, PASSWORD, &phone_id, DEVICE_PASSWORD).expect("device key");
 
     let phone_work = root.0.join("phone");
-    let phone_id = DeviceId::parse(PHONE).expect("phone id");
-    let phone = Client::open(phone_id, &phone_work, PASSWORD).expect("phone");
+    let phone = Client::open(phone_id, &phone_work, DEVICE_PASSWORD).expect("phone");
     let catalog = phone.catalog(&location).expect("catalog");
     let row = catalog
         .iter()
@@ -104,7 +85,7 @@ fn desktop_publishes_and_the_phone_reads_metadata_only() {
     );
     let bytes = read_version(
         &location,
-        PASSWORD,
+        DEVICE_PASSWORD,
         &row_snapshot(&location),
         "notes/from-desktop.txt",
     )
@@ -112,7 +93,7 @@ fn desktop_publishes_and_the_phone_reads_metadata_only() {
     assert_eq!(bytes, b"desk-bytes");
     assert!(!phone_work.join("notes/from-desktop.txt").exists());
 
-    assert_key_names(endpoint, &bucket, &root.0.join("key.json"), DESKTOP);
+    assert_key_names(endpoint, &bucket, &root.0);
     let restored = root.0.join("restic-restore");
     restore_with_official_restic(endpoint, &bucket, &root.0.join("restic-cache"), &restored);
     let restored_bytes =
@@ -127,7 +108,7 @@ fn desktop_publishes_and_the_phone_reads_metadata_only() {
 }
 
 fn row_snapshot(location: &Location) -> String {
-    let listed = satchel_core::cursors(location, PASSWORD).expect("cursors");
+    let listed = satchel_core::cursors(location, DEVICE_PASSWORD).expect("cursors");
     let mut chosen: Option<&satchel_core::Cursor> = None;
     for cursor in &listed {
         let replace = match chosen {
@@ -164,7 +145,7 @@ fn write_phone_spec(path: &Path, bucket: &str, endpoint: &str) {
         "prefix": "repo",
         "access_key_id": ACCESS_KEY,
         "secret_access_key": SECRET_KEY,
-        "password": PASSWORD,
+        "password": DEVICE_PASSWORD,
         "work": "/data/user/0/io.github.lucaswilliameufrasio.satchel/cache/shared-work",
     });
     let text = serde_json::to_string(&body).expect("spec");
@@ -181,7 +162,7 @@ fn write_phone_spec(path: &Path, bucket: &str, endpoint: &str) {
     std::io::Write::write_all(&mut file, text.as_bytes()).expect("spec write");
 }
 
-fn assert_key_names(endpoint: &str, bucket: &str, dest: &Path, device_id: &str) {
+fn assert_key_names(endpoint: &str, bucket: &str, root: &Path) {
     let listed = aws_stdout(
         endpoint,
         &[
@@ -198,30 +179,27 @@ fn assert_key_names(endpoint: &str, bucket: &str, dest: &Path, device_id: &str) 
         ],
     );
     let prefix = "repo/keys/";
-    let mut object_key = "";
+    let mut names = Vec::new();
+    let mut index = 0;
     for part in listed.split_whitespace() {
-        if part.starts_with(prefix) && part.len() > prefix.len() {
-            object_key = part;
-            break;
+        if !part.starts_with(prefix) || part.len() <= prefix.len() {
+            continue;
         }
+        let dest = root.join(format!("key-{index}.json"));
+        index += 1;
+        aws_to_file(
+            endpoint,
+            &["s3api", "get-object", "--bucket", bucket, "--key", part],
+            &dest,
+        );
+        let text = fs::read_to_string(&dest).expect("key json");
+        let value: serde_json::Value = serde_json::from_str(&text).expect("parse key");
+        let hostname = value["hostname"].as_str().expect("hostname").to_string();
+        assert_eq!(value["username"].as_str(), Some(hostname.as_str()));
+        names.push(hostname);
     }
-    assert!(!object_key.is_empty(), "missing key file");
-    aws_to_file(
-        endpoint,
-        &[
-            "s3api",
-            "get-object",
-            "--bucket",
-            bucket,
-            "--key",
-            object_key,
-        ],
-        dest,
-    );
-    let text = fs::read_to_string(dest).expect("key json");
-    let value: serde_json::Value = serde_json::from_str(&text).expect("parse key");
-    assert_eq!(value["hostname"].as_str(), Some(device_id));
-    assert_eq!(value["username"].as_str(), Some(device_id));
+    names.sort();
+    assert_eq!(names, vec![DESKTOP.to_string(), PHONE.to_string()]);
 }
 
 fn restore_with_official_restic(endpoint: &str, bucket: &str, cache: &Path, restore: &Path) {

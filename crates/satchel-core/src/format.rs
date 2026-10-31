@@ -6,7 +6,7 @@ use std::str::FromStr;
 use rand::Rng;
 
 use rustic_backend::BackendOptions;
-use rustic_core::repofile::KeyId;
+use rustic_core::repofile::{KeyFile, KeyId};
 use rustic_core::{
     BackupOptions, ConfigOptions, Credentials, Id, IndexedFullStatus, KeyOptions, OpenStatus,
     PathList, Repository, RepositoryOptions, SnapshotOptions,
@@ -122,6 +122,37 @@ impl Location {
             }
         }
     }
+
+    /// True when this location already has a restic `config` object.
+    pub fn config_present(&self) -> Result<bool, Error> {
+        match self {
+            Self::Directory(path) => Ok(path.join("config").is_file()),
+            Self::S3(store) => {
+                let key = if store.prefix.is_empty() {
+                    "config".to_string()
+                } else {
+                    format!("{}/config", store.prefix)
+                };
+                crate::probe::object_exists(
+                    &store.endpoint,
+                    &store.bucket,
+                    &store.region,
+                    &store.access_key_id,
+                    &store.secret_access_key,
+                    &key,
+                )
+            }
+        }
+    }
+}
+
+/// One device key that is not the key used to open the repository.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeviceKeyRecord {
+    /// 64 lowercase hex characters. This is not a secret.
+    pub key_id: String,
+    /// Opaque id stored in the key file.
+    pub device_id: DeviceId,
 }
 
 /// Create a new restic repository and write one key for `device_id`.
@@ -204,6 +235,48 @@ pub fn remove_device_key(location: &Location, opener: &str, key_id: &str) -> Res
     }
     repo.delete_key(&id).map_err(Error::repository)?;
     Ok(())
+}
+
+/// List device keys other than the one `opener` used and other than `holder`.
+///
+/// `holder` is the device that opened the repository, so its recovery key is
+/// not offered for removal. Hostnames that are not opaque ids are skipped.
+pub fn list_other_device_keys(
+    location: &Location,
+    opener: &str,
+    holder: &DeviceId,
+) -> Result<Vec<DeviceKeyRecord>, Error> {
+    let repo = open_unlocked(location, opener)?;
+    let current = *repo.key_id();
+    let ids = repo.list::<KeyId>().map_err(Error::repository)?;
+    let mut records = Vec::new();
+    for id in ids {
+        if current.as_ref() == Some(&id) {
+            continue;
+        }
+        let file = repo.get_file::<KeyFile>(&id).map_err(Error::repository)?;
+        let Some(hostname) = file.hostname else {
+            continue;
+        };
+        let Ok(device_id) = DeviceId::parse(&hostname) else {
+            continue;
+        };
+        if &device_id == holder {
+            continue;
+        }
+        records.push(DeviceKeyRecord {
+            key_id: id.into_inner().to_hex().as_str().to_string(),
+            device_id,
+        });
+    }
+    records.sort_by(|left, right| {
+        let by_device = left.device_id.as_str().cmp(right.device_id.as_str());
+        if by_device == std::cmp::Ordering::Equal {
+            return left.key_id.cmp(&right.key_id);
+        }
+        by_device
+    });
+    Ok(records)
 }
 
 fn open_unlocked(location: &Location, password: &str) -> Result<Repository<OpenStatus>, Error> {

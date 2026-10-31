@@ -48,6 +48,10 @@ pub enum Error {
     #[error("object storage needs versioning enabled and no lifecycle rule that deletes objects")]
     ObjectProtection,
 
+    /// The bucket probe did not return a usable answer. The message has no credential.
+    #[error("object storage probe failed")]
+    Probe,
+
     /// A snapshot does not contain the requested file.
     #[error("snapshot `{snapshot}` has no file `{path}`")]
     MissingFile {
