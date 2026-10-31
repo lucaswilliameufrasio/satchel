@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use rand::Rng;
-use satchel_core::DeviceId;
+use satchel_core::{DeviceId, Location, add_device_key, remove_device_key};
 use satchel_pair::{ApprovalRequest, Decision, DeviceSecrets, ListenConfig, Offer, PairingSession};
 
 use crate::Error;
@@ -132,7 +132,7 @@ impl Desktop {
 
     /// Send the endpoint, the bucket credential, and a new device key password.
     ///
-    /// The recovery password is not read.
+    /// The recovery password is read only to wrap that device key. It is not sent.
     pub fn approve_pending(&mut self, store: &dyn SecretStore) -> Result<(), Error> {
         if self.pending.is_none() {
             return Err(satchel_pair::Error::Closed.into());
@@ -143,12 +143,30 @@ impl Desktop {
         let Some(bucket_credential) = store.get(Account::BucketCredential)? else {
             return Err(Error::MissingSecret);
         };
+        let Some(recovery_password) = store.get(Account::RecoveryPassword)? else {
+            return Err(Error::MissingRecovery);
+        };
+        let device_id = DeviceId::parse(&self.pending.as_ref().expect("pending").device_id)?;
+        let device_key_password = new_device_password();
+        let location = Location::Directory(profile.repository.clone());
+        let key_id = add_device_key(
+            &location,
+            &recovery_password,
+            &device_id,
+            &device_key_password,
+        )?;
         let secrets = DeviceSecrets {
             endpoint: path_endpoint(&profile.repository),
             bucket_credential,
-            device_key_password: new_device_password(),
+            device_key_password,
         };
-        self.finish(Decision::Approve(secrets))
+        if let Err(err) = self.finish(Decision::Approve(secrets)) {
+            if let Err(remove_err) = remove_device_key(&location, &recovery_password, &key_id) {
+                return Err(remove_err.into());
+            }
+            return Err(err);
+        }
+        Ok(())
     }
 
     /// Close the attempt without a grant.

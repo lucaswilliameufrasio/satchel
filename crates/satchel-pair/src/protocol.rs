@@ -60,6 +60,8 @@ pub struct ApprovalRequest {
     pub device_name: String,
     /// Operating system the joiner reported.
     pub os: String,
+    /// Opaque id the joiner will use in its key file.
+    pub device_id: String,
     /// `peer_addr()` of the accepted socket.
     pub peer_address: SocketAddr,
     /// Local interface that owns the socket's local address.
@@ -100,6 +102,8 @@ pub struct JoinRequest {
     pub device_name: String,
     /// Shown on the approval screen.
     pub os: String,
+    /// Opaque device id. It is not a secret and it is not a hostname.
+    pub device_id: String,
     /// Ignored by the holder. Present so a test can prove the socket address wins.
     pub claimed_address: String,
     /// Ignored by the holder.
@@ -288,6 +292,9 @@ pub fn join(request: JoinRequest) -> Result<DeviceSecrets, Error> {
     if !valid_label(&request.device_name) || !valid_label(&request.os) {
         return Err(Error::Message);
     }
+    if !valid_device_id(&request.device_id) {
+        return Err(Error::Message);
+    }
     if !valid_claim(&request.claimed_address) || !valid_claim(&request.claimed_interface) {
         return Err(Error::Message);
     }
@@ -302,6 +309,7 @@ pub fn join(request: JoinRequest) -> Result<DeviceSecrets, Error> {
         v: 1,
         device_name: request.device_name,
         os: request.os,
+        device_id: request.device_id,
         claimed_address: request.claimed_address,
         claimed_interface: request.claimed_interface,
     };
@@ -357,6 +365,7 @@ fn attempt(job: &HolderJob) -> Result<PairingOutcome, Error> {
     let request = ApprovalRequest {
         device_name: hello.device_name,
         os: hello.os,
+        device_id: hello.device_id,
         peer_address: peer,
         local_interface: interface_for(local.ip()),
         code: job.code_text.clone(),
@@ -539,6 +548,18 @@ fn valid_label(value: &str) -> bool {
     true
 }
 
+fn valid_device_id(value: &str) -> bool {
+    if value.len() != 32 {
+        return false;
+    }
+    for character in value.chars() {
+        if !character.is_ascii_hexdigit() || character.is_ascii_uppercase() {
+            return false;
+        }
+    }
+    true
+}
+
 fn valid_claim(value: &str) -> bool {
     if value.chars().count() > 256 {
         return false;
@@ -556,6 +577,9 @@ fn validate_hello(hello: &Hello) -> Result<(), Error> {
         return Err(Error::Version);
     }
     if !valid_label(&hello.device_name) || !valid_label(&hello.os) {
+        return Err(Error::Message);
+    }
+    if !valid_device_id(&hello.device_id) {
         return Err(Error::Message);
     }
     if !valid_claim(&hello.claimed_address) || !valid_claim(&hello.claimed_interface) {
@@ -616,6 +640,7 @@ struct Hello {
     v: u8,
     device_name: String,
     os: String,
+    device_id: String,
     claimed_address: String,
     claimed_interface: String,
 }

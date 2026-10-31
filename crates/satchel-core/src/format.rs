@@ -1,13 +1,15 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use rand::Rng;
 
 use rustic_backend::BackendOptions;
+use rustic_core::repofile::KeyId;
 use rustic_core::{
-    BackupOptions, ConfigOptions, Credentials, IndexedFullStatus, KeyOptions, PathList, Repository,
-    RepositoryOptions, SnapshotOptions,
+    BackupOptions, ConfigOptions, Credentials, Id, IndexedFullStatus, KeyOptions, OpenStatus,
+    PathList, Repository, RepositoryOptions, SnapshotOptions,
 };
 
 use crate::Error;
@@ -168,6 +170,65 @@ pub fn backup_directory(
         .backup(&BackupOptions::default(), &paths, snapshot)
         .map_err(Error::repository)?;
     Ok(saved.id.to_hex().as_str().to_string())
+}
+
+/// Add a key file for `device_id`, wrapped by `device_password`.
+///
+/// `opener` is a password that already opens the repository. The new file
+/// stores the opaque id, not a machine name. The returned id is 64 hex
+/// characters and is not a secret.
+pub fn add_device_key(
+    location: &Location,
+    opener: &str,
+    device_id: &DeviceId,
+    device_password: &str,
+) -> Result<String, Error> {
+    require_password(device_password)?;
+    let repo = open_unlocked(location, opener)?;
+    let options = KeyOptions::default()
+        .hostname(Some(device_id.as_str().to_string()))
+        .username(Some(device_id.as_str().to_string()))
+        .with_created(false);
+    let id = repo
+        .add_key(device_password, &options)
+        .map_err(Error::repository)?;
+    Ok(id.into_inner().to_hex().as_str().to_string())
+}
+
+/// Delete the key file `key_id`. The key that `opener` used stays in place.
+pub fn remove_device_key(location: &Location, opener: &str, key_id: &str) -> Result<(), Error> {
+    let id = parse_key_id(key_id)?;
+    let repo = open_unlocked(location, opener)?;
+    if repo.key_id().as_ref() == Some(&id) {
+        return Err(Error::CurrentKey);
+    }
+    repo.delete_key(&id).map_err(Error::repository)?;
+    Ok(())
+}
+
+fn open_unlocked(location: &Location, password: &str) -> Result<Repository<OpenStatus>, Error> {
+    require_password(password)?;
+    let backends = location
+        .backend_options()?
+        .to_backends()
+        .map_err(Error::repository)?;
+    Repository::new(&repository_options(), &backends)
+        .map_err(Error::repository)?
+        .open(&Credentials::password(password))
+        .map_err(Error::repository)
+}
+
+fn parse_key_id(value: &str) -> Result<KeyId, Error> {
+    if value.len() != 64 {
+        return Err(Error::KeyId);
+    }
+    for character in value.chars() {
+        if !character.is_ascii_hexdigit() || character.is_ascii_uppercase() {
+            return Err(Error::KeyId);
+        }
+    }
+    let inner = Id::from_str(value).map_err(|_| Error::KeyId)?;
+    Ok(KeyId::from(inner))
 }
 
 fn open_new(location: &Location, password: &str, device_id: &DeviceId) -> Result<(), Error> {

@@ -19,6 +19,7 @@ cargo test
 - `official_restic_restores_a_snapshot_and_the_key_file_stays_opaque` writes one snapshot and restores it with `restic`.
 - `two_clients_follow_see_once_always_delete_and_conflict` runs two headless clients against one local repository.
 - `recovery_password_restores_the_same_bytes_as_official_restic` restores the newest snapshot with the core and with `restic`.
+- `device_key_opens_without_the_recovery_password` adds a second key, restores with that password through the core and through `restic`, then removes the key. The recovery password still restores. The key that opened the repository is not removed.
 - `approve_shows_the_socket_peer_and_omits_the_recovery_password`, `deny_sends_no_grant`, `wrong_code_never_reaches_approval`, and `wrong_fingerprint_never_reaches_approval` pair two local sockets. The peer address comes from the socket. A denial writes no grant. The recovery password is not a field.
 - `typed_address_does_not_require_mdns` joins a typed `127.0.0.1` address with discovery off.
 - `announcement_lives_only_while_the_session_does` registers a secret-free announcement only while the session is open, and only when a non-loopback local interface exists. Dropping the session closes the port. The TXT keys are checked by building the service record, not by browsing from another host.
@@ -51,4 +52,4 @@ The test creates a bucket, enables versioning, requires `GetBucketLifecycleConfi
 
 ## Not covered here
 
-A real S3, R2, or B2 bucket. The tray does not publish to the bucket. The Floci clients both open with the recovery password fixture; a second device key is not created. A mark on the phone is not written back as a new snapshot. iOS is not covered.
+A real S3, R2, or B2 bucket. The tray does not publish to the bucket. The ignored Floci clients both open with the recovery password fixture. A mark on the phone is not written back as a new snapshot. iOS is not covered.

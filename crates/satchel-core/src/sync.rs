@@ -182,7 +182,7 @@ pub struct Client {
 }
 
 impl Client {
-    /// Open a device against `work`. `password` is the recovery password.
+    /// Open a device against `work`. `password` is any key that opens the repository.
     pub fn open(
         device_id: DeviceId,
         work: impl Into<PathBuf>,

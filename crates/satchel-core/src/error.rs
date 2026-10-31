@@ -11,6 +11,14 @@ pub enum Error {
     #[error("recovery password is empty")]
     EmptyPassword,
 
+    /// A key id is not 64 lowercase hexadecimal characters.
+    #[error("key id must be 64 lowercase hexadecimal characters")]
+    KeyId,
+
+    /// Removal targeted the key that opened the repository.
+    #[error("the open key cannot be removed")]
+    CurrentKey,
+
     /// A required storage field is empty.
     #[error("storage field `{field}` is empty")]
     EmptyField {

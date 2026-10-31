@@ -68,6 +68,10 @@ Bandeja, cofre do sistema e uma pasta. O pareamento oferece código, descoberta 
 
 A primeira abertura mostra o catálogo, sem baixar o conteúdo. Os três estados funcionam nos arquivos marcados.
 
+### 6. Chave do aparelho
+
+Aprovar grava um arquivo em `keys/` para a senha daquele aparelho. O id no arquivo é o id opaco que o aparelho enviou depois do código, não o nome. O aparelho abre o repositório com essa senha. O `restic` oficial também. A senha de recuperação continua abrindo e não entra no convite. Revogar apaga esse arquivo, e a senha do aparelho deixa de abrir.
+
 ## Fora destes passos
 
 Provedor de documentos do iOS, YubiKey no iPhone, OAuth, pasta grande, relay de push e apagamento remoto.

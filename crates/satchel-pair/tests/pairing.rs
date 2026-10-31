@@ -36,6 +36,7 @@ fn join_request(address: SocketAddr, code: &str, fingerprint: &str) -> JoinReque
         fingerprint: fingerprint.to_string(),
         device_name: "phone".to_string(),
         os: "android".to_string(),
+        device_id: "fedcba9876543210fedcba9876543210".to_string(),
         claimed_address: "100.64.0.2:9".to_string(),
         claimed_interface: "tailscale0".to_string(),
         timeout: Duration::from_secs(5),
@@ -78,6 +79,7 @@ fn approve_shows_the_socket_peer_and_omits_the_recovery_password() {
         .expect("approval");
     assert_eq!(approval.device_name, "phone");
     assert_eq!(approval.os, "android");
+    assert_eq!(approval.device_id, "fedcba9876543210fedcba9876543210");
     assert_eq!(approval.code, offer.code);
     assert!(approval.peer_address.ip().is_loopback());
     assert!(!approval.peer_address.to_string().contains("100.64.0.2"));
@@ -201,6 +203,14 @@ fn announcement_lives_only_while_the_session_does() {
     }
     drop(session);
     assert_closed(port);
+}
+
+#[test]
+fn join_rejects_a_device_id_that_is_not_opaque() {
+    let mut request = join_request("127.0.0.1:1".parse().expect("address"), "000 000", "ab");
+    request.device_id = "phone".to_string();
+    let err = satchel_pair::join(request).expect_err("rejected");
+    assert_eq!(err, Error::Message);
 }
 
 fn join_satchel(

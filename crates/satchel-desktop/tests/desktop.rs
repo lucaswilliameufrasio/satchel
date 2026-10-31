@@ -3,10 +3,30 @@ use std::net::SocketAddr;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use satchel_core::DeviceId;
+use satchel_core::{Client, DeviceId, Location, init};
 use satchel_desktop::{Account, Desktop, KeyringStore, MemoryStore, SecretStore};
 use satchel_pair::{Error as PairError, JoinRequest, ListenConfig};
 use tempfile::tempdir;
+
+fn key_file_names_the_device(repository: &std::path::Path, device_id: &str) -> bool {
+    let mut found = false;
+    for entry in fs::read_dir(repository.join("keys")).expect("keys") {
+        let entry = entry.expect("entry");
+        if !entry.file_type().expect("type").is_file() {
+            continue;
+        }
+        let text = fs::read_to_string(entry.path()).expect("key file");
+        let value: serde_json::Value = serde_json::from_str(&text).expect("key json");
+        if value.get("hostname").and_then(|item| item.as_str()) == Some(device_id) {
+            assert_eq!(
+                value.get("username").and_then(|item| item.as_str()),
+                Some(device_id)
+            );
+            found = true;
+        }
+    }
+    found
+}
 
 fn folder_and_repo(root: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
     let folder = root.join("folder");
@@ -86,9 +106,16 @@ fn add_device_screen_approves_without_the_recovery_password() {
     let config = root.path().join("config");
     let (folder, repository) = folder_and_repo(root.path());
     let mut desktop = Desktop::open(&config).expect("open");
+    let holder = DeviceId::parse("0123456789abcdef0123456789abcdef").expect("holder");
     desktop
-        .create_profile(folder, repository.clone(), DeviceId::generate())
+        .create_profile(folder, repository.clone(), holder.clone())
         .expect("profile");
+    init(
+        &Location::Directory(repository.clone()),
+        "recovery-canary",
+        &holder,
+    )
+    .expect("init");
     let store = MemoryStore::default();
     store
         .put(Account::RecoveryPassword, "recovery-canary")
@@ -99,7 +126,7 @@ fn add_device_screen_approves_without_the_recovery_password() {
     let offer = desktop
         .open_add_device(ListenConfig {
             bind: "127.0.0.1:0".parse().expect("bind"),
-            timeout: Duration::from_secs(5),
+            timeout: Duration::from_secs(60),
             advertise: false,
         })
         .expect("screen");
@@ -114,12 +141,13 @@ fn add_device_screen_approves_without_the_recovery_password() {
             fingerprint,
             device_name: "phone".to_string(),
             os: "android".to_string(),
+            device_id: "fedcba9876543210fedcba9876543210".to_string(),
             claimed_address: "100.64.0.2:9".to_string(),
             claimed_interface: "tailscale0".to_string(),
-            timeout: Duration::from_secs(5),
+            timeout: Duration::from_secs(60),
         })
     });
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(60);
     while desktop.pending().is_none() && Instant::now() < deadline {
         desktop.poll();
         if desktop.pending().is_none() {
@@ -155,6 +183,17 @@ fn add_device_screen_approves_without_the_recovery_password() {
     assert!(!profile_text.contains("recovery-canary"));
     assert!(!profile_text.contains("bucket-fixture"));
     assert!(!profile_text.contains(&received.device_key_password));
+    let phone = DeviceId::parse("fedcba9876543210fedcba9876543210").expect("phone");
+    let phone_work = root.path().join("phone");
+    let phone_client =
+        Client::open(phone, &phone_work, &received.device_key_password).expect("phone");
+    phone_client
+        .catalog(&Location::Directory(repository.clone()))
+        .expect("phone catalog");
+    assert!(key_file_names_the_device(
+        &repository,
+        "fedcba9876543210fedcba9876543210"
+    ));
     assert!(!desktop.add_device_open());
     let closed = TcpJoin {
         address: offer.address,
@@ -209,6 +248,7 @@ fn deny_from_the_screen_sends_nothing() {
             fingerprint: offer.fingerprint,
             device_name: "laptop".to_string(),
             os: "linux".to_string(),
+            device_id: "fedcba9876543210fedcba9876543210".to_string(),
             claimed_address: "10.1.2.3:9".to_string(),
             claimed_interface: "wg0".to_string(),
             timeout: Duration::from_secs(5),
@@ -223,6 +263,52 @@ fn deny_from_the_screen_sends_nothing() {
     desktop.deny_pending().expect("deny");
     let err = joiner.join().expect("thread").expect_err("no grant");
     assert_eq!(err, PairError::Denied);
+}
+
+#[test]
+fn approve_without_a_recovery_password_sends_no_grant() {
+    let root = tempdir().expect("temp");
+    let (folder, repository) = folder_and_repo(root.path());
+    let mut desktop = Desktop::open(root.path().join("config")).expect("open");
+    desktop
+        .create_profile(folder, repository.clone(), DeviceId::generate())
+        .expect("profile");
+    let store = MemoryStore::default();
+    store
+        .put(Account::BucketCredential, "bucket-fixture")
+        .expect("bucket");
+    let offer = desktop
+        .open_add_device(ListenConfig {
+            bind: "127.0.0.1:0".parse().expect("bind"),
+            timeout: Duration::from_secs(5),
+            advertise: false,
+        })
+        .expect("screen");
+    let joiner = thread::spawn(move || {
+        satchel_pair::join(JoinRequest {
+            address: offer.address,
+            code: offer.code,
+            fingerprint: offer.fingerprint,
+            device_name: "phone".to_string(),
+            os: "android".to_string(),
+            device_id: "fedcba9876543210fedcba9876543210".to_string(),
+            claimed_address: "10.9.9.9:9".to_string(),
+            claimed_interface: "wg0".to_string(),
+            timeout: Duration::from_secs(5),
+        })
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while desktop.pending().is_none() && Instant::now() < deadline {
+        desktop.poll();
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(desktop.pending().is_some());
+    let err = desktop.approve_pending(&store).expect_err("no recovery");
+    assert!(matches!(err, satchel_desktop::Error::MissingRecovery));
+    assert!(!repository.join("keys").exists());
+    desktop.close_add_device();
+    let join_err = joiner.join().expect("thread").expect_err("no grant");
+    assert_eq!(join_err, PairError::Denied);
 }
 
 #[test]

@@ -26,6 +26,10 @@ pub enum Error {
     #[error("the bucket credential is not in the keystore")]
     MissingSecret,
 
+    /// Approve was asked for and the keystore has no recovery password.
+    #[error("the recovery password is not in the keystore")]
+    MissingRecovery,
+
     /// The OS keystore rejected the call. `kind` is a category, not the stored value.
     #[error("keystore {kind}")]
     Store {
