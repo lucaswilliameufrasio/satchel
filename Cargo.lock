@@ -5182,6 +5182,7 @@ version = "0.1.0"
 dependencies = [
  "jni",
  "satchel-core",
+ "satchel-pair",
  "serde",
  "serde_json",
 ]

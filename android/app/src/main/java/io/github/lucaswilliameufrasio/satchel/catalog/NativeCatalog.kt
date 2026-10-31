@@ -28,6 +28,19 @@ class SharedCatalog(specPath: String) : CatalogSource by SessionMarks(
     },
 )
 
+/**
+ * Catalog opened from a pairing grant.
+ *
+ * The grant file holds the device key password. It does not hold the recovery password.
+ */
+class GrantCatalog(specPath: String) : CatalogSource by SessionMarks(
+    listJson = { NativeCatalog.catalogGrant(specPath) },
+    readBytes = { path -> NativeCatalog.readGrant(specPath, path) },
+    persist = { path, follow ->
+        NativeCatalog.markGrant(specPath, path, followWire(follow))
+    },
+)
+
 private class SessionMarks(
     private val listJson: () -> String,
     private val readBytes: (String) -> ByteArray,
@@ -117,4 +130,21 @@ object NativeCatalog {
     external fun catalogStore(specPath: String): String
 
     external fun readStore(specPath: String, path: String): ByteArray
+
+    external fun catalogGrant(specPath: String): String
+
+    external fun markGrant(specPath: String, path: String, follow: String)
+
+    external fun readGrant(specPath: String, path: String): ByteArray
+
+    external fun joinPairing(
+        address: String,
+        code: String,
+        fingerprint: String,
+        deviceName: String,
+        os: String,
+        deviceId: String,
+    ): String
+
+    external fun newDeviceId(): String
 }

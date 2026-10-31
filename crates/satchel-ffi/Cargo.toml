@@ -12,5 +12,6 @@ crate-type = ["cdylib"]
 [dependencies]
 jni = "0.22"
 satchel-core = { path = "../satchel-core" }
+satchel-pair = { path = "../satchel-pair" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
