@@ -22,9 +22,9 @@ O `.kdbx` foi o caso que revelou a necessidade. O produto não sabe o que é um 
 
 ### Pareamento
 
-Quem entra digita um código. No celular, também pode ler o QR mostrado no desktop. Quem já tem o repositório aprova e vê o nome do aparelho, o sistema, o endereço na malha e um código curto desta tentativa.
+Quem entra digita um código. No celular, também pode ler o QR mostrado no desktop. O desktop desenha esse QR e não abre câmera. Quem já tem o repositório aprova e vê o nome do aparelho, o sistema, o endereço na malha e um código curto desta tentativa.
 
-O código só autentica. Os segredos seguem depois do aceite: endpoint, credencial do bucket e senha da chave daquele aparelho. A senha de recuperação não entra no convite.
+O código só autentica. Os segredos seguem depois do aceite: endpoint, credencial do celular e senha da chave daquele aparelho. A senha de recuperação e a credencial de manutenção do desktop ficam de fora. Em objeto, bucket, região e prefixo viajam dentro da credencial do celular. A política dessa credencial permite listar, ler e gravar, e apagar só objetos em `locks/` com id de 64 hex. Pack, índice, snapshot, chave, versionamento e ciclo de vida ficam negados. Quem administra o bucket anexa esse documento. Um armazenamento sem política de identidade não aplica isso sozinho.
 
 Na rede local, o anúncio mDNS fica ligado só enquanto a tela de adicionar aparelho está aberta. O anúncio leva versão, apelido aleatório, porta e a impressão digital do certificado. A impressão conferida é a do TLS da conexão. O PAKE acontece antes da tela de aprovação. Pelo NetBird ou pela Tailscale, o convite inclui o endereço escrito. O multicast não atravessa a malha.
 
