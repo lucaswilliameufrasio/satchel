@@ -9,7 +9,9 @@ description = "Pair a device over TLS and SPAKE2 without sending repository secr
 [dependencies]
 hmac = "0.12"
 if-addrs = "0.13"
+image = "0.25"
 mdns-sd = "0.13"
+qrcode = { version = "0.14", default-features = false, features = ["image"] }
 rand = "0.10"
 rcgen = "0.13"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
@@ -19,3 +21,6 @@ sha2 = "0.10"
 spake2 = "0.4"
 subtle = "2"
 thiserror = "2"
+
+[dev-dependencies]
+rqrr = "0.7"

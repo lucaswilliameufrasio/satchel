@@ -14,7 +14,7 @@ pub const ANNOUNCE_VERSION: &str = "1";
 
 const TXT_KEYS: [&str; 3] = ["alias", "fp", "v"];
 
-/// Invite the joiner can type or, later, put in a QR image.
+/// Invite the joiner can type or scan from the QR image.
 ///
 /// The fields are the code, the address to dial, and the certificate fingerprint.
 /// The recovery password is not a field.

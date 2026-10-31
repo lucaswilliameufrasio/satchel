@@ -9,6 +9,7 @@ mod announce;
 mod code;
 mod error;
 mod protocol;
+mod qr;
 mod tls;
 mod util;
 
@@ -19,3 +20,4 @@ pub use protocol::{
     ApprovalRequest, DEFAULT_TIMEOUT, Decision, DeviceSecrets, JoinRequest, ListenConfig, Offer,
     PairingOutcome, PairingSession, join,
 };
+pub use qr::invite_qr_png;
