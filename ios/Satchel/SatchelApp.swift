@@ -18,229 +18,322 @@ struct PhoneView: View {
     @ObservedObject var model: PhoneModel
 
     var body: some View {
-        NavigationStack {
-            switch model.screen {
-            case .loading:
-                StatusPage(title: "Catálogo", message: "Lendo o catálogo…")
-            case .failed:
-                StatusPage(title: "Catálogo", message: "Não foi possível abrir o catálogo.")
-            case .ready(let rows, _):
-                CatalogList(rows: rows, canPair: model.canPair, onPair: {
+        switch model.screen {
+        case .loading:
+            StatusPage(title: "Catálogo", message: "Lendo o catálogo…")
+        case .failed:
+            StatusPage(title: "Catálogo", message: "Não foi possível abrir o catálogo.")
+        case .ready(let rows, _):
+            CatalogList(
+                rows: rows,
+                canPair: model.canPair,
+                zone: .current,
+                canCreate: model.canPair,
+                onCreate: { model.showCreate() },
+                canInvite: model.canInvite,
+                onInvite: { model.showInvite() },
+                onPair: {
                     model.showPairing()
-                }, onOpen: { path in
+                },
+                onOpen: { path in
                     model.openFile(path: path)
-                })
-            case .file(let path, let rows, let busy):
-                FilePage(
-                    path: path,
-                    rows: rows,
-                    busy: busy,
-                    localDeviceId: model.catalogDeviceId,
-                    onBack: {
-                        model.closeFile()
-                    },
-                    onChoose: { follow in
-                        model.choose(path: path, follow: follow)
-                    }
-                )
-            case .pairing(let address, let code, let fingerprint, let name, let busy, let failed):
-                PairForm(
+                }
+            )
+        case .creating(let draft):
+            CreatePage(
+                draft: draft,
+                onChange: { model.update($0) },
+                onBack: { model.openCatalog() },
+                onSubmit: { model.create(draft) }
+            )
+        case .recovery(let password, let note):
+            RecoveryPage(password: password, note: note, onDone: { model.finishRecovery() })
+        case .holding(let state):
+            HoldPage(
+                state: state,
+                onApprove: { model.decideHold(approve: true) },
+                onDeny: { model.decideHold(approve: false) },
+                onBack: { model.closeHold() }
+            )
+            .task {
+                while !Task.isCancelled {
+                    await model.pollHold()
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+            }
+        case .file(let path, let rows, let busy):
+            FilePage(
+                path: path,
+                rows: rows,
+                busy: busy,
+                localDeviceId: model.catalogDeviceId,
+                zone: .current,
+                onBack: {
+                    model.closeFile()
+                },
+                onChoose: { follow in
+                    model.choose(path: path, follow: follow)
+                }
+            )
+        case .pairing(let address, let code, let fingerprint, let name, let busy, let failed):
+            PairForm(
+                address: address,
+                code: code,
+                fingerprint: fingerprint,
+                name: name,
+                busy: busy,
+                failed: failed,
+                onScan: {
+                    model.showScanner(
+                        address: address,
+                        code: code,
+                        fingerprint: fingerprint,
+                        name: name
+                    )
+                },
+                onBack: {
+                    model.openCatalog()
+                },
+                onSubmit: { address, code, fingerprint, name in
+                    model.join(
+                        address: address,
+                        code: code,
+                        fingerprint: fingerprint,
+                        name: name
+                    )
+                }
+            )
+        case .scanning(let address, let code, let fingerprint, let name):
+            ScannerPage(onCode: { raw in
+                model.applyScan(raw, previous: (address, code, fingerprint, name))
+            }, onBack: {
+                model.screen = .pairing(
                     address: address,
                     code: code,
                     fingerprint: fingerprint,
                     name: name,
-                    busy: busy,
-                    failed: failed,
-                    onScan: {
-                        model.showScanner(
-                            address: address,
-                            code: code,
-                            fingerprint: fingerprint,
-                            name: name
-                        )
-                    },
-                    onBack: {
-                        model.openCatalog()
-                    },
-                    onSubmit: { address, code, fingerprint, name in
-                        model.join(
-                            address: address,
-                            code: code,
-                            fingerprint: fingerprint,
-                            name: name
-                        )
-                    }
+                    busy: false,
+                    failed: false
                 )
-            case .scanning(let address, let code, let fingerprint, let name):
-                ScannerPage(onCode: { raw in
-                    model.applyScan(raw, previous: (address, code, fingerprint, name))
-                }, onBack: {
-                    model.screen = .pairing(
-                        address: address,
-                        code: code,
-                        fingerprint: fingerprint,
-                        name: name,
-                        busy: false,
-                        failed: false
-                    )
-                })
-            }
+            })
         }
     }
 }
 
-private struct StatusPage: View {
+struct StatusPage: View {
     let title: String
     let message: String
 
     var body: some View {
-        Text(message)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding()
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.large)
+        ProductScreen(title: title) {
+            Text(message)
+                .font(.body)
+                .foregroundStyle(SatchelInk.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: 280)
+        }
     }
 }
 
-private struct CatalogList: View {
+struct CatalogList: View {
     let rows: [CatalogRow]
     let canPair: Bool
+    var zone: TimeZone = .current
+    var canCreate: Bool = false
+    var onCreate: () -> Void = {}
+    var canInvite: Bool = false
+    var onInvite: () -> Void = {}
     let onPair: () -> Void
     let onOpen: (String) -> Void
 
     var body: some View {
-        List {
+        ProductScreen(title: "Catálogo") {
+            if canCreate {
+                actionCard(
+                    "Criar repositório",
+                    "Este aparelho guarda a senha de recuperação. O outro entra com um código.",
+                    id: "create-repository",
+                    action: onCreate
+                )
+            }
+            if canInvite {
+                actionCard(
+                    "Mostrar convite",
+                    "A senha de recuperação não vai no convite.",
+                    id: "show-invite",
+                    action: onInvite
+                )
+            }
             if canPair {
-                Section {
-                    Button(action: onPair) {
+                Button(action: onPair) {
+                    ProductCard {
                         HStack(alignment: .center, spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: 4) {
                                 Text("Entrar neste aparelho")
                                     .font(.headline)
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(SatchelInk.ink)
                                 Text("Ler o QR mostrado no desktop, ou informar o convite.")
                                     .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(SatchelInk.secondary)
                             }
                             Spacer(minLength: 12)
                             Image(systemName: "chevron.right")
                                 .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(SatchelInk.secondary)
                         }
-                        .padding(.vertical, 4)
                     }
-                    .buttonStyle(.plain)
+                }
+                .buttonStyle(.plain)
+            }
+            if rows.isEmpty {
+                ProductCard {
+                    Text("Nenhum arquivo no catálogo.")
+                        .foregroundStyle(SatchelInk.secondary)
                 }
             }
-            Section {
-                if rows.isEmpty {
-                    Text("Nenhum arquivo no catálogo.")
-                        .foregroundStyle(.secondary)
+            ForEach(rows) { row in
+                Button {
+                    onOpen(row.path)
+                } label: {
+                    CatalogRowLabel(row: row, zone: zone)
                 }
-                ForEach(rows) { row in
-                    Button {
-                        onOpen(row.path)
-                    } label: {
-                        CatalogRowLabel(row: row)
-                    }
-                    .buttonStyle(.plain)
-                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("catalog-row-\(row.path)")
             }
         }
-        .navigationTitle("Catálogo")
-        .navigationBarTitleDisplayMode(.large)
     }
 }
 
-private struct CatalogRowLabel: View {
-    let row: CatalogRow
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: row.isDirectory ? "folder" : "doc")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-                .frame(width: 28, alignment: .center)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(row.path)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Text(followLabel(row.follow))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .layoutPriority(1)
+extension CatalogList {
+    fileprivate func actionCard(
+        _ title: String,
+        _ detail: String,
+        id: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            ProductCard {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(title)
+                            .font(.headline)
+                            .foregroundStyle(SatchelInk.ink)
+                        Text(detail)
+                            .font(.subheadline)
+                            .foregroundStyle(SatchelInk.secondary)
+                    }
+                    Spacer(minLength: 12)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(SatchelInk.secondary)
                 }
-                Text(catalogMeta(row))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Text(deviceCountLabel(row.devices))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 4)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(id)
+    }
+}
+
+struct CatalogRowLabel: View {
+    let row: CatalogRow
+    var zone: TimeZone = .current
+
+    var body: some View {
+        ProductCard {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: row.isDirectory ? "folder" : "doc")
+                    .font(.title3)
+                    .foregroundStyle(SatchelInk.accent)
+                    .accessibilityHidden(true)
+                    .frame(width: 28, alignment: .center)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(row.path)
+                            .font(.headline)
+                            .foregroundStyle(SatchelInk.ink)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text(followLabel(row.follow))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(SatchelInk.accent)
+                            .layoutPriority(1)
+                    }
+                    Text(catalogMeta(row, zone: zone))
+                        .font(.subheadline)
+                        .foregroundStyle(SatchelInk.secondary)
+                    Text(deviceCountLabel(row.devices))
+                        .font(.footnote)
+                        .foregroundStyle(SatchelInk.secondary)
+                }
+            }
+        }
         .accessibilityElement(children: .combine)
     }
 }
 
-private struct FilePage: View {
+struct FilePage: View {
     let path: String
     let rows: [CatalogRow]
     let busy: Bool
     let localDeviceId: String
+    var zone: TimeZone = .current
     let onBack: () -> Void
     let onChoose: (String) -> Void
 
     var body: some View {
-        List {
+        ProductScreen(title: path, backLabel: "Catálogo", backDisabled: busy, onBack: onBack) {
             if let row = listedRow(path, rows) {
-                Section {
-                    LabeledContent("Tamanho") {
-                        Text(row.isDirectory ? "Pasta" : byteCount(row.size))
-                    }
-                    LabeledContent("Sincronizado") {
-                        Text(syncedWhen(row.versionUnix))
-                    }
+                ProductCard {
+                    factLine("Tamanho", row.isDirectory ? "Pasta" : byteCount(row.size))
+                    factLine("Sincronizado", syncedWhen(row.versionUnix, zone: zone))
                 }
-                Section("Neste aparelho") {
+                ProductCard {
+                    Text("Neste aparelho")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(SatchelInk.secondary)
                     stateButton("Ver", "see", row: row)
                     stateButton("Baixar agora", "once", row: row)
                     stateButton("Sincronizar sempre", "always", row: row)
                     if busy {
                         Text("Salvando a escolha…")
-                            .foregroundStyle(.secondary)
+                            .font(.subheadline)
+                            .foregroundStyle(SatchelInk.secondary)
                     }
                 }
-                Section("Aparelhos") {
+                ProductCard {
+                    Text("Aparelhos")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(SatchelInk.secondary)
                     if row.devices.isEmpty {
                         Text("Nenhum aparelho mantém cópia.")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(SatchelInk.secondary)
                     }
                     ForEach(Array(row.devices.enumerated()), id: \.offset) { _, device in
                         DeviceFacts(
                             deviceId: device,
                             card: holderCard(device, row.holders),
-                            local: device == localDeviceId
+                            local: device == localDeviceId,
+                            zone: zone
                         )
                     }
                 }
             } else {
-                Text("Nenhum arquivo no catálogo.")
-                    .foregroundStyle(.secondary)
+                ProductCard {
+                    Text("Nenhum arquivo no catálogo.")
+                        .foregroundStyle(SatchelInk.secondary)
+                }
             }
         }
-        .navigationTitle(path)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("Catálogo", action: onBack)
-                    .disabled(busy)
-            }
+    }
+
+    private func factLine(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(SatchelInk.secondary)
+            Text(value)
+                .font(.body)
+                .foregroundStyle(SatchelInk.ink)
         }
     }
 
@@ -252,26 +345,32 @@ private struct FilePage: View {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(label)
-                        .foregroundStyle(.primary)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(SatchelInk.ink)
                     Text(followDetail(follow, directory: row.isDirectory))
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(SatchelInk.secondary)
                 }
                 Spacer(minLength: 12)
                 if selected {
-                    Image(systemName: "checkmark")
-                        .foregroundStyle(.tint)
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(SatchelInk.accent)
                         .accessibilityHidden(true)
                 }
             }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selected ? SatchelInk.selected : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(busy)
+        .accessibilityIdentifier("follow-\(follow)")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
-private func holderCard(_ id: String, _ cards: [DeviceCard]) -> DeviceCard? {
+func holderCard(_ id: String, _ cards: [DeviceCard]) -> DeviceCard? {
     for card in cards {
         if card.id == id {
             return card
@@ -280,41 +379,47 @@ private func holderCard(_ id: String, _ cards: [DeviceCard]) -> DeviceCard? {
     return nil
 }
 
-private struct DeviceFacts: View {
+struct DeviceFacts: View {
     let deviceId: String
     let card: DeviceCard?
     let local: Bool
+    var zone: TimeZone = .current
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
+                .font(.headline)
+                .foregroundStyle(SatchelInk.ink)
             if let name = card?.name, title != name {
                 Text("Apelido \(name)")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SatchelInk.secondary)
             }
             if let os = card?.os {
                 Text("Sistema \(os)")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SatchelInk.secondary)
             }
             if let enrolled = card?.enrolledUnix {
-                Text("Registrado \(syncedWhen(enrolled))")
+                Text("Registrado \(syncedWhen(enrolled, zone: zone))")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SatchelInk.secondary)
             }
             if let last = card?.lastUnix {
-                Text("Último envio \(syncedWhen(last))")
+                Text("Último envio \(syncedWhen(last, zone: zone))")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SatchelInk.secondary)
             }
             if title != groupedDeviceId(deviceId) {
                 Text(groupedDeviceId(deviceId))
                     .font(.footnote.monospaced())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SatchelInk.secondary)
                     .textSelection(.enabled)
             }
         }
+        .padding(.top, 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(local ? "device-card-local" : "device-card-other")
     }
 
     private var title: String {
@@ -328,7 +433,7 @@ private struct DeviceFacts: View {
     }
 }
 
-private func listedRow(_ path: String, _ rows: [CatalogRow]) -> CatalogRow? {
+func listedRow(_ path: String, _ rows: [CatalogRow]) -> CatalogRow? {
     for row in rows {
         if row.path == path {
             return row
@@ -337,7 +442,7 @@ private func listedRow(_ path: String, _ rows: [CatalogRow]) -> CatalogRow? {
     return nil
 }
 
-private struct PairForm: View {
+struct PairForm: View {
     @State var address: String
     @State var code: String
     @State var fingerprint: String
@@ -349,62 +454,290 @@ private struct PairForm: View {
     let onSubmit: (String, String, String, String) -> Void
 
     var body: some View {
-        Form {
-            Section {
-                Text("O desktop mostra o QR. A senha de recuperação não faz parte do convite.")
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                TextField("Endereço", text: $address)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                TextField("Código", text: $code)
-                TextField("Impressão digital", text: $fingerprint)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                TextField("Apelido", text: $name)
+        ProductScreen(
+            title: "Entrar neste aparelho",
+            backLabel: "Voltar",
+            backDisabled: busy,
+            onBack: onBack
+        ) {
+            Text("O desktop mostra o QR. A senha de recuperação não faz parte do convite.")
+                .font(.subheadline)
+                .foregroundStyle(SatchelInk.secondary)
+            ProductCard {
+                ProductField(title: "Endereço", text: $address, suppressesAutocorrection: true)
+                ProductField(title: "Código", text: $code)
+                ProductField(
+                    title: "Impressão digital",
+                    text: $fingerprint,
+                    suppressesAutocorrection: true
+                )
+                ProductField(title: "Apelido", text: $name)
             }
             if failed {
-                Section {
-                    Text("Não foi possível entrar.")
-                }
+                Text("Não foi possível entrar.")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SatchelInk.accent)
             }
-            Section {
-                Button("Ler QR", action: onScan)
-                Button("Entrar") {
-                    onSubmit(address, code, fingerprint, name)
-                }
+            Button(action: onScan) {
+                Text("Ler QR")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(SatchelInk.ink)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(SatchelInk.card)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(SatchelInk.line, lineWidth: 1)
+                    )
             }
+            .buttonStyle(.plain)
+            .disabled(busy)
+            Button {
+                onSubmit(address, code, fingerprint, name)
+            } label: {
+                Text("Entrar")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Color.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(SatchelInk.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(busy)
         }
-        .disabled(busy)
-        .navigationTitle("Entrar neste aparelho")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("Voltar", action: onBack)
-                    .disabled(busy)
+    }
+}
+
+struct ScannerPage: View {
+    let onCode: (String) -> Void
+    let onBack: () -> Void
+
+    var body: some View {
+        ProductScreen(title: "Ler QR", backLabel: "Voltar", onBack: onBack) {
+            Text("Aponte a câmera para o QR do desktop.")
+                .font(.subheadline)
+                .foregroundStyle(SatchelInk.secondary)
+            QrScannerView(onCode: onCode)
+                .frame(minHeight: 320)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+    }
+}
+
+private struct WideButton: View {
+    let title: String
+    var primary: Bool = true
+    var disabled: Bool = false
+    let id: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(primary ? Color.white : SatchelInk.ink)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(primary ? SatchelInk.accent : SatchelInk.card)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(primary ? Color.clear : SatchelInk.line, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .accessibilityIdentifier(id)
+    }
+}
+
+struct CreatePage: View {
+    let draft: CreateDraft
+    let onChange: (CreateDraft) -> Void
+    let onBack: () -> Void
+    let onSubmit: () -> Void
+
+    private func bind(_ keyPath: WritableKeyPath<CreateDraft, String>) -> Binding<String> {
+        Binding(
+            get: { draft[keyPath: keyPath] },
+            set: { value in
+                var next = draft
+                next[keyPath: keyPath] = value
+                next.failed = false
+                onChange(next)
+            }
+        )
+    }
+
+    var body: some View {
+        ProductScreen(
+            title: "Criar repositório",
+            backLabel: "Voltar",
+            backDisabled: draft.busy,
+            onBack: onBack
+        ) {
+            Text(
+                "Este aparelho passa a guardar a senha de recuperação e a credencial de manutenção. O outro aparelho entra com um código e não digita a conta de novo."
+            )
+            .font(.subheadline)
+            .foregroundStyle(SatchelInk.secondary)
+            HStack(spacing: 8) {
+                ForEach([("folder", "Pasta"), ("s3", "S3"), ("r2", "R2"), ("b2", "B2")], id: \.0) { item in
+                    Button {
+                        var next = draft
+                        next.storage = item.0
+                        next.failed = false
+                        onChange(next)
+                    } label: {
+                        Text(item.1)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(SatchelInk.ink)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(draft.storage == item.0 ? SatchelInk.selected : SatchelInk.card)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(draft.busy)
+                    .accessibilityIdentifier("storage-\(item.0)")
+                    .accessibilityAddTraits(draft.storage == item.0 ? .isSelected : [])
+                }
+            }
+            if draft.storage == "folder" {
+                Text("A pasta fica só neste aparelho. Ela não tem versionamento de objeto.")
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+            } else {
+                Text(
+                    "O armazenamento precisa ter versionamento ligado e nenhum ciclo de vida que apague objeto. A chave dos aparelhos lista, lê, grava e só apaga os próprios locks."
+                )
+                .font(.subheadline)
+                .foregroundStyle(SatchelInk.secondary)
+                ProductCard {
+                    ProductField(title: "Endpoint", text: bind(\.endpoint), suppressesAutocorrection: true)
+                    ProductField(title: "Bucket", text: bind(\.bucket), suppressesAutocorrection: true)
+                    ProductField(title: "Região", text: bind(\.region), suppressesAutocorrection: true)
+                    ProductField(title: "Prefixo (pode ficar vazio)", text: bind(\.prefix), suppressesAutocorrection: true)
+                    ProductField(title: "Chave de acesso de manutenção", text: bind(\.accessKeyId), suppressesAutocorrection: true)
+                    ProductField(title: "Segredo de manutenção", text: bind(\.secretAccessKey), suppressesAutocorrection: true, secure: true)
+                    ProductField(title: "Chave de acesso dos aparelhos", text: bind(\.deviceAccessKeyId), suppressesAutocorrection: true)
+                    ProductField(title: "Segredo dos aparelhos", text: bind(\.deviceSecretAccessKey), suppressesAutocorrection: true, secure: true)
+                }
+            }
+            if draft.failed {
+                Text(createFailureCopy(draft.reason))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SatchelInk.accent)
+            }
+            WideButton(
+                title: "Criar",
+                disabled: draft.busy || !draft.complete,
+                id: "create-submit",
+                action: onSubmit
+            )
+        }
+    }
+}
+
+struct RecoveryPage: View {
+    let password: String
+    let note: String?
+    let onDone: () -> Void
+
+    var body: some View {
+        ProductScreen(title: "Senha de recuperação") {
+            Text(
+                "Guarde esta senha num gerenciador de senhas que abre sem este repositório. Ela aparece só agora e o restic oficial usa esta senha."
+            )
+            .font(.subheadline)
+            .foregroundStyle(SatchelInk.secondary)
+            if let note {
+                Text(note)
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+            }
+            ProductCard {
+                Text(password)
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(SatchelInk.ink)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("recovery-password")
+            }
+            WideButton(title: "Guardei", id: "recovery-done", action: onDone)
+        }
+    }
+}
+
+struct HoldPage: View {
+    let state: PhoneModel.HoldState
+    let onApprove: () -> Void
+    let onDeny: () -> Void
+    let onBack: () -> Void
+
+    var body: some View {
+        ProductScreen(
+            title: "Convite",
+            backLabel: "Voltar",
+            backDisabled: state.busy,
+            onBack: onBack
+        ) {
+            if let approval = state.approval {
+                ProductCard {
+                    Text("Aparelho \(approval.deviceName)")
+                    Text("Sistema \(approval.os)")
+                    Text("Endereço \(approval.peerAddress)")
+                    Text("Código \(approval.code)")
+                }
+                .foregroundStyle(SatchelInk.ink)
+                if state.failed {
+                    Text("Não foi possível aprovar.")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SatchelInk.accent)
+                }
+                WideButton(title: "Aprovar", disabled: state.busy, id: "hold-approve", action: onApprove)
+                WideButton(title: "Negar", primary: false, disabled: state.busy, id: "hold-deny", action: onDeny)
+            } else {
+                Text("Esperando o outro aparelho digitar o código.")
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+                ProductCard {
+                    Text("Código \(state.offer.code)")
+                        .accessibilityIdentifier("hold-code")
+                    Text("Endereço \(state.offer.address)")
+                        .accessibilityIdentifier("hold-address")
+                    Text("Impressão digital \(state.offer.fingerprint)")
+                        .accessibilityIdentifier("hold-fingerprint")
+                }
+                .foregroundStyle(SatchelInk.ink)
+                if let data = state.qr, let image = UIImage(data: data) {
+                    Image(uiImage: image)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 240, height: 240)
+                        .accessibilityLabel("QR do convite")
+                }
+                Text("A senha de recuperação não vai no convite.")
+                    .font(.footnote)
+                    .foregroundStyle(SatchelInk.secondary)
             }
         }
     }
 }
 
-private struct ScannerPage: View {
-    let onCode: (String) -> Void
-    let onBack: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Aponte a câmera para o QR do desktop.")
-                .padding(.horizontal)
-            QrScannerView(onCode: onCode)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .navigationTitle("Ler QR")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("Voltar", action: onBack)
-            }
-        }
+func createFailureCopy(_ reason: String) -> String {
+    switch reason {
+    case "protection":
+        return "O armazenamento recusou: ligue o versionamento do bucket e remova regras de ciclo de vida que apagam objetos."
+    case "exists":
+        return "Já existe um repositório neste lugar. Escolha outro prefixo, ou entre nele com um código."
+    case "unreachable":
+        return "Não consegui falar com o armazenamento. Confira endpoint, região e as chaves."
+    case "fields":
+        return "Confira os campos. A chave dos aparelhos precisa ser diferente da de manutenção."
+    default:
+        return "Não foi possível criar. Confira os campos, o versionamento e o ciclo de vida."
     }
 }

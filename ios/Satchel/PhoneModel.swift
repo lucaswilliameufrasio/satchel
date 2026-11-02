@@ -1,5 +1,49 @@
 import Combine
 import Foundation
+import Security
+
+/// The grant holds the device key password and, on the phone that created the
+/// repository, the recovery password. It lives in the Keychain, readable only while
+/// the phone is unlocked and never copied to another device or to iCloud. The
+/// library receives the JSON as text, so no plaintext file is written.
+enum GrantVault {
+    private static let service = "io.github.lucaswilliameufrasio.satchel"
+    private static let account = "grant"
+
+    private static var match: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+    }
+
+    static func read() -> String? {
+        var query = match
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var found: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess,
+              let data = found as? Data
+        else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    @discardableResult
+    static func write(_ text: String) -> Bool {
+        SecItemDelete(match as CFDictionary)
+        var item = match
+        item[kSecValueData as String] = Data(text.utf8)
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
+    }
+
+    static func clear() {
+        SecItemDelete(match as CFDictionary)
+    }
+}
 
 @MainActor
 final class PhoneModel: ObservableObject {
@@ -17,19 +61,36 @@ final class PhoneModel: ObservableObject {
             failed: Bool
         )
         case scanning(address: String, code: String, fingerprint: String, name: String)
+        case creating(CreateDraft)
+        case recovery(password: String, note: String?)
+        case holding(HoldState)
+    }
+
+    struct HoldState: Equatable {
+        var offer: HoldOffer
+        var approval: HoldApproval?
+        var qr: Data?
+        var busy: Bool
+        var failed: Bool
     }
 
     @Published var screen: Screen = .loading
 
     let supportURL: URL
     let sampleURL: URL
-    let grantURL: URL
+    /// Older installs wrote `grant.json` in clear. It is moved into the Keychain once.
+    let legacyGrantURL: URL
     let deviceURL: URL
     let labelURL: URL
     let workURL: URL
 
     var canPair: Bool {
-        !FileManager.default.fileExists(atPath: grantURL.path)
+        GrantVault.read() == nil
+    }
+
+    /// True when this phone created the repository and can show an invite.
+    var canInvite: Bool {
+        !canPair && SatchelCore.isMaintainer(grant: GrantVault.read() ?? "")
     }
 
     /// Catalog id of this installation. The sample has no grant, so this phone
@@ -61,18 +122,42 @@ final class PhoneModel: ObservableObject {
         supportURL = base.appendingPathComponent("satchel", isDirectory: true)
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         sampleURL = caches.appendingPathComponent("sample", isDirectory: true)
-        grantURL = supportURL.appendingPathComponent("grant.json")
+        legacyGrantURL = supportURL.appendingPathComponent("grant.json")
         deviceURL = supportURL.appendingPathComponent("device-id")
         labelURL = supportURL.appendingPathComponent("device-label")
         workURL = supportURL.appendingPathComponent("work", isDirectory: true)
+        #if targetEnvironment(simulator)
+        // UI tests start from an empty phone: no grant in the Keychain, no id, no work copy.
+        if CommandLine.arguments.contains("-satchel-reset") {
+            GrantVault.clear()
+            try? FileManager.default.removeItem(at: supportURL)
+            try? FileManager.default.removeItem(at: sampleURL)
+        }
+        #endif
         try? FileManager.default.createDirectory(at: supportURL, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: workURL, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: sampleURL, withIntermediateDirectories: true)
         try? BackupExclusion.exclude(supportURL)
         try? BackupExclusion.exclude(workURL)
-        try? BackupExclusion.exclude(grantURL)
+        PhoneModel.migrateLegacyGrant(legacyGrantURL)
+        // The Keychain outlives the app, but the device id and the work copy do not. A grant
+        // without them belongs to a previous install and is dropped instead of reused.
+        if GrantVault.read() != nil && storedDeviceId(at: deviceURL) == nil {
+            GrantVault.clear()
+        }
         try? BackupExclusion.exclude(deviceURL)
         try? BackupExclusion.exclude(labelURL)
+    }
+
+    private static func migrateLegacyGrant(_ file: URL) {
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else {
+            return
+        }
+        if GrantVault.read() == nil && !GrantVault.write(text) {
+            return
+        }
+        try? Data(count: text.utf8.count).write(to: file)
+        try? FileManager.default.removeItem(at: file)
     }
 
     private var didOpen = false
@@ -88,8 +173,8 @@ final class PhoneModel: ObservableObject {
     func openCatalog() {
         screen = .loading
         let sample = sampleURL.path
-        let grant = grantURL.path
-        let paired = FileManager.default.fileExists(atPath: grant)
+        let grant = GrantVault.read() ?? ""
+        let paired = !grant.isEmpty
         Task {
             let rows = await Task.detached {
                 if paired {
@@ -116,6 +201,134 @@ final class PhoneModel: ObservableObject {
             busy: false,
             failed: false
         )
+    }
+
+    func showCreate() {
+        screen = .creating(CreateDraft())
+    }
+
+    func update(_ draft: CreateDraft) {
+        guard case .creating = screen else {
+            return
+        }
+        screen = .creating(draft)
+    }
+
+    func create(_ draft: CreateDraft) {
+        if draft.busy || !draft.complete {
+            return
+        }
+        var working = draft
+        working.busy = true
+        working.failed = false
+        screen = .creating(working)
+        let deviceFile = deviceURL
+        let work = workURL.path
+        let directory = supportURL.appendingPathComponent("repository", isDirectory: true).path
+        Task {
+            let made = await Task.detached { () -> (password: String, stored: Bool)? in
+                guard let id = deviceId(at: deviceFile) else {
+                    return nil
+                }
+                let spec = draft.specJSON(directory: directory, deviceId: id)
+                guard let created = SatchelCore.createRepository(spec: spec, work: work),
+                      let split = created.firstIndex(of: "\n")
+                else {
+                    return nil
+                }
+                let password = String(created[created.startIndex..<split])
+                let grant = String(created[created.index(after: split)...])
+                return (password, GrantVault.write(grant))
+            }.value
+            if let made {
+                var note: String?
+                if !made.stored {
+                    note = "O repositório foi criado, mas este aparelho não conseguiu guardar a concessão no Keychain. Guarde a senha abaixo agora: sem ela e sem a concessão não dá para abrir de novo por aqui."
+                } else if draft.storage == "folder" {
+                    note = "A pasta fica só neste aparelho. Ela não tem versionamento de objeto."
+                }
+                screen = .recovery(password: made.password, note: note)
+            } else {
+                var again = draft
+                again.busy = false
+                again.failed = true
+                again.reason = SatchelCore.createFailure()
+                screen = .creating(again)
+            }
+        }
+    }
+
+    func showInvite() {
+        let grant = GrantVault.read() ?? ""
+        Task {
+            let started = await Task.detached { () -> (HoldOffer, Data?)? in
+                guard let offer = SatchelCore.holdStart(grant: grant, bind: "") else {
+                    return nil
+                }
+                return (offer, SatchelCore.invitePng(offer.invite))
+            }.value
+            if let started {
+                screen = .holding(
+                    HoldState(
+                        offer: started.0,
+                        approval: nil,
+                        qr: started.1,
+                        busy: false,
+                        failed: false
+                    )
+                )
+            }
+        }
+    }
+
+    func pollHold() async {
+        guard case .holding(let state) = screen, !state.busy else {
+            return
+        }
+        let polled = await Task.detached { SatchelCore.holdPoll() }.value
+        guard case .holding(var current) = screen, !current.busy else {
+            return
+        }
+        switch polled {
+        case .waiting:
+            break
+        case .asked(let approval):
+            current.approval = approval
+            screen = .holding(current)
+        case .ended:
+            openCatalog()
+        }
+    }
+
+    func decideHold(approve: Bool) {
+        guard case .holding(var state) = screen, !state.busy else {
+            return
+        }
+        state.busy = true
+        state.failed = false
+        screen = .holding(state)
+        let grant = GrantVault.read() ?? ""
+        Task {
+            let done = await Task.detached {
+                SatchelCore.holdDecide(grant: grant, approve: approve)
+            }.value
+            if done {
+                openCatalog()
+            } else if case .holding(var again) = screen {
+                again.busy = false
+                again.failed = true
+                screen = .holding(again)
+            }
+        }
+    }
+
+    func closeHold() {
+        SatchelCore.holdClose()
+        openCatalog()
+    }
+
+    func finishRecovery() {
+        openCatalog()
     }
 
     func openFile(path: String) {
@@ -195,7 +408,6 @@ final class PhoneModel: ObservableObject {
             failed: false
         )
         let deviceFile = deviceURL
-        let grantFile = grantURL
         let work = workURL.path
         Task {
             let opened = await Task.detached {
@@ -205,7 +417,6 @@ final class PhoneModel: ObservableObject {
                     fingerprint: trimmedFingerprint,
                     deviceName: trimmedName,
                     deviceFile: deviceFile,
-                    grantFile: grantFile,
                     work: work
                 )
             }.value
@@ -249,8 +460,8 @@ final class PhoneModel: ObservableObject {
             screen = .ready(rows: rows, busy: true)
         }
         let sample = sampleURL.path
-        let grant = grantURL.path
-        let paired = FileManager.default.fileExists(atPath: grant)
+        let grant = GrantVault.read() ?? ""
+        let paired = !grant.isEmpty
         let label = storedLabel()
         Task {
             let listed = await Task.detached {
@@ -274,6 +485,59 @@ final class PhoneModel: ObservableObject {
                 screen = .failed
             }
         }
+    }
+}
+
+struct CreateDraft: Equatable {
+    var storage: String = "folder"
+    var endpoint: String = ""
+    var bucket: String = ""
+    var region: String = ""
+    var prefix: String = ""
+    var accessKeyId: String = ""
+    var secretAccessKey: String = ""
+    var deviceAccessKeyId: String = ""
+    var deviceSecretAccessKey: String = ""
+    var busy: Bool = false
+    var failed: Bool = false
+    var reason: String = ""
+
+    var complete: Bool {
+        if storage == "folder" {
+            return true
+        }
+        let needed = [
+            endpoint, bucket, region, accessKeyId, secretAccessKey,
+            deviceAccessKeyId, deviceSecretAccessKey,
+        ]
+        for value in needed where value.trimmingCharacters(in: .whitespaces).isEmpty {
+            return false
+        }
+        return accessKeyId.trimmingCharacters(in: .whitespaces)
+            != deviceAccessKeyId.trimmingCharacters(in: .whitespaces)
+    }
+
+    func specJSON(directory: String, deviceId: String) -> String {
+        var object: [String: String] = ["kind": storage, "device_id": deviceId]
+        if storage == "folder" {
+            object["directory"] = directory
+        } else {
+            object["endpoint"] = endpoint.trimmingCharacters(in: .whitespaces)
+            object["bucket"] = bucket.trimmingCharacters(in: .whitespaces)
+            object["region"] = region.trimmingCharacters(in: .whitespaces)
+            object["prefix"] = prefix.trimmingCharacters(in: .whitespaces)
+            object["access_key_id"] = accessKeyId.trimmingCharacters(in: .whitespaces)
+            object["secret_access_key"] = secretAccessKey.trimmingCharacters(in: .whitespaces)
+            object["device_access_key_id"] = deviceAccessKeyId.trimmingCharacters(in: .whitespaces)
+            object["device_secret_access_key"] =
+                deviceSecretAccessKey.trimmingCharacters(in: .whitespaces)
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
+              let text = String(data: data, encoding: .utf8)
+        else {
+            return "{}"
+        }
+        return text
     }
 }
 
@@ -323,7 +587,6 @@ private func joinAndOpen(
     fingerprint: String,
     deviceName: String,
     deviceFile: URL,
-    grantFile: URL,
     work: String
 ) -> [CatalogRow]? {
     guard let id = deviceId(at: deviceFile) else {
@@ -342,15 +605,12 @@ private func joinAndOpen(
     guard let stored = SatchelCore.assembleGrant(joined: joined, deviceId: id, work: work) else {
         return nil
     }
-    do {
-        try stored.write(to: grantFile, atomically: true, encoding: .utf8)
-        try BackupExclusion.exclude(grantFile)
-    } catch {
+    guard GrantVault.write(stored) else {
         return nil
     }
-    let rows = SatchelCore.catalogGrant(specPath: grantFile.path)
+    let rows = SatchelCore.catalogGrant(specPath: stored)
     if rows == nil {
-        try? FileManager.default.removeItem(at: grantFile)
+        GrantVault.clear()
     }
     return rows
 }

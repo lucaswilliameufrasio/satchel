@@ -14,11 +14,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,21 +30,42 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import io.github.lucaswilliameufrasio.satchel.catalog.CatalogRow
 import io.github.lucaswilliameufrasio.satchel.catalog.CatalogSession
 import io.github.lucaswilliameufrasio.satchel.catalog.CatalogSource
 import io.github.lucaswilliameufrasio.satchel.catalog.CoreCatalog
+import io.github.lucaswilliameufrasio.satchel.catalog.EMPTY_CATALOG
+import io.github.lucaswilliameufrasio.satchel.catalog.ENTRY_FIELDS
+import io.github.lucaswilliameufrasio.satchel.catalog.ENTRY_NOTE
+import io.github.lucaswilliameufrasio.satchel.catalog.ENTRY_TITLE
 import io.github.lucaswilliameufrasio.satchel.catalog.Follow
 import io.github.lucaswilliameufrasio.satchel.catalog.GrantCatalog
+import io.github.lucaswilliameufrasio.satchel.catalog.LOADING_COPY
 import io.github.lucaswilliameufrasio.satchel.catalog.NativeCatalog
+import io.github.lucaswilliameufrasio.satchel.catalog.OPEN_FAILURE_COPY
+import io.github.lucaswilliameufrasio.satchel.catalog.PAIR_SUPPORT
+import io.github.lucaswilliameufrasio.satchel.catalog.SAVING_COPY
 import io.github.lucaswilliameufrasio.satchel.catalog.SharedCatalog
-import io.github.lucaswilliameufrasio.satchel.catalog.deviceText
+import io.github.lucaswilliameufrasio.satchel.catalog.catalogMeta
+import io.github.lucaswilliameufrasio.satchel.catalog.deviceCountLabel
+import io.github.lucaswilliameufrasio.satchel.catalog.deviceSectionLines
+import io.github.lucaswilliameufrasio.satchel.catalog.fileHeaderLines
+import io.github.lucaswilliameufrasio.satchel.catalog.followDetail
 import io.github.lucaswilliameufrasio.satchel.catalog.followLabel
+import io.github.lucaswilliameufrasio.satchel.catalog.labelStoredFromEntry
+import io.github.lucaswilliameufrasio.satchel.catalog.localDeviceId
+import io.github.lucaswilliameufrasio.satchel.catalog.openingApelido
+import io.github.lucaswilliameufrasio.satchel.catalog.pairingAfterQr
 import io.github.lucaswilliameufrasio.satchel.catalog.rowTitle
-import io.github.lucaswilliameufrasio.satchel.catalog.rowWhen
 import java.io.File
+import java.time.ZoneId
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -55,31 +76,46 @@ class MainActivity : ComponentActivity() {
         val sampleRoot = File(cacheDir, "sample").absolutePath
         val storePath = intent.getStringExtra(EXTRA_STORE)
         val pairRequested = intent.getBooleanExtra(EXTRA_PAIR, false)
-        val grantFile = File(filesDir, "grant.json")
-        val storedGrant = if (grantFile.isFile) {
-            grantFile.absolutePath
-        } else {
-            null
-        }
+        val vault = SecureGrant(filesDir)
+        vault.migrateLegacy()
+        val storedGrant = vault.read()
         val canPair = storedGrant == null && !fixture && storePath.isNullOrEmpty()
         val showPair = pairRequested && canPair
+        val apelido = { readDeviceLabel(filesDir) }
+        val initialPhoneId = localDeviceId(storedGrant != null, readStoredDeviceId(filesDir))
         val initialSession = if (showPair) {
             null
         } else {
-            CatalogSession(sourceFor(fixture, sampleRoot, storePath, storedGrant))
+            CatalogSession(sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido))
         }
         setContent {
             MaterialTheme {
+                var phoneId by remember { mutableStateOf(initialPhoneId) }
                 var screen by remember {
                     mutableStateOf<CatalogScreenState>(
                         if (showPair) {
-                            CatalogScreenState.Pairing("", "", "", false, false)
+                            CatalogScreenState.Pairing(
+                                "",
+                                "",
+                                "",
+                                openingApelido(apelido()),
+                                false,
+                                false,
+                            )
                         } else {
                             CatalogScreenState.Loading
                         },
                     )
                 }
                 var session by remember { mutableStateOf(initialSession) }
+                var hasGrant by remember { mutableStateOf(storedGrant != null) }
+                val ordinary = !fixture && storePath.isNullOrEmpty()
+                val canCreate = ordinary && !hasGrant
+                val canInvite = remember(hasGrant) {
+                    ordinary && hasGrant &&
+                        runCatching { NativeCatalog.isMaintainer(vault.read().orEmpty()) }
+                            .getOrDefault(false)
+                }
                 val scope = rememberCoroutineScope()
                 LaunchedEffect(fixture, storePath, storedGrant) {
                     val opened = session
@@ -90,17 +126,37 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 when (val current = screen) {
-                    CatalogScreenState.Loading -> StatusText("Lendo o catálogo…")
-                    CatalogScreenState.Failed -> StatusText("Não foi possível abrir o catálogo.")
+                    CatalogScreenState.Loading -> StatusText(LOADING_COPY)
+                    CatalogScreenState.Failed -> StatusText(OPEN_FAILURE_COPY)
                     is CatalogScreenState.Ready -> CatalogScreen(
                         current.rows,
-                        canPair,
+                        canPair && !hasGrant,
+                        canCreate = canCreate,
+                        onCreate = { screen = CatalogScreenState.Creating(CreateForm()) },
+                        canInvite = canInvite,
+                        onInvite = {
+                            scope.launch {
+                                val started = withContext(Dispatchers.IO) {
+                                    startHolding(vault.read().orEmpty())
+                                }
+                                if (started != null) {
+                                    screen = started
+                                }
+                            }
+                        },
                         onPair = {
-                            screen = CatalogScreenState.Pairing("", "", "", false, false)
+                            screen = CatalogScreenState.Pairing(
+                                "",
+                                "",
+                                "",
+                                openingApelido(apelido()),
+                                false,
+                                false,
+                            )
                         },
                         onOpen = { path ->
                             if (!current.busy) {
-                                screen = CatalogScreenState.File(path, current.rows, false)
+                                screen = CatalogScreenState.File(path, current.rows, false, phoneId)
                             }
                         },
                     )
@@ -126,6 +182,7 @@ class MainActivity : ComponentActivity() {
                                         current.path,
                                         next.rows,
                                         false,
+                                        current.localDeviceId,
                                     )
                                     else -> next
                                 }
@@ -159,11 +216,20 @@ class MainActivity : ComponentActivity() {
                                     pairing.address,
                                     pairing.code,
                                     pairing.fingerprint,
+                                    pairing.apelido,
                                 )
                             }
                         },
+                        onApelido = { value ->
+                            val pairing = screen
+                            if (pairing is CatalogScreenState.Pairing) {
+                                screen = pairing.copy(apelido = value, failed = false)
+                            }
+                        },
                         onBack = {
-                            val opened = CatalogSession(sourceFor(fixture, sampleRoot, storePath, storedGrant))
+                            val opened = CatalogSession(
+                                sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido),
+                            )
                             session = opened
                             scope.launch {
                                 screen = withContext(Dispatchers.IO) {
@@ -176,7 +242,8 @@ class MainActivity : ComponentActivity() {
                             if (pairing !is CatalogScreenState.Pairing || pairing.busy) {
                                 return@PairScreen
                             }
-                            if (pairing.address.isBlank() || pairing.code.isBlank() || pairing.fingerprint.isBlank()) {
+                            val storedApelido = labelStoredFromEntry(pairing.apelido)
+                            if (pairing.address.isBlank() || pairing.code.isBlank() || pairing.fingerprint.isBlank() || storedApelido == null) {
                                 screen = pairing.copy(failed = true)
                                 return@PairScreen
                             }
@@ -187,31 +254,138 @@ class MainActivity : ComponentActivity() {
                                 address = address,
                                 code = code,
                                 fingerprint = fingerprint,
+                                apelido = storedApelido,
                                 busy = true,
                                 failed = false,
                             )
                             scope.launch {
                                 val joined = withContext(Dispatchers.IO) {
-                                    joinGrant(filesDir, address, code, fingerprint)
+                                    writeDeviceLabel(filesDir, storedApelido)
+                                    if (storedApelido.isEmpty()) {
+                                        null
+                                    } else {
+                                        joinGrant(filesDir, address, code, fingerprint, storedApelido)
+                                    }
                                 }
                                 if (joined == null) {
-                                    screen = CatalogScreenState.Pairing(address, code, fingerprint, false, true)
+                                    screen = CatalogScreenState.Pairing(
+                                        address,
+                                        code,
+                                        fingerprint,
+                                        storedApelido,
+                                        false,
+                                        true,
+                                    )
                                     return@launch
                                 }
                                 session = joined
+                                phoneId = localDeviceId(true, readStoredDeviceId(filesDir))
                                 val opened = withContext(Dispatchers.IO) {
                                     openCatalog(joined)
                                 }
                                 if (opened is CatalogScreenState.Failed) {
-                                    grantFile.delete()
+                                    vault.clear()
                                     session = null
-                                    screen = CatalogScreenState.Pairing(address, code, fingerprint, false, true)
+                                    screen = CatalogScreenState.Pairing(
+                                        address,
+                                        code,
+                                        fingerprint,
+                                        storedApelido,
+                                        false,
+                                        true,
+                                    )
                                 } else {
                                     screen = opened
                                 }
                             }
                         },
                     )
+                    is CatalogScreenState.Creating -> CreateScreen(
+                        current.form,
+                        onForm = { screen = CatalogScreenState.Creating(it) },
+                        onBack = {
+                            val opened = CatalogSession(
+                                sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido),
+                            )
+                            session = opened
+                            scope.launch {
+                                screen = withContext(Dispatchers.IO) { openCatalog(opened) }
+                            }
+                        },
+                        onSubmit = {
+                            val form = current.form
+                            if (form.busy || !createFormComplete(form)) {
+                                return@CreateScreen
+                            }
+                            screen = CatalogScreenState.Creating(form.copy(busy = true, failed = false))
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    createRepositoryFile(filesDir, form)
+                                }
+                                if (result.password == null) {
+                                    screen = CatalogScreenState.Creating(
+                                        form.copy(busy = false, failed = true, reason = result.reason),
+                                    )
+                                    return@launch
+                                }
+                                hasGrant = result.stored
+                                phoneId = localDeviceId(result.stored, readStoredDeviceId(filesDir))
+                                val warning = when {
+                                    !result.stored -> VAULT_FAILED_COPY
+                                    form.storage == StorageChoice.Folder -> CREATE_FOLDER_NOTE
+                                    else -> null
+                                }
+                                screen = CatalogScreenState.Recovery(result.password, warning)
+                            }
+                        },
+                    )
+                    is CatalogScreenState.Recovery -> RecoveryScreen(
+                        current.password,
+                        current.warning,
+                        onDone = {
+                            val opened = CatalogSession(
+                                GrantCatalog(vault.read().orEmpty(), apelido),
+                            )
+                            session = opened
+                            scope.launch {
+                                screen = withContext(Dispatchers.IO) { openCatalog(opened) }
+                            }
+                        },
+                    )
+                    is CatalogScreenState.Holding -> {
+                        LaunchedEffect(Unit) {
+                            while (isActive) {
+                                val shown = withContext(Dispatchers.IO) {
+                                    runCatching { NativeCatalog.holdPoll() }.getOrNull()
+                                }
+                                val now = screen
+                                if (now is CatalogScreenState.Holding && !now.busy) {
+                                    if (shown == null) {
+                                        screen = CatalogScreenState.Ready(session?.rows ?: emptyList(), false)
+                                        return@LaunchedEffect
+                                    }
+                                    val approval = approvalFrom(shown)
+                                    if (approval != now.approval) {
+                                        screen = now.copy(approval = approval)
+                                    }
+                                }
+                                delay(500)
+                            }
+                        }
+                        HoldScreen(
+                            current.offer,
+                            current.approval,
+                            current.busy,
+                            current.failed,
+                            current.qr,
+                            onApprove = { decideHolding(vault.read().orEmpty(), true, current, { screen = it }, scope, session) },
+                            onDeny = { decideHolding(vault.read().orEmpty(), false, current, { screen = it }, scope, session) },
+                            onBack = {
+                                NativeCatalog.holdClose()
+                                screen = CatalogScreenState.Ready(session?.rows ?: emptyList(), false)
+                            },
+                        )
+                    }
                     is CatalogScreenState.Scanning -> QrScanner(
                         onCode = { raw ->
                             val previous = current
@@ -228,15 +402,23 @@ class MainActivity : ComponentActivity() {
                                         previous.address,
                                         previous.code,
                                         previous.fingerprint,
+                                        previous.apelido,
                                         false,
                                         true,
                                     )
                                 } else {
-                                    screen = CatalogScreenState.Pairing(
+                                    val filled = pairingAfterQr(
+                                        previous.apelido,
                                         fields.address,
                                         fields.code,
                                         fields.fingerprint,
-                                        false,
+                                    )
+                                    screen = CatalogScreenState.Pairing(
+                                        filled.address,
+                                        filled.code,
+                                        filled.fingerprint,
+                                        filled.apelido,
+                                        filled.submit,
                                         false,
                                     )
                                 }
@@ -247,6 +429,7 @@ class MainActivity : ComponentActivity() {
                                 current.address,
                                 current.code,
                                 current.fingerprint,
+                                current.apelido,
                                 false,
                                 false,
                             )
@@ -263,7 +446,12 @@ private sealed interface CatalogScreenState {
 
     data class Ready(val rows: List<CatalogRow>, val busy: Boolean) : CatalogScreenState
 
-    data class File(val path: String, val rows: List<CatalogRow>, val busy: Boolean) : CatalogScreenState
+    data class File(
+        val path: String,
+        val rows: List<CatalogRow>,
+        val busy: Boolean,
+        val localDeviceId: String,
+    ) : CatalogScreenState
 
     data object Failed : CatalogScreenState
 
@@ -271,6 +459,7 @@ private sealed interface CatalogScreenState {
         val address: String,
         val code: String,
         val fingerprint: String,
+        val apelido: String,
         val busy: Boolean,
         val failed: Boolean,
     ) : CatalogScreenState
@@ -279,7 +468,82 @@ private sealed interface CatalogScreenState {
         val address: String,
         val code: String,
         val fingerprint: String,
+        val apelido: String,
     ) : CatalogScreenState
+
+    data class Creating(val form: CreateForm) : CatalogScreenState
+
+    data class Recovery(val password: String, val warning: String?) : CatalogScreenState
+
+    data class Holding(
+        val offer: HoldOffer,
+        val approval: HoldApproval?,
+        val busy: Boolean,
+        val failed: Boolean,
+        val qr: ByteArray?,
+    ) : CatalogScreenState
+}
+
+private fun startHolding(grantPath: String): CatalogScreenState.Holding? {
+    try {
+        val fields = JsonCursor(NativeCatalog.holdStart(grantPath, "")).parseMixedObject()
+        val offer = HoldOffer(
+            fields.getValue("code"),
+            fields.getValue("address"),
+            fields.getValue("fingerprint"),
+            fields.getValue("invite"),
+        )
+        val qr = try {
+            NativeCatalog.invitePng(offer.invite)
+        } catch (_: Exception) {
+            null
+        }
+        return CatalogScreenState.Holding(offer, null, false, false, qr)
+    } catch (_: Exception) {
+        return null
+    }
+}
+
+internal fun approvalFrom(text: String): HoldApproval? {
+    if (text.isEmpty()) {
+        return null
+    }
+    val fields = JsonCursor(text).parseMixedObject()
+    return HoldApproval(
+        fields.getValue("deviceName"),
+        fields.getValue("os"),
+        fields.getValue("peerAddress"),
+        fields.getValue("code"),
+    )
+}
+
+private fun decideHolding(
+    grantPath: String,
+    approve: Boolean,
+    current: CatalogScreenState.Holding,
+    show: (CatalogScreenState) -> Unit,
+    scope: kotlinx.coroutines.CoroutineScope,
+    session: CatalogSession?,
+) {
+    if (current.busy) {
+        return
+    }
+    show(current.copy(busy = true, failed = false))
+    scope.launch {
+        val done = withContext(Dispatchers.IO) {
+            try {
+                NativeCatalog.holdDecide(grantPath, approve)
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+        if (done) {
+            show(CatalogScreenState.Ready(session?.rows ?: emptyList(), false))
+        } else {
+            show(current.copy(busy = false, failed = true))
+        }
+    }
 }
 
 internal const val EXTRA_FIXTURE = "satchel.fixture"
@@ -293,20 +557,27 @@ internal fun sourceFor(
     sampleRoot: String,
     storePath: String?,
     grantPath: String?,
+    apelido: () -> String = { "" },
 ): CatalogSource {
     if (fixture) {
         return FixtureCatalog()
     }
     if (!storePath.isNullOrEmpty()) {
-        return SharedCatalog(storePath)
+        return SharedCatalog(storePath, apelido)
     }
     if (!grantPath.isNullOrEmpty()) {
-        return GrantCatalog(grantPath)
+        return GrantCatalog(grantPath, apelido)
     }
-    return CoreCatalog(sampleRoot)
+    return CoreCatalog(sampleRoot, apelido)
 }
 
-private fun joinGrant(filesDir: File, address: String, code: String, fingerprint: String): CatalogSession? {
+private fun joinGrant(
+    filesDir: File,
+    address: String,
+    code: String,
+    fingerprint: String,
+    apelido: String,
+): CatalogSession? {
     try {
         val deviceId = readOrCreateDeviceId(filesDir)
         val work = File(filesDir, "work")
@@ -314,20 +585,44 @@ private fun joinGrant(filesDir: File, address: String, code: String, fingerprint
             address,
             code,
             fingerprint,
-            "Satchel",
+            apelido,
             "Android",
             deviceId,
         )
         val text = assembleGrant(raw, deviceId, work.absolutePath)
-        val file = File(filesDir, "grant.json")
-        file.writeText(text)
-        return CatalogSession(GrantCatalog(file.absolutePath))
+        SecureGrant(filesDir).write(text)
+        return CatalogSession(GrantCatalog(text) { readDeviceLabel(filesDir) })
     } catch (_: Exception) {
         return null
     }
 }
 
-private fun readOrCreateDeviceId(filesDir: File): String {
+internal fun readDeviceLabel(filesDir: File): String {
+    val file = File(filesDir, "device-label")
+    if (!file.isFile) {
+        return ""
+    }
+    return file.readText()
+}
+
+internal fun writeDeviceLabel(filesDir: File, label: String) {
+    File(filesDir, "device-label").writeText(label)
+}
+
+/** Reads a device id that is already on disk. Does not create the file. */
+internal fun readStoredDeviceId(filesDir: File): String? {
+    val file = File(filesDir, "device-id")
+    if (!file.isFile) {
+        return null
+    }
+    val existing = file.readText().trim()
+    if (existing.length != 32) {
+        return null
+    }
+    return existing
+}
+
+internal fun readOrCreateDeviceId(filesDir: File): String {
     val file = File(filesDir, "device-id")
     if (file.isFile) {
         val existing = file.readText().trim()
@@ -364,9 +659,11 @@ private fun chooseCatalog(session: CatalogSession, path: String, follow: Follow)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @androidx.compose.runtime.Composable
-private fun PhoneScaffold(
+internal fun PhoneScaffold(
     title: String,
     onBack: (() -> Unit)?,
+    backLabel: String = "Voltar",
+    backEnabled: Boolean = true,
     content: @androidx.compose.runtime.Composable (PaddingValues) -> Unit,
 ) {
     Scaffold(
@@ -375,8 +672,8 @@ private fun PhoneScaffold(
                 title = { Text(title) },
                 navigationIcon = {
                     if (onBack != null) {
-                        TextButton(onClick = onBack) {
-                            Text("Voltar")
+                        TextButton(onClick = onBack, enabled = backEnabled) {
+                            Text(backLabel)
                         }
                     }
                 },
@@ -390,15 +687,39 @@ private fun PhoneScaffold(
 private fun CatalogScreen(
     rows: List<CatalogRow>,
     canPair: Boolean,
+    canCreate: Boolean,
+    onCreate: () -> Unit,
+    canInvite: Boolean,
+    onInvite: () -> Unit,
     onPair: () -> Unit,
     onOpen: (String) -> Unit,
 ) {
+    val zone = ZoneId.systemDefault()
     PhoneScaffold(title = "Catálogo", onBack = null) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
+            if (canCreate) {
+                item {
+                    ListItem(
+                        headlineContent = { Text(CREATE_TITLE) },
+                        supportingContent = { Text(CREATE_NOTE) },
+                        modifier = Modifier.clickable(onClick = onCreate),
+                    )
+                }
+            }
+            if (canInvite) {
+                item {
+                    ListItem(
+                        headlineContent = { Text("Mostrar convite") },
+                        supportingContent = { Text(INVITE_NOTE) },
+                        modifier = Modifier.clickable(onClick = onInvite),
+                    )
+                }
+            }
             if (canPair) {
                 item {
                     ListItem(
-                        headlineContent = { Text("Entrar neste aparelho") },
+                        headlineContent = { Text(ENTRY_TITLE) },
+                        supportingContent = { Text(PAIR_SUPPORT) },
                         modifier = Modifier.clickable(onClick = onPair),
                     )
                 }
@@ -406,7 +727,7 @@ private fun CatalogScreen(
             if (rows.isEmpty()) {
                 item {
                     Text(
-                        "Nenhum arquivo no catálogo.",
+                        EMPTY_CATALOG,
                         modifier = Modifier.padding(16.dp),
                     )
                 }
@@ -414,9 +735,11 @@ private fun CatalogScreen(
             items(rows, key = { row -> row.path }) { row ->
                 ListItem(
                     headlineContent = { Text(rowTitle(row), style = MaterialTheme.typography.titleMedium) },
-                    overlineContent = { Text(followLabel(row.follow)) },
                     supportingContent = {
-                        Text("Sincronizado em ${rowWhen(row)}\nAparelhos: ${deviceText(row)}")
+                        Text("${catalogMeta(row, zone)}\n${deviceCountLabel(row.devices)}")
+                    },
+                    trailingContent = {
+                        Text(followLabel(row.follow), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     },
                     modifier = Modifier.clickable { onOpen(row.path) },
                 )
@@ -432,50 +755,79 @@ private fun FileScreen(
     onChoose: (Follow) -> Unit,
 ) {
     val row = listedRow(state.path, state.rows)
-    PhoneScaffold(title = state.path, onBack = onBack) { padding ->
+    val zone = ZoneId.systemDefault()
+    PhoneScaffold(
+        title = state.path,
+        onBack = onBack,
+        backLabel = "Catálogo",
+        backEnabled = !state.busy,
+    ) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (row == null) {
                 item {
-                    Text("Nenhum arquivo no catálogo.", modifier = Modifier.padding(16.dp))
+                    Text(EMPTY_CATALOG, modifier = Modifier.padding(16.dp))
                 }
                 return@LazyColumn
             }
+            val header = fileHeaderLines(row, zone)
             item {
                 ListItem(
-                    overlineContent = { Text("Sincronizado") },
-                    headlineContent = { Text(rowWhen(row)) },
+                    overlineContent = { Text(header[0]) },
+                    headlineContent = { Text(header[1]) },
                 )
             }
             item {
                 ListItem(
-                    overlineContent = { Text("Aparelhos") },
-                    headlineContent = { Text(deviceText(row)) },
+                    overlineContent = { Text(header[2]) },
+                    headlineContent = { Text(header[3]) },
                 )
             }
             item {
                 Text(
-                    "Estado",
+                    "Neste aparelho",
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
                 )
             }
+            if (state.busy) {
+                item {
+                    Text(SAVING_COPY, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                }
+            }
             items(Follow.entries, key = { follow -> follow.name }) { follow ->
+                val chosen = row.follow == follow
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .semantics { selected = chosen }
                         .clickable(enabled = !state.busy) { onChoose(follow) }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    RadioButton(
-                        selected = row.follow == follow,
-                        onClick = { onChoose(follow) },
-                        enabled = !state.busy,
-                    )
-                    Text(
-                        followLabel(follow),
-                        modifier = Modifier.padding(top = 12.dp),
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(followLabel(follow))
+                        Text(
+                            followDetail(follow, row.isDirectory),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (chosen) {
+                        Text("✓")
+                    }
                 }
+            }
+            item {
+                Text(
+                    "Aparelhos",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
+                )
+            }
+            val cards = deviceSectionLines(row, state.localDeviceId, zone)
+            items(cards.size) { index ->
+                Text(
+                    cards[index],
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                )
             }
         }
     }
@@ -496,31 +848,46 @@ private fun PairScreen(
     onAddress: (String) -> Unit,
     onCode: (String) -> Unit,
     onFingerprint: (String) -> Unit,
+    onApelido: (String) -> Unit,
     onScan: () -> Unit,
     onBack: () -> Unit,
     onSubmit: () -> Unit,
 ) {
-    PhoneScaffold(title = "Entrar neste aparelho", onBack = onBack) { padding ->
+    val plain = KeyboardOptions(
+        capitalization = KeyboardCapitalization.None,
+        autoCorrectEnabled = false,
+    )
+    PhoneScaffold(title = ENTRY_TITLE, onBack = onBack, backEnabled = !state.busy) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+        Text(ENTRY_NOTE)
         OutlinedTextField(
             value = state.address,
             onValueChange = onAddress,
             enabled = !state.busy,
-            label = { Text("Endereço") },
+            label = { Text(ENTRY_FIELDS[0]) },
+            keyboardOptions = plain,
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
         )
         OutlinedTextField(
             value = state.code,
             onValueChange = onCode,
             enabled = !state.busy,
-            label = { Text("Código") },
+            label = { Text(ENTRY_FIELDS[1]) },
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
         OutlinedTextField(
             value = state.fingerprint,
             onValueChange = onFingerprint,
             enabled = !state.busy,
-            label = { Text("Impressão digital") },
+            label = { Text(ENTRY_FIELDS[2]) },
+            keyboardOptions = plain,
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        )
+        OutlinedTextField(
+            value = state.apelido,
+            onValueChange = onApelido,
+            enabled = !state.busy,
+            label = { Text(ENTRY_FIELDS[3]) },
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
         if (state.failed) {

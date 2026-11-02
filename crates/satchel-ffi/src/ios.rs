@@ -6,8 +6,8 @@ use std::path::Path;
 use std::ptr;
 
 use crate::{
-    CatalogFailure, assemble_grant_json, catalog_grant, join_pairing, mark_grant, mark_sample,
-    parse_invite, read_grant_bytes, read_sample, sample_catalog,
+    CatalogFailure, assemble_grant_json, catalog_grant, join_pairing, maker, mark_grant,
+    mark_sample, parse_invite, read_grant_bytes, read_sample, sample_catalog,
 };
 use satchel_core::DeviceId;
 
@@ -296,6 +296,85 @@ pub extern "C" fn satchel_read_grant(
         return ptr::null_mut();
     };
     match read_grant_bytes(Path::new(&spec_text), &path_text) {
+        Ok(bytes) => leak_bytes(bytes, len),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// Create the repository. Returns `password\ngrant JSON`, or NULL if refused. The caller keeps
+/// the grant in the Keychain; nothing is written to disk here.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_create_repository(
+    spec: *const c_char,
+    work: *const c_char,
+) -> *mut c_char {
+    let (Ok(spec), Ok(work)) = (text_from(spec), text_from(work)) else {
+        return ptr::null_mut();
+    };
+    match maker::create_phone_repository(&spec, Path::new(&work)) {
+        Ok(created) => leak_string(created),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// Why the last create was refused: `protection`, `exists`, `unreachable`, or `fields`.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_create_failure() -> *mut c_char {
+    leak_string(maker::last_failure())
+}
+
+/// 1 when the grant file belongs to the device that created the repository.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_is_maintainer(grant: *const c_char) -> i32 {
+    let Ok(grant) = text_from(grant) else {
+        return 0;
+    };
+    i32::from(maker::is_maintainer(Path::new(&grant)))
+}
+
+/// Start showing the invite. `bind` may be empty. Offer JSON, or NULL.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_hold_start(grant: *const c_char, bind: *const c_char) -> *mut c_char {
+    let (Ok(grant), Ok(bind)) = (text_from(grant), optional_text_from(bind)) else {
+        return ptr::null_mut();
+    };
+    match maker::hold_start(Path::new(&grant), &bind, satchel_pair::DEFAULT_TIMEOUT) {
+        Ok(offer) => leak_string(offer),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// Approval JSON once the other device passed the code check, an empty string before, NULL on error.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_hold_poll() -> *mut c_char {
+    match maker::hold_poll() {
+        Ok(shown) => leak_string(shown),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// 1 when the decision was applied. Approving writes the other device's key.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_hold_decide(grant: *const c_char, approve: i32) -> i32 {
+    let Ok(grant) = text_from(grant) else {
+        return 0;
+    };
+    i32::from(maker::hold_decide(Path::new(&grant), approve != 0).is_ok())
+}
+
+/// Stop listening without a decision.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_hold_close() {
+    maker::hold_close();
+}
+
+/// PNG bytes of the invite QR. NULL on error. Free with `satchel_free_bytes`.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_invite_png(invite: *const c_char, len: *mut usize) -> *mut u8 {
+    let Ok(invite) = text_from(invite) else {
+        return ptr::null_mut();
+    };
+    match maker::invite_png(&invite) {
         Ok(bytes) => leak_bytes(bytes, len),
         Err(_) => ptr::null_mut(),
     }

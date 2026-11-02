@@ -877,7 +877,6 @@ fn remote_present_bytes(
     }
 }
 
-/// Read cursors from every satchel snapshot.
 /// Publish every regular file in `folder` as Sincronizar sempre.
 ///
 /// The repository is created when its config object is absent. The password is
@@ -905,6 +904,38 @@ pub fn publish_folder(
     client.sync(location)
 }
 
+/// Keep `folder` in step with the repository: send its regular files and
+/// bring in every file another device published.
+///
+/// `password` is the recovery password on the device that created the
+/// repository, or the device key password on a device that joined.
+pub fn sync_folder(
+    location: &Location,
+    password: &str,
+    device_id: &DeviceId,
+    folder: &Path,
+) -> Result<SyncOutcome, Error> {
+    if !folder.is_dir() {
+        return Err(Error::SourceDirectory {
+            path: folder.to_path_buf(),
+        });
+    }
+    if !location.config_present()? {
+        init(location, password, device_id)?;
+    }
+    let mut client = Client::open(device_id.clone(), folder, password)?;
+    for entry in client.catalog(location)? {
+        if !entry.is_directory {
+            client.follow(&entry.path, Follow::Always)?;
+        }
+    }
+    for path in regular_files(folder)? {
+        client.follow(&path, Follow::Always)?;
+    }
+    client.sync(location)
+}
+
+/// Read cursors from every satchel snapshot.
 pub fn cursors(location: &Location, password: &str) -> Result<Vec<Cursor>, Error> {
     let repo = open_indexed(location, password)?;
     let snaps = load_snaps(&repo)?;

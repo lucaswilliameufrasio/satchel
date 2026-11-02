@@ -164,7 +164,13 @@ fn mark_sample(
 }
 
 #[cfg(target_os = "android")]
-fn mark_store(spec_path: &Path, path: &str, follow: &str) -> Result<(), CatalogFailure> {
+fn mark_store(
+    spec_path: &Path,
+    path: &str,
+    follow: &str,
+    name: &str,
+    os: &str,
+) -> Result<(), CatalogFailure> {
     let follow = parse_follow(follow)?;
     let (location, spec) = open_store(spec_path)?;
     publish_mark(
@@ -173,8 +179,8 @@ fn mark_store(spec_path: &Path, path: &str, follow: &str) -> Result<(), CatalogF
         &spec.password,
         path,
         follow,
-        "",
-        "",
+        name,
+        os,
     )
 }
 
@@ -231,6 +237,12 @@ struct GrantSpec {
     region: String,
     #[serde(default)]
     prefix: String,
+    /// `maintainer` on the device that created the repository. Empty on a device that joined.
+    #[serde(default)]
+    role: String,
+    /// Credential sent to a device that joins. Only a maintainer file carries it.
+    #[serde(default)]
+    limited_credential: String,
 }
 
 #[derive(Deserialize)]
@@ -253,7 +265,13 @@ struct GrantWire<'a> {
     device_key_password: &'a str,
 }
 
+/// A grant is a file path, or the grant JSON itself when the phone keeps it in the
+/// system keystore and never writes it to disk. Inline text starts with `{`.
 fn read_grant(path: &Path) -> Result<GrantSpec, CatalogFailure> {
+    let named = path.to_str().ok_or(CatalogFailure)?;
+    if named.trim_start().starts_with('{') {
+        return serde_json::from_str(named).map_err(|_| CatalogFailure);
+    }
     let text = fs::read_to_string(path).map_err(|_| CatalogFailure)?;
     serde_json::from_str(&text).map_err(|_| CatalogFailure)
 }
@@ -483,16 +501,26 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
     root: JString<'local>,
     path: JString<'local>,
     follow: JString<'local>,
+    name: JString<'local>,
+    os: JString<'local>,
 ) {
     unowned
         .with_env(|env| -> Result<(), CatalogFailure> {
             let root_text = root.try_to_string(env)?;
             let path_text = path.try_to_string(env)?;
             let follow_text = follow.try_to_string(env)?;
+            let name_text = name.try_to_string(env)?;
+            let os_text = os.try_to_string(env)?;
             if root_text.is_empty() || path_text.is_empty() || follow_text.is_empty() {
                 return Err(CatalogFailure);
             }
-            mark_sample(Path::new(&root_text), &path_text, &follow_text, "", "")
+            mark_sample(
+                Path::new(&root_text),
+                &path_text,
+                &follow_text,
+                &name_text,
+                &os_text,
+            )
         })
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
@@ -507,16 +535,26 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
     spec: JString<'local>,
     path: JString<'local>,
     follow: JString<'local>,
+    name: JString<'local>,
+    os: JString<'local>,
 ) {
     unowned
         .with_env(|env| -> Result<(), CatalogFailure> {
             let spec_text = spec.try_to_string(env)?;
             let path_text = path.try_to_string(env)?;
             let follow_text = follow.try_to_string(env)?;
+            let name_text = name.try_to_string(env)?;
+            let os_text = os.try_to_string(env)?;
             if spec_text.is_empty() || path_text.is_empty() || follow_text.is_empty() {
                 return Err(CatalogFailure);
             }
-            mark_store(Path::new(&spec_text), &path_text, &follow_text)
+            mark_store(
+                Path::new(&spec_text),
+                &path_text,
+                &follow_text,
+                &name_text,
+                &os_text,
+            )
         })
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
@@ -599,16 +637,26 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
     spec: JString<'local>,
     path: JString<'local>,
     follow: JString<'local>,
+    name: JString<'local>,
+    os: JString<'local>,
 ) {
     unowned
         .with_env(|env| -> Result<(), CatalogFailure> {
             let spec_text = spec.try_to_string(env)?;
             let path_text = path.try_to_string(env)?;
             let follow_text = follow.try_to_string(env)?;
+            let name_text = name.try_to_string(env)?;
+            let os_text = os.try_to_string(env)?;
             if spec_text.is_empty() || path_text.is_empty() || follow_text.is_empty() {
                 return Err(CatalogFailure);
             }
-            mark_grant(Path::new(&spec_text), &path_text, &follow_text, "", "")
+            mark_grant(
+                Path::new(&spec_text),
+                &path_text,
+                &follow_text,
+                &name_text,
+                &os_text,
+            )
         })
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
@@ -722,8 +770,166 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
+#[cfg(target_os = "android")]
+fn text_arg(
+    env: &mut jni::Env<'_>,
+    value: &JString<'_>,
+    allow_empty: bool,
+) -> Result<String, CatalogFailure> {
+    let text = value.try_to_string(env)?;
+    if text.is_empty() && !allow_empty {
+        return Err(CatalogFailure);
+    }
+    Ok(text)
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_createRepository<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    spec: JString<'local>,
+    work: JString<'local>,
+) -> jstring {
+    unowned
+        .with_env(|env| -> Result<jstring, CatalogFailure> {
+            let spec_text = text_arg(env, &spec, false)?;
+            let work_text = text_arg(env, &work, false)?;
+            let created = maker::create_phone_repository(&spec_text, Path::new(&work_text))?;
+            Ok(env.new_string(created)?.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_createFailure<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    unowned
+        .with_env(|env| -> Result<jstring, CatalogFailure> {
+            Ok(env.new_string(maker::last_failure())?.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_isMaintainer<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    grant: JString<'local>,
+) -> jni::sys::jboolean {
+    unowned
+        .with_env(|env| -> Result<jni::sys::jboolean, CatalogFailure> {
+            let grant_text = text_arg(env, &grant, false)?;
+            Ok(maker::is_maintainer(Path::new(&grant_text)))
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_holdStart<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    grant: JString<'local>,
+    bind: JString<'local>,
+) -> jstring {
+    unowned
+        .with_env(|env| -> Result<jstring, CatalogFailure> {
+            let grant_text = text_arg(env, &grant, false)?;
+            let bind_text = text_arg(env, &bind, true)?;
+            let offer = maker::hold_start(
+                Path::new(&grant_text),
+                &bind_text,
+                satchel_pair::DEFAULT_TIMEOUT,
+            )?;
+            Ok(env.new_string(offer)?.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_holdPoll<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    unowned
+        .with_env(|env| -> Result<jstring, CatalogFailure> {
+            let shown = maker::hold_poll()?;
+            Ok(env.new_string(shown)?.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_holdDecide<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    grant: JString<'local>,
+    approve: jni::sys::jboolean,
+) {
+    unowned
+        .with_env(|env| -> Result<(), CatalogFailure> {
+            let grant_text = text_arg(env, &grant, false)?;
+            maker::hold_decide(Path::new(&grant_text), approve)
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_holdClose<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) {
+    unowned
+        .with_env(|_env| -> Result<(), CatalogFailure> {
+            maker::hold_close();
+            Ok(())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_invitePng<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    invite: JString<'local>,
+) -> jbyteArray {
+    unowned
+        .with_env(|env| -> Result<jbyteArray, CatalogFailure> {
+            let text = text_arg(env, &invite, false)?;
+            let bytes = maker::invite_png(&text)?;
+            Ok(env.byte_array_from_slice(&bytes)?.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
 #[cfg(any(test, target_os = "ios"))]
 mod ios;
+mod maker;
 
 #[cfg(any(test, target_os = "ios"))]
 mod tests {

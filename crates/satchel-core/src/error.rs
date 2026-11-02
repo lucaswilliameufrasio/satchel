@@ -52,6 +52,14 @@ pub enum Error {
     #[error("object storage needs versioning enabled and no lifecycle rule that deletes objects")]
     ObjectProtection,
 
+    /// A repository already exists at this location.
+    #[error("a repository already exists here")]
+    RepositoryExists,
+
+    /// WebDAV and SFTP have no setup in this cut.
+    #[error("this storage kind has no setup yet")]
+    UnsupportedStorage,
+
     /// The bucket probe did not return a usable answer. The message has no credential.
     #[error("object storage probe failed")]
     Probe,

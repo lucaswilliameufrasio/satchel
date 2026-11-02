@@ -5,15 +5,16 @@ use std::ffi::c_void;
 use std::net::SocketAddr;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 #[cfg(target_os = "linux")]
 use std::thread;
-#[cfg(target_os = "linux")]
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
 use satchel_desktop::TrayView;
-use satchel_desktop::{Desktop, KeyringStore, TrayCommand, default_config_dir};
+use satchel_desktop::{
+    Desktop, KeyringStore, SetupPage, TrayCommand, default_config_dir, start_setup_page,
+};
 use satchel_pair::{DEFAULT_TIMEOUT, ListenConfig};
 
 #[cfg(target_os = "linux")]
@@ -48,7 +49,7 @@ fn display_available() -> bool {
 
 fn run() -> Result<(), satchel_desktop::Error> {
     let desktop = Arc::new(Mutex::new(Desktop::open(default_config_dir())?));
-    let secrets = Arc::new(KeyringStore::system());
+    let secrets = Arc::new(keyring_from_env());
     let quit = Arc::new(AtomicBool::new(false));
     #[cfg(target_os = "linux")]
     {
@@ -71,14 +72,18 @@ fn linux_tray(
     secrets: Arc<KeyringStore>,
     quit: Arc<AtomicBool>,
 ) -> Result<(), satchel_desktop::Error> {
+    let tray_desktop = Arc::clone(&desktop);
+    let tray_secrets = Arc::clone(&secrets);
     let tray = SatchelTray {
         desktop,
         secrets,
         quit: Arc::clone(&quit),
     };
     let handle = tray.spawn().map_err(|_| satchel_desktop::Error::Tray)?;
+    let mut auto = AutoSync::new();
     while !quit.load(Ordering::SeqCst) {
         thread::sleep(Duration::from_millis(200));
+        auto.tick(&tray_desktop, &tray_secrets);
     }
     drop(handle);
     Ok(())
@@ -151,7 +156,9 @@ fn macos_tray(
     let mut shown: Option<TrayView> = None;
     let mut commands: BTreeMap<String, TrayCommand> = BTreeMap::new();
     let events = MenuEvent::receiver();
+    let mut auto = AutoSync::new();
     while !quit.load(Ordering::SeqCst) {
+        auto.tick(&desktop, &secrets);
         let view = {
             let mut opened = lock_desktop(&desktop);
             opened.poll();
@@ -184,19 +191,43 @@ struct BuiltMenu {
 
 #[cfg(target_os = "macos")]
 fn menu_for(view: &TrayView) -> Result<BuiltMenu, satchel_desktop::Error> {
-    use tray_icon::menu::{Menu, MenuItem};
+    use tray_icon::menu::{IconMenuItem, Menu, MenuItem};
 
     let menu = Menu::new();
     let mut commands = BTreeMap::new();
+    enum Row {
+        Text(MenuItem),
+        Icon(IconMenuItem),
+    }
     let mut rows = Vec::new();
     for (index, item) in view.items.iter().enumerate() {
         let id = format!("row-{index}");
         commands.insert(id.clone(), item.command.clone());
-        rows.push(MenuItem::with_id(id, &item.label, item.enabled, None));
+        if let Some(png) = item.icon_png.as_ref()
+            && let Some(icon) = menu_icon(png)
+        {
+            rows.push(Row::Icon(IconMenuItem::with_id(
+                id,
+                &item.label,
+                item.enabled,
+                Some(icon),
+                None,
+            )));
+            continue;
+        }
+        rows.push(Row::Text(MenuItem::with_id(
+            id,
+            &item.label,
+            item.enabled,
+            None,
+        )));
     }
     let mut refs = Vec::new();
     for row in &rows {
-        refs.push(row as &dyn tray_icon::menu::IsMenuItem);
+        match row {
+            Row::Text(item) => refs.push(item as &dyn tray_icon::menu::IsMenuItem),
+            Row::Icon(item) => refs.push(item as &dyn tray_icon::menu::IsMenuItem),
+        }
     }
     menu.append_items(&refs)
         .map_err(|_| satchel_desktop::Error::Tray)?;
@@ -204,8 +235,29 @@ fn menu_for(view: &TrayView) -> Result<BuiltMenu, satchel_desktop::Error> {
 }
 
 #[cfg(target_os = "macos")]
+fn menu_icon(png: &[u8]) -> Option<tray_icon::menu::Icon> {
+    let decoded = image::load_from_memory(png).ok()?;
+    let rgba = decoded.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    if width == 0 || height == 0 {
+        return None;
+    }
+    tray_icon::menu::Icon::from_rgba(rgba.into_raw(), width, height).ok()
+}
+
+#[cfg(target_os = "macos")]
 fn tray_mark_rgba() -> &'static [u8] {
-    include_bytes!("../../../assets/satchel-tray.rgba")
+    satchel_desktop::tray_mark_rgba()
+}
+
+fn keyring_from_env() -> KeyringStore {
+    let Ok(service) = std::env::var("SATCHEL_KEYCHAIN_SERVICE") else {
+        return KeyringStore::system();
+    };
+    if service.is_empty() {
+        return KeyringStore::system();
+    }
+    KeyringStore::scoped(service)
 }
 
 #[cfg(target_os = "macos")]
@@ -253,19 +305,82 @@ unsafe extern "C" {
     ) -> i32;
 }
 
+/// Both roles sync on their own once a folder is set up. A pairing screen pauses it.
+struct AutoSync {
+    last: Instant,
+}
+
+const AUTO_SYNC_EVERY: Duration = Duration::from_secs(120);
+
+impl AutoSync {
+    fn new() -> Self {
+        Self {
+            last: Instant::now(),
+        }
+    }
+
+    fn tick(&mut self, desktop: &Mutex<Desktop>, secrets: &KeyringStore) {
+        if self.last.elapsed() < AUTO_SYNC_EVERY {
+            return;
+        }
+        self.last = Instant::now();
+        let mut desktop = lock_desktop(desktop);
+        if desktop.profile().is_none() || desktop.add_device_open() {
+            return;
+        }
+        if let Err(err) = desktop.publish(secrets) {
+            eprintln!("satchel-desktop: {err}");
+        }
+    }
+}
+
+static SETUP: OnceLock<SetupPage> = OnceLock::new();
+
+fn open_setup(desktop: &Arc<Mutex<Desktop>>, secrets: &Arc<KeyringStore>) {
+    if SETUP.get().is_none() {
+        match start_setup_page(Arc::clone(desktop), Arc::clone(secrets)) {
+            Ok(page) => {
+                let _ = SETUP.set(page);
+            }
+            Err(_) => {
+                eprintln!("satchel-desktop: the setup page did not start");
+                return;
+            }
+        }
+    }
+    let Some(page) = SETUP.get() else {
+        return;
+    };
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    if std::process::Command::new(opener)
+        .arg(page.url())
+        .spawn()
+        .is_err()
+    {
+        eprintln!("satchel-desktop: could not open a browser");
+    }
+}
+
 fn apply_command(
-    desktop: &Mutex<Desktop>,
-    secrets: &KeyringStore,
+    desktop: &Arc<Mutex<Desktop>>,
+    secrets: &Arc<KeyringStore>,
     quit: &AtomicBool,
     command: TrayCommand,
 ) {
     match command {
+        TrayCommand::OpenSetup => open_setup(desktop, secrets),
         TrayCommand::None => {}
         TrayCommand::Quit => quit.store(true, Ordering::SeqCst),
         TrayCommand::OpenAddDevice => {
             let mut desktop = lock_desktop(desktop);
+            // An unspecified address in the invite cannot be dialed from another device.
+            let ip = satchel_pair::preferred_bind_ip().unwrap_or_else(|| [0, 0, 0, 0].into());
             let config = ListenConfig {
-                bind: SocketAddr::from(([0, 0, 0, 0], 0)),
+                bind: SocketAddr::new(ip, 0),
                 timeout: DEFAULT_TIMEOUT,
                 advertise: true,
             };
@@ -278,7 +393,7 @@ fn apply_command(
         }
         TrayCommand::Approve => {
             let mut desktop = lock_desktop(desktop);
-            if let Err(err) = desktop.approve_pending(secrets) {
+            if let Err(err) = desktop.approve_pending(&**secrets) {
                 eprintln!("satchel-desktop: {err}");
             }
         }
@@ -290,7 +405,7 @@ fn apply_command(
         }
         TrayCommand::Publish => {
             let mut desktop = lock_desktop(desktop);
-            match desktop.publish(secrets) {
+            match desktop.publish(&**secrets) {
                 Ok(report) => {
                     if report.protection == satchel_core::SetupCheck::Unprotected {
                         eprintln!("satchel-desktop: this folder has no object versioning");
@@ -301,13 +416,13 @@ fn apply_command(
         }
         TrayCommand::LoadDevices => {
             let mut desktop = lock_desktop(desktop);
-            if let Err(err) = desktop.load_device_keys(secrets) {
+            if let Err(err) = desktop.load_device_keys(&**secrets) {
                 eprintln!("satchel-desktop: {err}");
             }
         }
         TrayCommand::Revoke(key_id) => {
             let mut desktop = lock_desktop(desktop);
-            if let Err(err) = desktop.revoke_device_key(secrets, &key_id) {
+            if let Err(err) = desktop.revoke_device_key(&**secrets, &key_id) {
                 eprintln!("satchel-desktop: {err}");
             }
         }

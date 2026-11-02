@@ -29,6 +29,39 @@ private func satchelJoinPairing(
     _ deviceId: UnsafePointer<CChar>
 ) -> UnsafeMutablePointer<CChar>?
 
+@_silgen_name("satchel_create_repository")
+private func satchelCreateRepository(
+    _ spec: UnsafePointer<CChar>,
+    _ work: UnsafePointer<CChar>
+) -> UnsafeMutablePointer<CChar>?
+
+@_silgen_name("satchel_create_failure")
+private func satchelCreateFailure() -> UnsafeMutablePointer<CChar>?
+
+@_silgen_name("satchel_is_maintainer")
+private func satchelIsMaintainer(_ grant: UnsafePointer<CChar>) -> Int32
+
+@_silgen_name("satchel_hold_start")
+private func satchelHoldStart(
+    _ grant: UnsafePointer<CChar>,
+    _ bind: UnsafePointer<CChar>
+) -> UnsafeMutablePointer<CChar>?
+
+@_silgen_name("satchel_hold_poll")
+private func satchelHoldPoll() -> UnsafeMutablePointer<CChar>?
+
+@_silgen_name("satchel_hold_decide")
+private func satchelHoldDecide(_ grant: UnsafePointer<CChar>, _ approve: Int32) -> Int32
+
+@_silgen_name("satchel_hold_close")
+private func satchelHoldClose()
+
+@_silgen_name("satchel_invite_png")
+private func satchelInvitePng(
+    _ invite: UnsafePointer<CChar>,
+    _ len: UnsafeMutablePointer<Int>
+) -> UnsafeMutablePointer<UInt8>?
+
 @_silgen_name("satchel_sample_catalog")
 private func satchelSampleCatalog(_ root: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
 
@@ -93,6 +126,26 @@ struct InviteFields: Equatable {
     let address: String
     let code: String
     let fingerprint: String
+}
+
+struct HoldOffer: Equatable {
+    let code: String
+    let address: String
+    let fingerprint: String
+    let invite: String
+}
+
+struct HoldApproval: Equatable {
+    let deviceName: String
+    let os: String
+    let peerAddress: String
+    let code: String
+}
+
+enum HoldPoll {
+    case waiting
+    case asked(HoldApproval)
+    case ended
 }
 
 enum SatchelCore {
@@ -163,6 +216,84 @@ enum SatchelCore {
             }
         }
         return takeString(pointer)
+    }
+
+    /// Create the repository. Returns `recovery password`, a newline, then the grant JSON for
+    /// the Keychain. Nothing is written to disk.
+    static func createRepository(spec: String, work: String) -> String? {
+        let pointer = spec.withCString { specPointer in
+            work.withCString { workPointer in
+                satchelCreateRepository(specPointer, workPointer)
+            }
+        }
+        return takeString(pointer)
+    }
+
+    /// `protection`, `exists`, `unreachable` or `fields` for the last refused create.
+    static func createFailure() -> String {
+        takeString(satchelCreateFailure()) ?? ""
+    }
+
+    static func isMaintainer(grant: String) -> Bool {
+        grant.withCString { satchelIsMaintainer($0) == 1 }
+    }
+
+    /// Offer JSON, or nil when this device cannot show an invite.
+    static func holdStart(grant: String, bind: String) -> HoldOffer? {
+        let pointer = grant.withCString { grantPointer in
+            bind.withCString { bindPointer in
+                satchelHoldStart(grantPointer, bindPointer)
+            }
+        }
+        guard let json = takeString(pointer), let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = object["code"] as? String,
+              let address = object["address"] as? String,
+              let fingerprint = object["fingerprint"] as? String,
+              let invite = object["invite"] as? String
+        else {
+            return nil
+        }
+        return HoldOffer(code: code, address: address, fingerprint: fingerprint, invite: invite)
+    }
+
+    /// `.some(nil)` while nobody has passed the code check. `nil` when the session ended.
+    static func holdPoll() -> HoldPoll {
+        guard let json = takeString(satchelHoldPoll()) else {
+            return .ended
+        }
+        if json.isEmpty {
+            return .waiting
+        }
+        guard let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let name = object["deviceName"] as? String,
+              let os = object["os"] as? String,
+              let peer = object["peerAddress"] as? String,
+              let code = object["code"] as? String
+        else {
+            return .ended
+        }
+        return .asked(HoldApproval(deviceName: name, os: os, peerAddress: peer, code: code))
+    }
+
+    static func holdDecide(grant: String, approve: Bool) -> Bool {
+        grant.withCString { satchelHoldDecide($0, approve ? 1 : 0) == 1 }
+    }
+
+    static func holdClose() {
+        satchelHoldClose()
+    }
+
+    static func invitePng(_ invite: String) -> Data? {
+        var length = 0
+        let pointer = invite.withCString { satchelInvitePng($0, &length) }
+        guard let pointer else {
+            return nil
+        }
+        let data = Data(bytes: pointer, count: length)
+        satchelFreeBytes(pointer, length)
+        return data
     }
 
     static func sampleCatalog(root: String) -> [CatalogRow]? {
@@ -394,8 +525,8 @@ func byteCount(_ size: Int64) -> String {
     return "\(whole).\(fraction) \(units[unit])"
 }
 
-func catalogMeta(_ row: CatalogRow) -> String {
-    let when = syncedWhen(row.versionUnix)
+func catalogMeta(_ row: CatalogRow, zone: TimeZone = .current) -> String {
+    let when = syncedWhen(row.versionUnix, zone: zone)
     if row.isDirectory {
         return "Pasta · \(when)"
     }
@@ -433,12 +564,37 @@ func groupedDeviceId(_ id: String) -> String {
     return grouped
 }
 
-func syncedWhen(_ versionUnix: Int64) -> String {
+func syncedWhen(_ versionUnix: Int64, zone: TimeZone = .current) -> String {
+    let instant = Date(timeIntervalSince1970: TimeInterval(versionUnix))
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone.current
-    formatter.dateFormat = "dd/MM/yyyy HH:mm zzz"
-    return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(versionUnix)))
+    formatter.timeZone = zone
+    formatter.dateFormat = "dd/MM/yyyy HH:mm"
+    let clock = formatter.string(from: instant)
+    return "\(clock) \(shortZoneName(zone, at: instant))"
+}
+
+/// Short name of `zone` at `instant`. An explicit UTC zone stays `UTC`.
+func shortZoneName(_ zone: TimeZone, at instant: Date) -> String {
+    let utcIdentifiers = [
+        "UTC",
+        "GMT",
+        "Etc/UTC",
+        "Etc/GMT",
+        "Z",
+        "GMT+0",
+        "GMT-0",
+        "UTC+0",
+        "UTC-0",
+    ]
+    if utcIdentifiers.contains(zone.identifier) {
+        return "UTC"
+    }
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = zone
+    formatter.dateFormat = "zzz"
+    return formatter.string(from: instant)
 }
 
 

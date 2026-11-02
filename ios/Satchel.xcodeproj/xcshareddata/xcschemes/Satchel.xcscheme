@@ -27,6 +27,28 @@
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES">
+      <Testables>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "000000000000000000000033"
+               BuildableName = "SatchelProductTests.xctest"
+               BlueprintName = "SatchelProductTests"
+               ReferencedContainer = "container:Satchel.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "000000000000000000000034"
+               BuildableName = "SatchelUITests.xctest"
+               BlueprintName = "SatchelUITests"
+               ReferencedContainer = "container:Satchel.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+      </Testables>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"

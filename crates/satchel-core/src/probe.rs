@@ -141,7 +141,7 @@ fn request(
         "{method} {canonical_uri}{query_suffix} HTTP/1.1\r\nHost: {host_header}\r\nx-amz-date: {amz_date}\r\nx-amz-content-sha256: {EMPTY_SHA256}\r\nAuthorization: {authorization}\r\nConnection: close\r\n\r\n"
     );
     let bytes = exchange(&origin, message.as_bytes())?;
-    parse_response(&bytes)
+    parse_response(&bytes, method == "HEAD")
 }
 
 struct SignInput<'a> {
@@ -306,7 +306,8 @@ fn read_limited(stream: &mut impl Read) -> Result<Vec<u8>, Error> {
     Ok(buffer)
 }
 
-fn parse_response(bytes: &[u8]) -> Result<HttpResponse, Error> {
+/// A HEAD answer names the length of the object and carries no body.
+fn parse_response(bytes: &[u8], head: bool) -> Result<HttpResponse, Error> {
     let header_end = find_separator(bytes).ok_or(Error::Probe)?;
     let header_text = std::str::from_utf8(&bytes[..header_end]).map_err(|_| Error::Probe)?;
     let mut lines = header_text.split("\r\n");
@@ -328,7 +329,9 @@ fn parse_response(bytes: &[u8]) -> Result<HttpResponse, Error> {
         }
     }
     let body_start = header_end + 4;
-    let body_bytes = if let Some(length) = length {
+    let body_bytes = if head {
+        &bytes[body_start..body_start]
+    } else if let Some(length) = length {
         if length > BODY_LIMIT || body_start + length > bytes.len() {
             return Err(Error::Probe);
         }

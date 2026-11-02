@@ -14,6 +14,8 @@ pub enum Account {
     BucketCredential,
     /// Credential sent to a phone. It is not the recovery password and not the desktop key.
     PhoneCredential,
+    /// Password of this device's own key. Only a device that joined holds one.
+    DeviceKeyPassword,
 }
 
 impl Account {
@@ -22,6 +24,7 @@ impl Account {
             Self::RecoveryPassword => "recovery-password",
             Self::BucketCredential => "bucket-credential",
             Self::PhoneCredential => "phone-credential",
+            Self::DeviceKeyPassword => "device-key-password",
         }
     }
 }

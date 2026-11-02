@@ -23,8 +23,16 @@ fn tray_binary_does_not_start_without_a_display() {
 fn tray_binary_follows_the_connected_display() {
     let binary = env!("CARGO_BIN_EXE_satchel-desktop");
     let root = tempfile::tempdir().expect("temp");
+    let service = format!(
+        "satchel-test-{}",
+        root.path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("temp name")
+    );
     let mut child = Command::new(binary)
         .env("XDG_CONFIG_HOME", root.path())
+        .env("SATCHEL_KEYCHAIN_SERVICE", &service)
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
         .stdout(Stdio::null())

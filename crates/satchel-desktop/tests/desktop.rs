@@ -88,7 +88,9 @@ fn one_folder_is_stored_without_secrets() {
         vec![
             "device_id".to_string(),
             "folder".to_string(),
-            "repository".to_string()
+            "repository".to_string(),
+            "role".to_string(),
+            "storage".to_string()
         ]
     );
     let loaded = Desktop::open(&config).expect("reload");
@@ -188,6 +190,13 @@ fn add_device_screen_approves_without_the_recovery_password() {
         labels.push_str(&item.label);
         labels.push('\n');
     }
+    assert!(labels.contains("Device phone"));
+    assert!(labels.contains("System android"));
+    assert!(labels.contains("Address "));
+    assert!(labels.contains("Interface "));
+    assert!(labels.contains("Code "));
+    assert!(labels.contains("Approve"));
+    assert!(labels.contains("Deny"));
     assert!(labels.contains("phone"));
     assert!(labels.contains("android"));
     assert!(labels.contains("127.0.0.1"));
@@ -532,13 +541,18 @@ fn publish_lists_metadata_and_revoke_removes_only_the_device_key() {
         labels.push('\n');
     }
     assert!(labels.contains("Revoke fedcba9876543210fedcba9876543210"));
+    assert!(!labels.contains("Revoke 0123456789abcdef0123456789abcdef"));
     assert!(!labels.contains("recovery-canary"));
     let mut key_id = String::new();
+    let mut revoke_count = 0;
     for item in desktop.tray_view().items {
         if let satchel_desktop::TrayCommand::Revoke(id) = item.command {
+            revoke_count += 1;
+            assert_ne!(item.label, "Revoke 0123456789abcdef0123456789abcdef");
             key_id = id;
         }
     }
+    assert_eq!(revoke_count, 1);
     assert_eq!(key_id.len(), 64);
     desktop.revoke_device_key(&store, &key_id).expect("revoke");
     let phone = DeviceId::parse("fedcba9876543210fedcba9876543210").expect("phone");
@@ -558,6 +572,112 @@ fn publish_lists_metadata_and_revoke_removes_only_the_device_key() {
     still
         .catalog(&Location::Directory(repository))
         .expect("recovery catalog");
+}
+
+#[test]
+fn tray_view_is_the_product_surface() {
+    let mark = include_bytes!("../../../assets/satchel-tray.rgba");
+    assert_eq!(satchel_desktop::tray_mark_rgba(), mark);
+    assert_eq!(mark.len(), 36 * 36 * 4);
+    let mut index = 0;
+    while index < mark.len() {
+        assert_eq!(mark[index], 0);
+        assert_eq!(mark[index + 1], 0);
+        assert_eq!(mark[index + 2], 0);
+        index += 4;
+    }
+
+    let root = tempdir().expect("temp");
+    let config = root.path().join("config");
+    let mut desktop = Desktop::open(&config).expect("open");
+    let idle = desktop.tray_view();
+    assert_eq!(idle.title, "Satchel");
+    assert!(idle.invite.is_none());
+    assert_eq!(idle.items[0].label, "No folder");
+    assert!(idle.items.iter().any(|item| item.label == "Quit"));
+    assert!(idle.items.iter().all(|item| item.icon_png.is_none()));
+    assert!(
+        idle.items
+            .iter()
+            .all(|item| !matches!(item.command, satchel_desktop::TrayCommand::Revoke(_)))
+    );
+
+    let (folder, repository) = folder_and_repo(root.path());
+    let holder = DeviceId::parse("0123456789abcdef0123456789abcdef").expect("holder");
+    desktop
+        .create_profile(folder, repository, holder)
+        .expect("profile");
+    let ready = desktop.tray_view();
+    let ready_labels: Vec<&str> = ready.items.iter().map(|item| item.label.as_str()).collect();
+    assert!(
+        ready_labels
+            .iter()
+            .any(|label| label.starts_with("Folder "))
+    );
+    assert!(ready_labels.contains(&"Sync"));
+    assert!(ready_labels.contains(&"Add device"));
+    assert!(ready_labels.contains(&"Devices"));
+    assert!(ready_labels.contains(&"Quit"));
+    assert!(
+        ready
+            .items
+            .iter()
+            .all(|item| !item.label.starts_with("Revoke "))
+    );
+
+    let offer = desktop
+        .open_add_device(ListenConfig {
+            bind: "127.0.0.1:0".parse().expect("bind"),
+            timeout: Duration::from_secs(30),
+            advertise: false,
+        })
+        .expect("add device");
+    let adding = desktop.tray_view();
+    let adding_labels: Vec<&str> = adding
+        .items
+        .iter()
+        .map(|item| item.label.as_str())
+        .collect();
+    assert!(adding_labels.iter().any(|label| label.starts_with("Code ")));
+    assert!(
+        adding_labels
+            .iter()
+            .any(|label| label.starts_with("Address "))
+    );
+    assert!(
+        adding_labels
+            .iter()
+            .any(|label| label.starts_with("Fingerprint "))
+    );
+    assert!(adding_labels.contains(&"Cancel"));
+    assert!(adding_labels.contains(&"QR"));
+    let qr = adding
+        .items
+        .iter()
+        .find(|item| item.label == "QR")
+        .expect("qr row");
+    let png = qr.icon_png.as_ref().expect("png");
+    assert!(png.starts_with(b"\x89PNG"));
+    assert!(png.len() > 8);
+    let invite = adding.invite.expect("invite");
+    let parsed = satchel_pair::Invite::decode(&invite).expect("decode invite");
+    let digits: String = offer
+        .code
+        .chars()
+        .filter(|character| character.is_ascii_digit())
+        .collect();
+    assert_eq!(parsed.code, digits);
+    assert_eq!(parsed.address, offer.address.to_string());
+    assert_eq!(parsed.fingerprint, offer.fingerprint);
+    assert!(!invite.contains("recovery"));
+    for item in &adding.items {
+        assert!(!item.label.contains("recovery"));
+        if let satchel_desktop::TrayCommand::Revoke(id) = &item.command {
+            panic!("revoke offered during add-device: {id}");
+        }
+    }
+    desktop.close_add_device();
+    assert!(desktop.tray_view().invite.is_none());
 }
 
 struct Cleanup<'a>(&'a KeyringStore);

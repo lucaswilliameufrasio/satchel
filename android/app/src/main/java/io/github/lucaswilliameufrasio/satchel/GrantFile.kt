@@ -62,7 +62,7 @@ private fun parseStringObject(text: String): Map<String, String> {
     return fields
 }
 
-private fun jsonString(value: String): String {
+internal fun jsonString(value: String): String {
     val out = StringBuilder()
     out.append('"')
     for (character in value) {
@@ -123,6 +123,32 @@ internal class JsonCursor(private val text: String) {
             if (peek() == '}') {
                 index += 1
                 return fields
+            }
+            fail()
+        }
+        fail()
+    }
+
+    /** Array of objects whose values are strings or integers. */
+    fun parseObjectArray(): List<Map<String, String>> {
+        skip()
+        expect('[')
+        val items = mutableListOf<Map<String, String>>()
+        skip()
+        if (peek() == ']') {
+            index += 1
+            return items
+        }
+        while (index < text.length) {
+            items.add(parseMixedObject())
+            skip()
+            if (peek() == ',') {
+                index += 1
+                continue
+            }
+            if (peek() == ']') {
+                index += 1
+                return items
             }
             fail()
         }

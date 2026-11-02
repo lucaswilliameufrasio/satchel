@@ -13,6 +13,9 @@
 		0000000000000000000000A4 /* QrScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000014 /* QrScannerView.swift */; };
 		0000000000000000000000A6 /* BackupExclusion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000018 /* BackupExclusion.swift */; };
 		0000000000000000000000A5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000017 /* Assets.xcassets */; };
+		0000000000000000000000A7 /* ProductSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000001A /* ProductSurface.swift */; };
+		0000000000000000000000B1 /* ProductSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000001B /* ProductSurfaceTests.swift */; };
+		0000000000000000000000B2 /* CatalogLaunchUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000001C /* CatalogLaunchUITests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +27,11 @@
 		000000000000000000000015 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		000000000000000000000016 /* Satchel.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Satchel.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		000000000000000000000017 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		00000000000000000000001A /* ProductSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSurface.swift; sourceTree = "<group>"; };
+		00000000000000000000001B /* ProductSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSurfaceTests.swift; sourceTree = "<group>"; };
+		00000000000000000000001C /* CatalogLaunchUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogLaunchUITests.swift; sourceTree = "<group>"; };
+		00000000000000000000001D /* SatchelProductTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SatchelProductTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		00000000000000000000001E /* SatchelUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SatchelUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -35,16 +43,35 @@
 				000000000000000000000013 /* SatchelCore.swift */,
 				000000000000000000000014 /* QrScannerView.swift */,
 				000000000000000000000018 /* BackupExclusion.swift */,
+				00000000000000000000001A /* ProductSurface.swift */,
 				000000000000000000000015 /* Info.plist */,
 				000000000000000000000017 /* Assets.xcassets */,
 			);
 			path = Satchel;
 			sourceTree = "<group>";
 		};
+		000000000000000000000024 /* SatchelProductTests */ = {
+			isa = PBXGroup;
+			children = (
+				00000000000000000000001B /* ProductSurfaceTests.swift */,
+			);
+			path = SatchelProductTests;
+			sourceTree = "<group>";
+		};
+		000000000000000000000025 /* SatchelUITests */ = {
+			isa = PBXGroup;
+			children = (
+				00000000000000000000001C /* CatalogLaunchUITests.swift */,
+			);
+			path = SatchelUITests;
+			sourceTree = "<group>";
+		};
 		000000000000000000000022 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				000000000000000000000016 /* Satchel.app */,
+				00000000000000000000001D /* SatchelProductTests.xctest */,
+				00000000000000000000001E /* SatchelUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -53,6 +80,8 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000021 /* Satchel */,
+				000000000000000000000024 /* SatchelProductTests */,
+				000000000000000000000025 /* SatchelUITests */,
 				000000000000000000000022 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -77,6 +106,40 @@
 			productReference = 000000000000000000000016 /* Satchel.app */;
 			productType = "com.apple.product-type.application";
 		};
+		000000000000000000000033 /* SatchelProductTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000073 /* Build configuration list for PBXNativeTarget "SatchelProductTests" */;
+			buildPhases = (
+				000000000000000000000046 /* Sources */,
+				000000000000000000000048 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				000000000000000000000082 /* PBXTargetDependency */,
+			);
+			name = SatchelProductTests;
+			productName = SatchelProductTests;
+			productReference = 00000000000000000000001D /* SatchelProductTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		000000000000000000000034 /* SatchelUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000074 /* Build configuration list for PBXNativeTarget "SatchelUITests" */;
+			buildPhases = (
+				000000000000000000000047 /* Sources */,
+				000000000000000000000049 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				000000000000000000000084 /* PBXTargetDependency */,
+			);
+			name = SatchelUITests;
+			productName = SatchelUITests;
+			productReference = 00000000000000000000001E /* SatchelUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -100,6 +163,8 @@
 			projectRoot = "";
 			targets = (
 				000000000000000000000031 /* Satchel */,
+				000000000000000000000033 /* SatchelProductTests */,
+				000000000000000000000034 /* SatchelUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -133,6 +198,7 @@
 				0000000000000000000000A3 /* SatchelCore.swift in Sources */,
 				0000000000000000000000A4 /* QrScannerView.swift in Sources */,
 				0000000000000000000000A6 /* BackupExclusion.swift in Sources */,
+				0000000000000000000000A7 /* ProductSurface.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -148,6 +214,72 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXContainerItemProxy section */
+		000000000000000000000081 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000032 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000000000031;
+			remoteInfo = Satchel;
+		};
+		000000000000000000000083 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000032 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000000000031;
+			remoteInfo = Satchel;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		000000000000000000000048 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		000000000000000000000049 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		000000000000000000000046 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0000000000000000000000B1 /* ProductSurfaceTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		000000000000000000000047 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0000000000000000000000B2 /* CatalogLaunchUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		000000000000000000000082 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 000000000000000000000031 /* Satchel */;
+			targetProxy = 000000000000000000000081 /* PBXContainerItemProxy */;
+		};
+		000000000000000000000084 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 000000000000000000000031 /* Satchel */;
+			targetProxy = 000000000000000000000083 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		000000000000000000000061 /* Debug */ = {
@@ -187,6 +319,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 4LH3F22NH6;
+				ENABLE_TESTABILITY = YES;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Satchel/Info.plist;
@@ -264,6 +397,90 @@
 			};
 			name = Release;
 		};
+		000000000000000000000065 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 4LH3F22NH6;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.lucaswilliameufrasio.satchel.producttests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Satchel.app/Satchel";
+			};
+			name = Debug;
+		};
+		000000000000000000000066 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 4LH3F22NH6;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.lucaswilliameufrasio.satchel.producttests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Satchel.app/Satchel";
+			};
+			name = Release;
+		};
+		000000000000000000000067 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 4LH3F22NH6;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.lucaswilliameufrasio.satchel.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Satchel;
+			};
+			name = Debug;
+		};
+		000000000000000000000068 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 4LH3F22NH6;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.lucaswilliameufrasio.satchel.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Satchel;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -281,6 +498,24 @@
 			buildConfigurations = (
 				000000000000000000000061 /* Debug */,
 				000000000000000000000062 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000073 /* Build configuration list for PBXNativeTarget "SatchelProductTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000065 /* Debug */,
+				000000000000000000000066 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000074 /* Build configuration list for PBXNativeTarget "SatchelUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000067 /* Debug */,
+				000000000000000000000068 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
