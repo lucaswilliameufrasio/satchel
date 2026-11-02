@@ -10,15 +10,20 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use satchel_core::{
-    DeviceId, Location, StorageKind, StorageSetup, add_device_key, create_repository,
-    generate_recovery_password, remove_device_key,
+    DeviceId, Location, StorageKind, StorageSetup, create_repository, generate_recovery_password,
+    provision_device_key, remove_device_key,
 };
 use satchel_pair::{
     ApprovalRequest, Decision, DeviceSecrets, Invite, ListenConfig, PairingSession,
 };
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use crate::{CatalogFailure, GrantSpec, open_grant, read_grant};
+
+#[cfg(test)]
+#[path = "../../satchel-core/tests/support/floci.rs"]
+mod floci_support;
 
 const LOCAL_FOLDER: &str = "local-folder";
 
@@ -47,6 +52,16 @@ struct CreateSpec {
     /// Opaque id this phone already uses. Generated when absent.
     #[serde(default)]
     device_id: String,
+}
+
+/// The typed secrets do not outlive the call that used them.
+impl Drop for CreateSpec {
+    fn drop(&mut self) {
+        self.secret_access_key.zeroize();
+        self.device_secret_access_key.zeroize();
+        self.access_key_id.zeroize();
+        self.device_access_key_id.zeroize();
+    }
 }
 
 #[derive(Serialize)]
@@ -305,21 +320,15 @@ fn approve_with(
 ) -> Result<(), CatalogFailure> {
     let location: Location = open_grant(spec)?;
     let other = DeviceId::parse(&pending.device_id).map_err(|_| CatalogFailure)?;
-    let device_password = generate_recovery_password();
-    let key_id = add_device_key(
-        &location,
-        &spec.device_key_password,
-        &other,
-        &device_password,
-    )
-    .map_err(|_| CatalogFailure)?;
+    let provisioned = provision_device_key(&location, &spec.device_key_password, &other)
+        .map_err(|_| CatalogFailure)?;
     let secrets = DeviceSecrets {
         endpoint: spec.endpoint.clone(),
         bucket_credential: spec.limited_credential.clone(),
-        device_key_password: device_password,
+        device_key_password: provisioned.device_key_password,
     };
     if session.decide(Decision::Approve(secrets)).is_err() {
-        let _ = remove_device_key(&location, &spec.device_key_password, &key_id);
+        let _ = remove_device_key(&location, &spec.device_key_password, &provisioned.key_id);
         return Err(CatalogFailure);
     }
     Ok(())
@@ -521,5 +530,94 @@ mod tests {
         full["device_secret_access_key"] = "d-secret".into();
         assert!(create_phone_repository(&full.to_string(), &root.0.join("w")).is_err());
         assert_eq!(last_failure(), "unreachable");
+    }
+
+    #[test]
+    fn phone_creates_on_a_bucket_refuses_an_unprotected_one_and_another_device_joins() {
+        use super::floci_support::{ACCESS_KEY, LocalFloci, SECRET_KEY, aws};
+        let _guard = ONE_AT_A_TIME.lock().unwrap_or_else(|p| p.into_inner());
+        let floci = LocalFloci::start();
+        let endpoint = floci.endpoint().to_string();
+        let bucket = format!("satchel-phone-{}", std::process::id());
+        aws(
+            &endpoint,
+            &["s3api", "create-bucket", "--bucket", bucket.as_str()],
+        );
+        let root = Temp::new("bucket");
+        let spec = serde_json::json!({
+            "kind": "b2",
+            "endpoint": endpoint,
+            "bucket": bucket,
+            "region": "us-east-1",
+            "prefix": "repo",
+            "access_key_id": ACCESS_KEY,
+            "secret_access_key": SECRET_KEY,
+            "device_access_key_id": "device-key",
+            "device_secret_access_key": "device-secret",
+        })
+        .to_string();
+
+        // Versioning never turned on: refused before anything is written.
+        assert!(create_phone_repository(&spec, &root.0.join("work")).is_err());
+        assert_eq!(last_failure(), "protection");
+
+        aws(
+            &endpoint,
+            &[
+                "s3api",
+                "put-bucket-versioning",
+                "--bucket",
+                bucket.as_str(),
+                "--versioning-configuration",
+                "Status=Enabled",
+            ],
+        );
+        let created = create_phone_repository(&spec, &root.0.join("work")).expect("create");
+        let (password, grant_text) = created.split_once('\n').expect("two parts");
+        let grant = Path::new(grant_text);
+        assert!(is_maintainer(grant));
+        assert_eq!(catalog_grant(grant).expect("catalog"), "[]");
+
+        let offer = hold_start(grant, "127.0.0.1:0", Duration::from_secs(60)).expect("start");
+        let offer: serde_json::Value = serde_json::from_str(&offer).expect("offer");
+        let address = offer["address"].as_str().expect("address").to_string();
+        let code = offer["code"].as_str().expect("code").to_string();
+        let fingerprint = offer["fingerprint"].as_str().expect("fp").to_string();
+        let other = DeviceId::generate();
+        let other_text = other.as_str().to_string();
+        let joiner = thread::spawn(move || {
+            join_pairing(
+                &address,
+                &code,
+                &fingerprint,
+                "Tablet",
+                "android",
+                &other_text,
+                Duration::from_secs(60),
+            )
+        });
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let mut shown = String::new();
+        while shown.is_empty() && Instant::now() < deadline {
+            shown = hold_poll().expect("poll");
+            thread::sleep(Duration::from_millis(20));
+        }
+        hold_decide(grant, true).expect("approve");
+        let joined = joiner.join().expect("thread").expect("joined");
+        // The joiner got the bucket, the limited key and its own password, never the rest.
+        assert!(joined.contains("device-key"));
+        assert!(!joined.contains(password));
+        assert!(!joined.contains(&format!("\\\"access_key_id\\\":\\\"{ACCESS_KEY}\\\"")));
+        let member_grant = assemble_grant_json(
+            &joined,
+            other.as_str(),
+            root.0.join("member-work").to_str().expect("work"),
+        )
+        .expect("assemble");
+        assert_eq!(
+            catalog_grant(Path::new(&member_grant)).expect("member opens"),
+            "[]"
+        );
+        assert!(!is_maintainer(Path::new(&member_grant)));
     }
 }

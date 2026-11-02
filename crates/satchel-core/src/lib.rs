@@ -16,7 +16,8 @@ pub use format::{
 };
 pub use probe::{ObjectProtection, probe_object_protection};
 pub use setup::{
-    CreatedRepository, StorageSetup, check_storage, create_repository, generate_recovery_password,
+    CreatedRepository, ProvisionedKey, StorageSetup, check_storage, create_repository,
+    generate_recovery_password, provision_device_key,
 };
 pub use storage::{SetupCheck, StorageKind, Versioning, check_setup};
 pub use sync::{

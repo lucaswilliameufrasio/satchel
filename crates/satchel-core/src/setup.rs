@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use rand::Rng;
 
-use crate::format::{Location, S3Store, init};
+use crate::format::{Location, S3Store, add_device_key, init};
 use crate::probe::probe_object_protection;
 use crate::storage::{SetupCheck, StorageKind, check_setup};
 use crate::{DeviceId, Error};
@@ -120,6 +120,41 @@ pub fn generate_recovery_password() -> String {
         text.push_str(&format!("{byte:02x}"));
     }
     text
+}
+
+/// A key written for another device. The password goes to that device and nowhere else.
+pub struct ProvisionedKey {
+    /// 64 hex characters. Not a secret; needed to remove the key again.
+    pub key_id: String,
+    /// Wraps the new key. The caller sends it in the grant.
+    pub device_key_password: String,
+}
+
+impl std::fmt::Debug for ProvisionedKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ProvisionedKey")
+            .field("key_id", &self.key_id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Write a key file for `device_id`, wrapped by a fresh random password.
+///
+/// `opener` is a password that already opens the repository (the recovery
+/// password on the device that created it). The key file stores the opaque id,
+/// never a machine name. Desktop and phone approve through this one function.
+pub fn provision_device_key(
+    location: &Location,
+    opener: &str,
+    device_id: &DeviceId,
+) -> Result<ProvisionedKey, Error> {
+    let device_key_password = generate_recovery_password();
+    let key_id = add_device_key(location, opener, device_id, &device_key_password)?;
+    Ok(ProvisionedKey {
+        key_id,
+        device_key_password,
+    })
 }
 
 /// Gate the storage, then create the repository with `password` and one key for `device_id`.

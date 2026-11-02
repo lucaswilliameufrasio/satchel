@@ -67,15 +67,22 @@ Feito depois da primeira entrega, no mesmo dia:
 - **Entrar num bucket pelo desktop.** `object_store_join.rs` no Floci: um desktop cria em R2, aprova, o segundo entra, o convite não cita o bucket, o segundo guarda só a chave limitada (nunca a de manutenção nem a senha de recuperação), os dois sincronizam, e o `restic` restaura com a senha de recuperação. O auxiliar do Floci passou para `crates/satchel-core/tests/support/floci.rs`, usado pelos dois pacotes.
 - O gate completo saiu 0 de novo (`cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --no-fail-fast -- --test-threads=1`), com Floci duas vezes.
 
-Ainda de fora, em ordem do que mais vale fazer:
+Fechado em seguida, ainda no mesmo dia:
 
-- A política da chave limitada contra um bucket com IAM de verdade. O Floci aceita qualquer chave.
-- O celular que cria não tem pasta própria sincronizada: no Android precisa do seletor de pasta (SAF), no iOS do provedor de documentos, que é item separado de “Aberto”.
-- Entrar num bucket pelo celular, e preencher os campos de objeto num emulador.
-- Os segredos digitados no celular passam como texto até a biblioteca e não são zerados da memória.
-- A lógica de aprovar existe no desktop e em `satchel-ffi`. Só a geração de senha foi unificada.
-- O clique em “Create or join…” na bandeja, o pareamento entre aparelhos de verdade, a câmera e a YubiKey.
-- No simulador, abrir o app com um exemplo deixado por uma execução morta no meio falhou uma vez com “Não foi possível abrir o catálogo”; o reset de teste o resolve, a causa não foi investigada.
+- **Celular entra num bucket.** `phone_creates_on_a_bucket_refuses_an_unprotected_one_and_another_device_joins` (Floci, `satchel-ffi`): recusa sem versionamento, cria depois de ligar, mostra o convite, outro aparelho entra, recebe `device-key` e uma senha própria, nunca a chave de manutenção nem a senha de recuperação, e a concessão dele abre o bucket sem ser mantenedora.
+- **Campos de objeto pela tela do iOS.** `testObjectStorageRefusesAnUnprotectedBucketThenCreatesOnAProtectedOne`, com um Floci local em `127.0.0.1:4566` e os buckets `ios-unprotected` e `ios-protected` preparados à mão: o botão Criar fica desabilitado com campos faltando, o bucket sem versionamento mostra “O armazenamento recusou: ligue o versionamento…”, e o protegido mostra a senha de 64 hex. Conferido pelo lado de fora: `ios-unprotected` ficou com 0 objetos e `ios-protected` tem o `config` sob o prefixo que a tela usou. O teste pula quando `SATCHEL_FLOCI` não está definido (`TEST_RUNNER_SATCHEL_FLOCI` no `xcodebuild`). O Floci foi removido depois.
+- **Página do desktop no navegador.** Aberta no Firefox pelo teste `serve_the_page_for_a_browser` (ignorado, manual): renderiza, e escolher S3 esconde Repository folder e mostra endpoint, bucket, região, prefixo e as quatro chaves.
+- **Aprovar numa função só.** `provision_device_key` no núcleo; a bandeja e o celular usam a mesma.
+- **Segredos digitados no Rust.** `CreateSpec` e `GrantSpec` zeram as chaves e senhas ao serem soltos (`zeroize`). No Kotlin e no Swift a string continua na memória do runtime; isso não dá para zerar de lá.
+- **Exemplo do iOS que não abria.** Um exemplo deixado pela metade (aberto sem erro e sem listar nada) agora é refeito uma vez (`a_sample_killed_halfway_is_rebuilt_on_the_next_open`). A causa de ele ter ficado assim naquela execução continua sem investigação, mas o efeito foi tratado.
+- Gate: `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings` e `cargo test --no-fail-fast -- --test-threads=1` saíram 0 (66 testes, Floci incluído). No `ursoc-tailscale`, o `.so` compilou e o emulador passou 6 de 7 testes instrumentados; o sétimo é o `SharedStoreTest`, que exige `storeSpec`.
+
+Ainda de fora, e por quê:
+
+- A política da chave limitada contra IAM de verdade: o Floci aceita qualquer chave. Precisa de um bucket real.
+- Pasta própria sincronizada no celular que cria: no Android exige o seletor de pasta (SAF) e uma camada de cópia, porque o armazenamento com escopo não deixa o nativo andar na pasta; no iOS é o provedor de documentos, item separado de “Aberto”. É decisão de produto (qual pasta, e como), não só código.
+- Campos de objeto no emulador Android: o Floci rodaria numa máquina diferente do emulador. O caminho Rust é o mesmo do teste do `satchel-ffi` e do iOS.
+- O clique em “Create or join…” na bandeja (o menu continua ilegível aqui), o pareamento entre aparelhos de verdade, a câmera, a YubiKey e o iPhone de Lucas.
 
 ## Na máquina Linux
 

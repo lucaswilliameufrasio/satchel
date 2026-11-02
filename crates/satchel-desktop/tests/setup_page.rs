@@ -190,3 +190,23 @@ fn page_creates_and_joins_and_refuses_strangers() {
             .is_none()
     );
 }
+
+/// Serves the page for a person or a browser tool. `SATCHEL_URL_FILE` receives the address.
+/// Run with `--ignored`; it stays up for `SATCHEL_SERVE_SECS` (default 120).
+#[test]
+#[ignore = "serves the page for a browser; run by hand"]
+fn serve_the_page_for_a_browser() {
+    let root = tempdir().expect("temp");
+    let desktop = Arc::new(Mutex::new(
+        Desktop::open(root.path().join("config")).expect("open"),
+    ));
+    let page = start_setup_page(desktop, Arc::new(MemoryStore::default())).expect("page");
+    if let Some(file) = std::env::var_os("SATCHEL_URL_FILE") {
+        fs::write(file, page.url()).expect("url file");
+    }
+    let seconds = std::env::var("SATCHEL_SERVE_SECS")
+        .ok()
+        .and_then(|text| text.parse().ok())
+        .unwrap_or(120);
+    thread::sleep(Duration::from_secs(seconds));
+}

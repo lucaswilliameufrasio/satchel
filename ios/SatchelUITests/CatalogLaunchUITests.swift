@@ -79,6 +79,73 @@ final class CatalogLaunchUITests: XCTestCase {
         capture(name: "invite", text: "\(code.label)\n\(address)")
     }
 
+    /// Needs a local S3 emulator. Start one on 127.0.0.1:4566 with the buckets `ios-unprotected`
+    /// (versioning never on) and `ios-protected` (versioning on), then run xcodebuild with
+    /// `TEST_RUNNER_SATCHEL_FLOCI=http://127.0.0.1:4566`. Skipped when the variable is absent.
+    func testObjectStorageRefusesAnUnprotectedBucketThenCreatesOnAProtectedOne() throws {
+        guard let endpoint = ProcessInfo.processInfo.environment["SATCHEL_FLOCI"], !endpoint.isEmpty else {
+            throw XCTSkip("SATCHEL_FLOCI is not set")
+        }
+        let app = XCUIApplication()
+        app.launchArguments = ["-satchel-reset"]
+        app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["create-repository"].waitForExistence(timeout: 60))
+        app.descendants(matching: .any)["create-repository"].tap()
+        let r2 = app.descendants(matching: .any)["storage-r2"]
+        XCTAssertTrue(r2.waitForExistence(timeout: 10))
+        r2.tap()
+        XCTAssertTrue(r2.isSelected)
+        let submit = app.descendants(matching: .any)["create-submit"]
+        XCTAssertFalse(submit.isEnabled, "incomplete object fields must not enable Criar")
+
+        fill(app, "Endpoint", endpoint)
+        fill(app, "Bucket", "ios-unprotected")
+        fill(app, "Região", "us-east-1")
+        let prefix = "run-" + UUID().uuidString.prefix(8).lowercased()
+        fill(app, "Prefixo (pode ficar vazio)", prefix)
+        fill(app, "Chave de acesso de manutenção", "test")
+        fillSecret(app, "Segredo de manutenção", "test")
+        fill(app, "Chave de acesso dos aparelhos", "device-key")
+        fillSecret(app, "Segredo dos aparelhos", "device-secret")
+        XCTAssertTrue(submit.isEnabled)
+        submit.tap()
+        let refusal = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'recusou'")).firstMatch
+        XCTAssertTrue(refusal.waitForExistence(timeout: 60), "refusal advice did not appear")
+        proof("refused \(refusal.label)")
+        XCTAssertFalse(app.descendants(matching: .any)["recovery-password"].exists)
+
+        // Same form, a bucket that keeps versions.
+        let bucket = app.textFields["Bucket"]
+        bucket.tap()
+        bucket.press(forDuration: 1.0)
+        if app.menuItems["Select All"].waitForExistence(timeout: 3) {
+            app.menuItems["Select All"].tap()
+        }
+        bucket.typeText("ios-protected")
+        XCTAssertTrue(submit.waitForExistence(timeout: 5))
+        submit.tap()
+        let password = app.descendants(matching: .any)["recovery-password"]
+        XCTAssertTrue(password.waitForExistence(timeout: 60), "recovery password did not appear on a protected bucket")
+        XCTAssertEqual(password.label.count, 64)
+        app.descendants(matching: .any)["recovery-done"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["show-invite"].waitForExistence(timeout: 60))
+        proof("object storage created prefix \(prefix)")
+    }
+
+    private func fill(_ app: XCUIApplication, _ title: String, _ text: String) {
+        let field = app.textFields[title]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "missing field \(title)")
+        field.tap()
+        field.typeText(text)
+    }
+
+    private func fillSecret(_ app: XCUIApplication, _ title: String, _ text: String) {
+        let field = app.secureTextFields[title]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "missing secret field \(title)")
+        field.tap()
+        field.typeText(text)
+    }
+
     private func capture(name: String, text: String) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("satchel-ui-capture", isDirectory: true)

@@ -5707,6 +5707,8 @@ dependencies = [
  "satchel-pair",
  "serde",
  "serde_json",
+ "testcontainers",
+ "zeroize",
 ]
 
 [[package]]

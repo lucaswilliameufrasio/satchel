@@ -60,7 +60,28 @@ struct RowJson<'a> {
     follow: Follow,
 }
 
+/// The example lives in a cache the app can lose at any moment. A run killed halfway
+/// leaves a repository that never opens again, so one failed open rebuilds it.
 fn sample_catalog(root: &Path) -> Result<String, CatalogFailure> {
+    // A half-built example can open fine and list nothing, so an empty list counts as broken too.
+    match sample_catalog_once(root).and_then(|json| {
+        if json.contains("\"path\":\"kept.txt\"") {
+            Ok(json)
+        } else {
+            Err(CatalogFailure)
+        }
+    }) {
+        Ok(json) => Ok(json),
+        Err(_) => {
+            for part in ["repository", "source", "work"] {
+                let _ = fs::remove_dir_all(root.join(part));
+            }
+            sample_catalog_once(root)
+        }
+    }
+}
+
+fn sample_catalog_once(root: &Path) -> Result<String, CatalogFailure> {
     let location = ensure_sample(root)?;
     let reader = DeviceId::parse(READER).map_err(|_| CatalogFailure)?;
     let client = Client::open(reader, root.join("work"), PASSWORD).map_err(|_| CatalogFailure)?;
@@ -263,6 +284,16 @@ struct GrantWire<'a> {
     endpoint: &'a str,
     bucket_credential: &'a str,
     device_key_password: &'a str,
+}
+
+/// The device key password and the stored credentials are cleared when the grant is dropped.
+impl Drop for GrantSpec {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.device_key_password.zeroize();
+        self.bucket_credential.zeroize();
+        self.limited_credential.zeroize();
+    }
 }
 
 /// A grant is a file path, or the grant JSON itself when the phone keeps it in the
@@ -1024,6 +1055,22 @@ mod tests {
     }
 
     #[cfg(test)]
+    #[cfg_attr(not(target_os = "ios"), test)]
+    fn a_sample_killed_halfway_is_rebuilt_on_the_next_open() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = TempRoot(std::env::temp_dir().join(format!("satchel-heal-{nanos}")));
+        let first = sample_catalog(&root.0).expect("first");
+        assert!(first.contains("kept.txt"));
+        // A run killed halfway: the config is there, the rest is not.
+        fs::remove_dir_all(root.0.join("repository/snapshots")).expect("break it");
+        fs::remove_dir_all(root.0.join("repository/index")).expect("break it");
+        let healed = sample_catalog(&root.0).expect("rebuilt");
+        assert!(healed.contains("kept.txt"));
+    }
+
     #[test]
     fn empty_device_label_still_marks_the_sample() {
         let nanos = SystemTime::now()

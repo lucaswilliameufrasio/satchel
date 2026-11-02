@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use satchel_core::{
     Client, DeviceId, DeviceKeyRecord, Location, S3Store, SetupCheck, StorageKind, StorageSetup,
-    add_device_key, check_setup, create_repository, generate_recovery_password,
-    list_other_device_keys, probe_object_protection, remove_device_key, sync_folder,
+    check_setup, create_repository, generate_recovery_password, list_other_device_keys,
+    probe_object_protection, provision_device_key, remove_device_key, sync_folder,
 };
 use satchel_pair::{
     ApprovalRequest, Decision, DeviceSecrets, Invite, ListenConfig, Offer, PairingSession,
@@ -528,14 +528,10 @@ impl Desktop {
             return Err(Error::MissingPhoneCredential);
         };
         let device_id = DeviceId::parse(&self.pending.as_ref().expect("pending").device_id)?;
-        let device_key_password = generate_recovery_password();
         let location = self.open_location(store)?;
-        let key_id = add_device_key(
-            &location,
-            &recovery_password,
-            &device_id,
-            &device_key_password,
-        )?;
+        let provisioned = provision_device_key(&location, &recovery_password, &device_id)?;
+        let key_id = provisioned.key_id;
+        let device_key_password = provisioned.device_key_password;
         let bucket_credential = phone_grant_secret(profile.object_store.as_ref(), &phone_secret)?;
         let secrets = DeviceSecrets {
             endpoint: grant_endpoint(&profile),
