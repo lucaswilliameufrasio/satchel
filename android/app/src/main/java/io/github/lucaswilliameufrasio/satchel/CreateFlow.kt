@@ -38,7 +38,8 @@ internal const val CREATE_FOLDER_NOTE =
 
 internal const val CREATE_OBJECT_NOTE =
     "O armazenamento precisa ter versionamento ligado e nenhum ciclo de vida que apague objeto. " +
-        "A chave do aparelho lista, lê, grava e só apaga os próprios locks."
+        "A chave dos aparelhos só fica limitada a apagar os próprios locks se o armazenamento aplicar política por chave " +
+        "(S3 da AWS, MinIO, RustFS). No R2 e no B2 essa chave pode apagar tudo."
 
 internal const val CREATE_REFUSED_COPY =
     "Não foi possível criar. Confira os campos, o versionamento e o ciclo de vida."
@@ -105,6 +106,9 @@ internal const val VAULT_FAILED_COPY =
 internal fun createFailureCopy(reason: String): String = when (reason) {
     "protection" ->
         "O armazenamento recusou: ligue o versionamento do bucket e remova regras de ciclo de vida que apagam objetos."
+    "denied" ->
+        "O armazenamento não deixou esta chave consultar o versionamento. Dê a ela permissão de administrador no bucket. " +
+            "O R2 não expõe versionamento pela API S3 e será sempre recusado."
     "exists" ->
         "Já existe um repositório neste lugar. Escolha outro prefixo, ou entre nele com um código."
     "unreachable" ->

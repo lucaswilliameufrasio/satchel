@@ -611,7 +611,7 @@ struct CreatePage: View {
                     .foregroundStyle(SatchelInk.secondary)
             } else {
                 Text(
-                    "O armazenamento precisa ter versionamento ligado e nenhum ciclo de vida que apague objeto. A chave dos aparelhos lista, lê, grava e só apaga os próprios locks."
+                    "O armazenamento precisa ter versionamento ligado e nenhum ciclo de vida que apague objeto. A chave dos aparelhos só fica limitada a apagar os próprios locks se o armazenamento aplicar política por chave (S3 da AWS, MinIO, RustFS). No R2 e no B2 essa chave pode apagar tudo."
                 )
                 .font(.subheadline)
                 .foregroundStyle(SatchelInk.secondary)
@@ -731,6 +731,8 @@ func createFailureCopy(_ reason: String) -> String {
     switch reason {
     case "protection":
         return "O armazenamento recusou: ligue o versionamento do bucket e remova regras de ciclo de vida que apagam objetos."
+    case "denied":
+        return "O armazenamento não deixou esta chave consultar o versionamento. Dê a ela permissão de administrador no bucket. O R2 não expõe versionamento pela API S3 e será sempre recusado."
     case "exists":
         return "Já existe um repositório neste lugar. Escolha outro prefixo, ou entre nele com um código."
     case "unreachable":

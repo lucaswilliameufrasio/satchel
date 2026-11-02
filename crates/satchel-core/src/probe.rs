@@ -41,6 +41,9 @@ pub fn probe_object_protection(
         secret_access_key,
     };
     let versioning_body = request(endpoint, "GET", bucket, "", "versioning", &auth)?;
+    if matches!(versioning_body.status, 401 | 403) {
+        return Err(Error::ProbeDenied);
+    }
     if versioning_body.status != 200 {
         return Err(Error::Probe);
     }
@@ -277,7 +280,10 @@ fn exchange(origin: &Origin, request: &[u8]) -> Result<Vec<u8>, Error> {
 fn exchange_tls(origin: &Origin, stream: &mut TcpStream, request: &[u8]) -> Result<Vec<u8>, Error> {
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let config = rustls::ClientConfig::builder()
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|_| Error::Probe)?
         .with_root_certificates(roots)
         .with_no_client_auth();
     let name = rustls::pki_types::ServerName::try_from(origin.host.as_str())

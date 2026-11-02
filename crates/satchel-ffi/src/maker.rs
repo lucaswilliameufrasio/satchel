@@ -171,6 +171,7 @@ pub(crate) fn create_phone_repository(
     if let Err(err) = create_repository(&setup, &device_id, &password) {
         return Err(fail(match err {
             satchel_core::Error::ObjectProtection => "protection",
+            satchel_core::Error::ProbeDenied => "denied",
             satchel_core::Error::RepositoryExists => "exists",
             satchel_core::Error::EmptyField { .. } => "fields",
             _ => "unreachable",

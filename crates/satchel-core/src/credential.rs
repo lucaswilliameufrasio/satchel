@@ -37,13 +37,7 @@ pub fn phone_credential_policy(bucket: &str, prefix: &str) -> Result<String, Err
             {
                 "Sid": "KeepHistory",
                 "Effect": "Deny",
-                "Action": [
-                    "s3:DeleteBucket",
-                    "s3:DeleteObject",
-                    "s3:DeleteObjectVersion",
-                    "s3:PutBucketVersioning",
-                    "s3:PutLifecycleConfiguration",
-                ],
+                "Action": ["s3:DeleteObject", "s3:DeleteObjectVersion"],
                 "Resource": [
                     object_arn(bucket, prefix, "config"),
                     object_arn(bucket, prefix, "data/*"),

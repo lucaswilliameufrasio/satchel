@@ -243,7 +243,7 @@ fn form_page<S: SecretStore>(shared: &Shared<S>, error: Option<&str>) -> String 
 <div id=\"fol\"><label>Repository folder <input name=\"repository\"></label>
 <p class=\"hint\">A local folder has no object versioning: an overwritten file cannot be brought back.</p></div>
 <div id=\"obj\" hidden><p class=\"hint\">The bucket needs versioning on and no lifecycle rule that deletes objects. \
-The device key lists, reads, writes and deletes only its own locks; it must differ from the maintenance key.</p>
+The device key must differ from the maintenance key. It is limited to deleting its own locks only when the store applies per-key policy (AWS S3, MinIO, RustFS); on R2 and B2 it can delete everything.</p>
 <label>Endpoint <input name=\"endpoint\" placeholder=\"https://s3.us-east-1.amazonaws.com\"></label>
 <label>Bucket <input name=\"bucket\"></label>
 <label>Region <input name=\"region\" placeholder=\"us-east-1\"></label>
