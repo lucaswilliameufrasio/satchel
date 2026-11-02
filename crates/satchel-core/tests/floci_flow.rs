@@ -3,6 +3,9 @@
 //! `cargo test` starts `floci/floci:2.3.0` through testcontainers, publishes
 //! port 4566 on `127.0.0.1` only, and removes that container on teardown.
 //! The image must already be local. This test does not read `FLOCI_ENDPOINT`.
+//! A rootless daemon is used when that context is a local socket and reports
+//! `name=rootless`. Otherwise the current context is used, and only when its
+//! endpoint is a local `unix://` socket.
 
 use std::collections::HashMap;
 use std::fs;
@@ -10,6 +13,7 @@ use std::net::TcpStream;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use satchel_core::{
@@ -286,8 +290,9 @@ struct LocalFloci {
 
 impl LocalFloci {
     fn start() -> Self {
-        use_rootless_docker();
-        require_local_image();
+        use_local_docker();
+        let image_id = require_local_image();
+        emit_proof("floci image floci/floci:2.3.0 already local, no image pull");
         remove_stale_containers();
         let name = format!("satchel-floci-{}", std::process::id());
         let container = GenericImage::new("floci/floci", "2.3.0")
@@ -308,13 +313,20 @@ impl LocalFloci {
             })
             .start()
             .expect("start Floci");
+        assert_eq!(
+            image_id,
+            require_local_image(),
+            "local image changed while the container started"
+        );
         assert_loopback_only(container.id());
         let port = container
             .get_host_port_ipv4(4566.tcp())
             .expect("floci port");
         wait_until_accepts(port);
+        let endpoint = format!("http://127.0.0.1:{port}");
+        emit_proof(&format!("floci container start {endpoint}"));
         Self {
-            endpoint: format!("http://127.0.0.1:{port}"),
+            endpoint,
             container,
         }
     }
@@ -327,17 +339,49 @@ impl LocalFloci {
 impl Drop for LocalFloci {
     fn drop(&mut self) {
         let id = self.container.id().to_string();
-        let _ = Command::new("docker")
-            .args(["--context", "rootless", "rm", "-f", "-v", id.as_str()])
-            .output();
+        let volumes = anonymous_volume_names(&id);
+        let removed = docker()
+            .args(["rm", "-f", "-v", id.as_str()])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+            && container_gone(&id)
+            && volumes.as_ref().is_some_and(|names| volumes_gone(names));
+        if removed {
+            emit_proof("floci container removed");
+            return;
+        }
+        if !std::thread::panicking() {
+            panic!("floci container was not removed");
+        }
     }
 }
 
-fn require_local_image() {
-    let output = Command::new("docker")
+/// libtest hides `println` on success. The proof has to reach the process
+/// stderr that `cargo test` forwards into its log.
+fn emit_proof(line: &str) {
+    use std::io::Write;
+    let mut stderr = fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/stderr")
+        .expect("stderr");
+    writeln!(stderr, "{line}").expect("proof line");
+}
+
+static DOCKER_CONTEXT: OnceLock<String> = OnceLock::new();
+
+fn docker() -> Command {
+    let mut command = Command::new("docker");
+    if let Some(context) = DOCKER_CONTEXT.get() {
+        command.arg("--context");
+        command.arg(context);
+    }
+    command
+}
+
+fn require_local_image() -> String {
+    let output = docker()
         .args([
-            "--context",
-            "rootless",
             "image",
             "inspect",
             "--format",
@@ -350,18 +394,60 @@ fn require_local_image() {
         output.status.success(),
         "floci/floci:2.3.0 is not present locally"
     );
+    let id = String::from_utf8(output.stdout).expect("image id");
+    let id = id.trim();
+    assert!(!id.is_empty(), "image id is empty");
+    id.to_string()
+}
+
+fn anonymous_volume_names(container_id: &str) -> Option<Vec<String>> {
+    let output = docker()
+        .args([
+            "inspect",
+            "--format",
+            "{{range .Mounts}}{{if eq .Type \"volume\"}}{{.Name}}\n{{end}}{{end}}",
+            container_id,
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    let mut names = Vec::new();
+    for line in text.lines() {
+        let name = line.trim();
+        if name.is_empty() {
+            continue;
+        }
+        names.push(name.to_string());
+    }
+    Some(names)
+}
+
+fn container_gone(container_id: &str) -> bool {
+    match docker().args(["inspect", container_id]).output() {
+        Ok(output) => !output.status.success(),
+        Err(_) => false,
+    }
+}
+
+fn volumes_gone(names: &[String]) -> bool {
+    for name in names {
+        let gone = match docker().args(["volume", "inspect", name]).output() {
+            Ok(output) => !output.status.success(),
+            Err(_) => false,
+        };
+        if !gone {
+            return false;
+        }
+    }
+    true
 }
 
 fn remove_stale_containers() {
-    let listed = Command::new("docker")
-        .args([
-            "--context",
-            "rootless",
-            "ps",
-            "-aq",
-            "--filter",
-            "name=satchel-floci-",
-        ])
+    let listed = docker()
+        .args(["ps", "-aq", "--filter", "name=satchel-floci-"])
         .output()
         .expect("docker ps");
     if !listed.status.success() {
@@ -369,60 +455,114 @@ fn remove_stale_containers() {
     }
     let text = String::from_utf8(listed.stdout).unwrap_or_default();
     for id in text.split_whitespace() {
-        let _ = Command::new("docker")
-            .args(["--context", "rootless", "rm", "-f", "-v", id])
-            .output();
+        let _ = docker().args(["rm", "-f", "-v", id]).output();
     }
 }
 
-fn use_rootless_docker() {
+/// A Docker endpoint this test may use. Remote schemes are rejected.
+fn local_socket_host(host: &str) -> bool {
+    host.starts_with("unix://")
+}
+
+fn context_endpoint(name: &str) -> Option<String> {
     let output = Command::new("docker")
         .args([
             "context",
             "inspect",
-            "rootless",
+            name,
             "--format",
             "{{.Endpoints.docker.Host}}",
         ])
         .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let host = String::from_utf8(output.stdout).ok()?;
+    let host = host.trim();
+    if host.is_empty() {
+        return None;
+    }
+    Some(host.to_string())
+}
+
+fn current_context() -> String {
+    let output = Command::new("docker")
+        .args(["context", "show"])
+        .output()
         .expect("docker context");
     assert!(
         output.status.success(),
-        "rootless context status {}",
+        "docker context status {}",
         output.status
     );
-    let host = String::from_utf8(output.stdout).expect("docker host utf8");
-    let host = host.trim();
-    assert!(
-        host.starts_with("unix://"),
-        "rootless context is not a local socket"
-    );
-    // SAFETY: this runs before testcontainers starts its runtime. The value is
-    // the rootless socket and is not printed. Later Docker commands in this
-    // process must reach that same daemon.
-    unsafe {
-        std::env::set_var("DOCKER_HOST", host);
+    let name = String::from_utf8(output.stdout).expect("context name");
+    let name = name.trim();
+    assert!(!name.is_empty(), "docker context has no name");
+    name.to_string()
+}
+
+/// Prefer a real rootless daemon. A context that is only named `rootless` is ignored.
+fn verified_rootless_context() -> Option<String> {
+    let host = context_endpoint("rootless")?;
+    if !local_socket_host(&host) {
+        return None;
     }
-    let info = Command::new("docker")
+    let output = Command::new("docker")
         .args([
+            "--context",
+            "rootless",
             "info",
             "--format",
             "{{range .SecurityOptions}}{{println .}}{{end}}",
         ])
         .output()
-        .expect("docker info");
-    assert!(info.status.success(), "docker info status {}", info.status);
-    let options = String::from_utf8(info.stdout).expect("security options");
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let options = String::from_utf8(output.stdout).unwrap_or_default();
+    if !options
+        .lines()
+        .any(|line| line.starts_with("name=rootless"))
+    {
+        return None;
+    }
+    Some("rootless".to_string())
+}
+
+fn use_local_docker() {
+    let context = if let Some(name) = verified_rootless_context() {
+        name
+    } else {
+        current_context()
+    };
+    let host = context_endpoint(&context).expect("docker context endpoint");
     assert!(
-        options
-            .lines()
-            .any(|line| line.starts_with("name=rootless")),
-        "docker daemon is not rootless"
+        local_socket_host(&host),
+        "docker host is not a local socket"
     );
+    let _ = DOCKER_CONTEXT.set(context);
+    // SAFETY: this runs before testcontainers starts its runtime. The socket
+    // path is not printed. Later Docker commands in this process use the same
+    // context.
+    unsafe {
+        std::env::set_var("DOCKER_HOST", host);
+    }
+}
+
+#[test]
+fn remote_docker_host_is_rejected() {
+    assert!(local_socket_host("unix:///var/run/docker.sock"));
+    assert!(!local_socket_host("tcp://127.0.0.1:2375"));
+    assert!(!local_socket_host("ssh://example"));
+    assert!(!local_socket_host("http://127.0.0.1:2375"));
+    assert!(!local_socket_host("https://127.0.0.1:2375"));
+    assert!(!local_socket_host(""));
 }
 
 fn assert_loopback_only(container_id: &str) {
-    let output = Command::new("docker")
+    let output = docker()
         .args([
             "inspect",
             "--format",

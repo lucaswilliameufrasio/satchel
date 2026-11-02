@@ -147,4 +147,7 @@ object NativeCatalog {
     ): String
 
     external fun newDeviceId(): String
+
+    /** Canonical invite JSON. Rejects unknown fields, including a recovery password. */
+    external fun parseInvite(text: String): String
 }

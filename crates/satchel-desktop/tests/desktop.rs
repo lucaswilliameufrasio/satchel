@@ -176,7 +176,12 @@ fn add_device_screen_approves_without_the_recovery_password() {
     assert_eq!(pending.device_name, "phone");
     assert_eq!(pending.os, "android");
     assert!(pending.peer_address.ip().is_loopback());
-    assert_eq!(pending.local_interface, "lo");
+    assert_ne!(pending.local_interface, "tailscale0");
+    assert!(
+        pending.local_interface == "lo" || pending.local_interface == "lo0",
+        "local interface {}",
+        pending.local_interface
+    );
     let view = desktop.tray_view();
     let mut labels = String::new();
     for item in &view.items {

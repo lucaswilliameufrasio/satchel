@@ -59,7 +59,7 @@ impl SecretStore for MemoryStore {
     }
 }
 
-/// OS keystore entry. On Linux this talks to the Secret Service.
+/// OS keystore entry. Linux uses the Secret Service. macOS uses the login keychain.
 pub struct KeyringStore {
     service: String,
 }

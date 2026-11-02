@@ -26,6 +26,8 @@ class CatalogSessionTest {
         assertTrue(rowDetails(file).contains("0123456789abcdef0123456789abcdef"))
         assertFalse(rowDetails(file).contains("payload-bytes"))
         assertEquals("Ver", followLabel(file.follow))
+        assertEquals("14/11/2023 22:13 UTC", rowWhen(file))
+        assertEquals("0123456789abcdef0123456789abcdef", deviceText(file))
     }
 
     @Test

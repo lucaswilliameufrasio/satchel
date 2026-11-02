@@ -63,8 +63,29 @@ pub struct CatalogEntry {
     pub version_unix: i64,
     /// Devices whose published state keeps a copy.
     pub devices: Vec<String>,
+    /// Facts for `devices`, in the same order. A missing fact means that id has no snapshot.
+    pub holders: Vec<DeviceCard>,
     /// This device's follow state for the path.
     pub follow: Follow,
+}
+
+/// What the catalog can say about one device. The id is the opaque repository id.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct DeviceCard {
+    /// Opaque id. This is not a secret.
+    pub id: String,
+    /// Name published by that device. Absent when it never sent one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// System published by that device.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub os: Option<String>,
+    /// Controlled clock of the first snapshot that carried the name.
+    #[serde(rename = "enrolledUnix", skip_serializing_if = "Option::is_none")]
+    pub enrolled_unix: Option<i64>,
+    /// Time of that device's latest snapshot.
+    #[serde(rename = "lastUnix")]
+    pub last_unix: i64,
 }
 
 /// A conflicting version stored beside the primary path.
@@ -100,6 +121,25 @@ struct StateDoc {
     once: BTreeMap<String, String>,
     #[serde(default)]
     conflicts: Vec<StoredConflict>,
+    /// Name and system this device published. Absent on older snapshots.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    intro: Option<DeviceIntro>,
+}
+
+/// Chosen label stored inside the encrypted snapshot, not in `keys/`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+struct DeviceIntro {
+    name: String,
+    os: String,
+    enrolled_unix: i64,
+}
+
+/// Label held in memory before the first snapshot seals the enrollment time.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct IntroDraft {
+    name: String,
+    os: String,
+    enrolled_unix: Option<i64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -179,6 +219,7 @@ pub struct Client {
     conflicts: Vec<StoredConflict>,
     tombstones: BTreeSet<String>,
     published: Option<StateDoc>,
+    intro: Option<IntroDraft>,
 }
 
 impl Client {
@@ -207,7 +248,24 @@ impl Client {
             conflicts: Vec::new(),
             tombstones: BTreeSet::new(),
             published: None,
+            intro: None,
         })
+    }
+
+    /// Remember the name and system to publish on the next snapshot.
+    ///
+    /// The enrollment time stays on the first snapshot that carried a label.
+    /// A later call can change the name without moving that time.
+    pub fn introduce(&mut self, name: &str, os: &str) -> Result<(), Error> {
+        let name = checked_label(name)?;
+        let os = checked_label(os)?;
+        let enrolled_unix = self.intro.as_ref().and_then(|intro| intro.enrolled_unix);
+        self.intro = Some(IntroDraft {
+            name,
+            os,
+            enrolled_unix,
+        });
+        Ok(())
     }
 
     /// Set the controlled clock used as the snapshot time.
@@ -259,8 +317,10 @@ impl Client {
             let is_directory = latest
                 .values()
                 .any(|snap| snap.files.get(&path).is_some_and(|meta| meta.is_dir));
+            let devices = devices_keeping(&latest, &path);
             entries.push(CatalogEntry {
-                devices: devices_keeping(&latest, &path),
+                holders: cards_for(&latest, &devices),
+                devices,
                 path,
                 is_directory,
                 size: *size,
@@ -380,6 +440,19 @@ impl Client {
             );
         }
         self.conflicts = resolve_conflicts(&our.state.conflicts, &our.id);
+        if let Some(previous) = &our.state.intro {
+            if let Some(current) = &mut self.intro {
+                if current.enrolled_unix.is_none() {
+                    current.enrolled_unix = Some(previous.enrolled_unix);
+                }
+            } else {
+                self.intro = Some(IntroDraft {
+                    name: previous.name.clone(),
+                    os: previous.os.clone(),
+                    enrolled_unix: Some(previous.enrolled_unix),
+                });
+            }
+        }
         self.published = Some(published_doc(our));
         let empty = work_is_empty(&self.work)?;
         for (path, meta) in &our.files {
@@ -552,6 +625,7 @@ impl Client {
             .iter()
             .map(|(conflict, _)| conflict.clone())
             .collect();
+        self.seal_intro();
         let doc = self.state_doc(&extras);
         let state_changed = self.published.as_ref() != Some(&doc);
         if self.cursor.is_some() && !state_changed && !dirty {
@@ -675,7 +749,27 @@ impl Client {
             tombstones: self.tombstones.clone(),
             once: self.once_done.clone(),
             conflicts,
+            intro: self.stored_intro(),
         }
+    }
+
+    fn seal_intro(&mut self) {
+        let Some(intro) = &mut self.intro else {
+            return;
+        };
+        if intro.enrolled_unix.is_none() {
+            intro.enrolled_unix = Some(self.clock);
+        }
+    }
+
+    fn stored_intro(&self) -> Option<DeviceIntro> {
+        let intro = self.intro.as_ref()?;
+        let enrolled_unix = intro.enrolled_unix?;
+        Some(DeviceIntro {
+            name: intro.name.clone(),
+            os: intro.os.clone(),
+            enrolled_unix,
+        })
     }
 
     fn remember_published_tree(&mut self) -> Result<(), Error> {
@@ -1067,6 +1161,48 @@ fn merged_follows(
     follows
 }
 
+fn cards_for(latest: &BTreeMap<String, Snap>, ids: &[String]) -> Vec<DeviceCard> {
+    let mut cards = Vec::new();
+    for id in ids {
+        let Some(snap) = latest.get(id) else {
+            continue;
+        };
+        let name;
+        let os;
+        let enrolled_unix;
+        if let Some(intro) = &snap.state.intro {
+            name = Some(intro.name.clone());
+            os = Some(intro.os.clone());
+            enrolled_unix = Some(intro.enrolled_unix);
+        } else {
+            name = None;
+            os = None;
+            enrolled_unix = None;
+        }
+        cards.push(DeviceCard {
+            id: id.clone(),
+            name,
+            os,
+            enrolled_unix,
+            last_unix: snap.time_unix,
+        });
+    }
+    cards
+}
+
+fn checked_label(value: &str) -> Result<String, Error> {
+    let count = value.chars().count();
+    if count == 0 || count > 64 {
+        return Err(Error::Label);
+    }
+    for character in value.chars() {
+        if character.is_control() {
+            return Err(Error::Label);
+        }
+    }
+    Ok(value.to_string())
+}
+
 fn devices_keeping(latest: &BTreeMap<String, Snap>, path: &str) -> Vec<String> {
     let mut devices = Vec::new();
     for snap in latest.values() {
@@ -1122,6 +1258,7 @@ fn published_doc(snap: &Snap) -> StateDoc {
         tombstones: snap.state.tombstones.clone(),
         once: snap.state.once.clone(),
         conflicts: resolve_conflicts(&snap.state.conflicts, &snap.id),
+        intro: snap.state.intro.clone(),
     }
 }
 
@@ -1442,5 +1579,75 @@ mod tests {
         assert!(normalize_path("../a.txt").is_err());
         assert!(normalize_path("/etc/passwd").is_err());
         assert_eq!(normalize_path("docs/a.txt").expect("path"), "docs/a.txt");
+    }
+
+    #[test]
+    fn introduced_name_is_listed_and_stays_out_of_the_key_file() {
+        let workspace = tempfile::tempdir().expect("temp dir");
+        let repository = workspace.path().join("repository");
+        let source = workspace.path().join("source");
+        fs::create_dir_all(&repository).expect("repository");
+        fs::create_dir_all(&source).expect("source");
+        fs::write(source.join("kept.txt"), b"kept-bytes").expect("file");
+        let holder = DeviceId::parse("0123456789abcdef0123456789abcdef").expect("id");
+        let location = Location::Directory(repository.clone());
+        init(&location, "recovery-password", &holder).expect("init");
+        let mut publisher =
+            Client::open(holder.clone(), &source, "recovery-password").expect("open");
+        assert!(publisher.introduce("", "exemplo").is_err());
+        publisher
+            .introduce("Publicador", "exemplo")
+            .expect("introduce");
+        publisher
+            .follow("kept.txt", Follow::Always)
+            .expect("follow");
+        publisher.set_clock(1_700_000_000).expect("clock");
+        publisher.sync(&location).expect("sync");
+
+        let reader = DeviceId::parse("fedcba9876543210fedcba9876543210").expect("reader");
+        let listed = Client::open(reader, workspace.path().join("work"), "recovery-password")
+            .expect("reader")
+            .catalog(&location)
+            .expect("catalog");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].holders.len(), 1);
+        let card = &listed[0].holders[0];
+        assert_eq!(card.id, holder.as_str());
+        assert_eq!(card.name.as_deref(), Some("Publicador"));
+        assert_eq!(card.os.as_deref(), Some("exemplo"));
+        assert_eq!(card.enrolled_unix, Some(1_700_000_000));
+        assert_eq!(card.last_unix, 1_700_000_000);
+
+        let mut renamed =
+            Client::open(holder.clone(), &source, "recovery-password").expect("reopen");
+        renamed.introduce("Outro nome", "exemplo").expect("rename");
+        renamed.set_clock(1_700_000_060).expect("later");
+        renamed.sync(&location).expect("rename sync");
+        let again = Client::open(
+            DeviceId::parse("fedcba9876543210fedcba9876543210").expect("reader"),
+            workspace.path().join("work-2"),
+            "recovery-password",
+        )
+        .expect("reader")
+        .catalog(&location)
+        .expect("catalog");
+        let card = &again[0].holders[0];
+        assert_eq!(card.name.as_deref(), Some("Outro nome"));
+        assert_eq!(card.enrolled_unix, Some(1_700_000_000));
+        assert_eq!(card.last_unix, 1_700_000_060);
+
+        let mut saw_key = false;
+        for entry in fs::read_dir(repository.join("keys")).expect("keys") {
+            let entry = entry.expect("entry");
+            let text = fs::read_to_string(entry.path()).expect("key");
+            assert!(!text.contains("Publicador"));
+            assert!(!text.contains("Outro nome"));
+            assert!(!text.contains("exemplo"));
+            assert!(text.contains(holder.as_str()));
+            let value: serde_json::Value = serde_json::from_str(&text).expect("json");
+            assert!(value.get("created").is_none());
+            saw_key = true;
+        }
+        assert!(saw_key);
     }
 }

@@ -87,7 +87,7 @@ private fun jsonString(value: String): String {
     return out.toString()
 }
 
-private class JsonCursor(private val text: String) {
+internal class JsonCursor(private val text: String) {
     private var index = 0
 
     fun finished(): Boolean {
@@ -127,6 +127,60 @@ private class JsonCursor(private val text: String) {
             fail()
         }
         fail()
+    }
+
+    /** Object whose values are strings or integers. Integers are returned as decimal text. */
+    fun parseMixedObject(): Map<String, String> {
+        skip()
+        expect('{')
+        val fields = linkedMapOf<String, String>()
+        skip()
+        if (peek() == '}') {
+            index += 1
+            return fields
+        }
+        while (index < text.length) {
+            skip()
+            val key = parseString()
+            skip()
+            expect(':')
+            skip()
+            val value = parseScalar()
+            if (fields.containsKey(key)) {
+                fail()
+            }
+            fields[key] = value
+            skip()
+            if (peek() == ',') {
+                index += 1
+                continue
+            }
+            if (peek() == '}') {
+                index += 1
+                return fields
+            }
+            fail()
+        }
+        fail()
+    }
+
+    private fun parseScalar(): String {
+        if (peek() == '"') {
+            return parseString()
+        }
+        val start = index
+        if (peek() == '-') {
+            index += 1
+        }
+        var digits = 0
+        while (index < text.length && text[index] in '0'..'9') {
+            index += 1
+            digits += 1
+        }
+        if (digits == 0) {
+            fail()
+        }
+        return text.substring(start, index)
     }
 
     private fun parseString(): String {

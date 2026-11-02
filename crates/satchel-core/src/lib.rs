@@ -16,6 +16,6 @@ pub use format::{
 pub use probe::{ObjectProtection, probe_object_protection};
 pub use storage::{SetupCheck, StorageKind, Versioning, check_setup};
 pub use sync::{
-    CatalogEntry, Client, Cursor, Follow, MarkedConflict, SyncOutcome, cursors, publish_folder,
-    read_followed, read_version, restore_latest,
+    CatalogEntry, Client, Cursor, DeviceCard, Follow, MarkedConflict, SyncOutcome, cursors,
+    publish_folder, read_followed, read_version, restore_latest,
 };

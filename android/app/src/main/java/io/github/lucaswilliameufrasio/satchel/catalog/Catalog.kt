@@ -1,6 +1,8 @@
 package io.github.lucaswilliameufrasio.satchel.catalog
 
 import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 /** How this phone treats one file or folder. */
 enum class Follow {
@@ -95,6 +97,29 @@ class CatalogSession(private val source: CatalogSource) {
 /** Name, sync time, and devices. No file bytes. */
 fun rowTitle(row: CatalogRow): String {
     return row.path
+}
+
+private val syncedFormatter: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm 'UTC'").withZone(ZoneOffset.UTC)
+
+/** Sync time shown on the phone, in UTC so the catalog does not depend on the zone. */
+fun rowWhen(row: CatalogRow): String {
+    return syncedFormatter.format(Instant.ofEpochSecond(row.versionUnix))
+}
+
+/** One opaque id per line. Empty means no device keeps this file. */
+fun deviceText(row: CatalogRow): String {
+    if (row.devices.isEmpty()) {
+        return "nenhum"
+    }
+    var text = ""
+    for (device in row.devices) {
+        if (text.isNotEmpty()) {
+            text += "\n"
+        }
+        text += device
+    }
+    return text
 }
 
 /** The two metadata lines under the name. */

@@ -1,0 +1,291 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0000000000000000000000A1 /* SatchelApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000011 /* SatchelApp.swift */; };
+		0000000000000000000000A2 /* PhoneModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000012 /* PhoneModel.swift */; };
+		0000000000000000000000A3 /* SatchelCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000013 /* SatchelCore.swift */; };
+		0000000000000000000000A4 /* QrScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000014 /* QrScannerView.swift */; };
+		0000000000000000000000A6 /* BackupExclusion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000018 /* BackupExclusion.swift */; };
+		0000000000000000000000A5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000017 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		000000000000000000000011 /* SatchelApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SatchelApp.swift; sourceTree = "<group>"; };
+		000000000000000000000012 /* PhoneModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneModel.swift; sourceTree = "<group>"; };
+		000000000000000000000013 /* SatchelCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SatchelCore.swift; sourceTree = "<group>"; };
+		000000000000000000000014 /* QrScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QrScannerView.swift; sourceTree = "<group>"; };
+		000000000000000000000018 /* BackupExclusion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupExclusion.swift; sourceTree = "<group>"; };
+		000000000000000000000015 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		000000000000000000000016 /* Satchel.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Satchel.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000017 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		000000000000000000000021 /* Satchel */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000011 /* SatchelApp.swift */,
+				000000000000000000000012 /* PhoneModel.swift */,
+				000000000000000000000013 /* SatchelCore.swift */,
+				000000000000000000000014 /* QrScannerView.swift */,
+				000000000000000000000018 /* BackupExclusion.swift */,
+				000000000000000000000015 /* Info.plist */,
+				000000000000000000000017 /* Assets.xcassets */,
+			);
+			path = Satchel;
+			sourceTree = "<group>";
+		};
+		000000000000000000000022 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000016 /* Satchel.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		000000000000000000000023 = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000021 /* Satchel */,
+				000000000000000000000022 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		000000000000000000000031 /* Satchel */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000071 /* Build configuration list for PBXNativeTarget "Satchel" */;
+			buildPhases = (
+				000000000000000000000041 /* Build Rust */,
+				000000000000000000000042 /* Sources */,
+				000000000000000000000043 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Satchel;
+			productName = Satchel;
+			productReference = 000000000000000000000016 /* Satchel.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		000000000000000000000032 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 2700;
+			};
+			buildConfigurationList = 000000000000000000000072 /* Build configuration list for PBXProject "Satchel" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 000000000000000000000023;
+			productRefGroup = 000000000000000000000022 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				000000000000000000000031 /* Satchel */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		000000000000000000000041 /* Build Rust */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust";
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/libsatchel_ffi.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\ncd \"${SRCROOT}/..\"\nexport IPHONEOS_DEPLOYMENT_TARGET=16.0\ncase \"${PLATFORM_NAME}\" in\n  iphonesimulator) rust_target=aarch64-apple-ios-sim ;;\n  iphoneos) rust_target=aarch64-apple-ios ;;\n  *) echo \"unsupported platform ${PLATFORM_NAME}\" >&2; exit 1 ;;\nesac\nif [ \"${CONFIGURATION}\" = \"Release\" ]; then\n  cargo build --release --target \"${rust_target}\" -p satchel-ffi\n  profile=release\nelse\n  cargo build --target \"${rust_target}\" -p satchel-ffi\n  profile=debug\nfi\nmkdir -p \"${BUILT_PRODUCTS_DIR}\"\ncp \"target/${rust_target}/${profile}/libsatchel_ffi.a\" \"${BUILT_PRODUCTS_DIR}/libsatchel_ffi.a\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		000000000000000000000042 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0000000000000000000000A1 /* SatchelApp.swift in Sources */,
+				0000000000000000000000A2 /* PhoneModel.swift in Sources */,
+				0000000000000000000000A3 /* SatchelCore.swift in Sources */,
+				0000000000000000000000A4 /* QrScannerView.swift in Sources */,
+				0000000000000000000000A6 /* BackupExclusion.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXResourcesBuildPhase section */
+		000000000000000000000043 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0000000000000000000000A5 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		000000000000000000000061 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		000000000000000000000062 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		000000000000000000000063 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4LH3F22NH6;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Satchel/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Satchel;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Satchel lê o QR mostrado no desktop para preencher o convite.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-force_load",
+					"$(BUILT_PRODUCTS_DIR)/libsatchel_ffi.a",
+					"-lc++",
+					"-lz",
+					"-framework",
+					"Security",
+					"-framework",
+					"CoreFoundation",
+					"-framework",
+					"SystemConfiguration",
+					"-framework",
+					"Foundation",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.lucaswilliameufrasio.satchel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		000000000000000000000064 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4LH3F22NH6;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Satchel/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Satchel;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Satchel lê o QR mostrado no desktop para preencher o convite.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-force_load",
+					"$(BUILT_PRODUCTS_DIR)/libsatchel_ffi.a",
+					"-lc++",
+					"-lz",
+					"-framework",
+					"Security",
+					"-framework",
+					"CoreFoundation",
+					"-framework",
+					"SystemConfiguration",
+					"-framework",
+					"Foundation",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.lucaswilliameufrasio.satchel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		000000000000000000000071 /* Build configuration list for PBXNativeTarget "Satchel" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000063 /* Debug */,
+				000000000000000000000064 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000072 /* Build configuration list for PBXProject "Satchel" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000061 /* Debug */,
+				000000000000000000000062 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 000000000000000000000032 /* Project object */;
+}

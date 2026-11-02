@@ -4,14 +4,22 @@
 //! `markSample` and `markStore` write that device's follow into a new snapshot.
 //! `catalogGrant` opens with the device key from a pairing grant.
 //! File bytes are available from `readFile` after a mark asks for them.
+//!
+//! The same functions build for iOS and for the host tests. The JNI symbols
+//! stay on Android.
+
+#![cfg(any(test, target_os = "android", target_os = "ios"))]
 
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+#[cfg(target_os = "android")]
 use jni::EnvUnowned;
+#[cfg(target_os = "android")]
 use jni::objects::{JClass, JString};
+#[cfg(target_os = "android")]
 use jni::sys::{jbyteArray, jstring};
 use satchel_core::{Client, DeviceId, Follow, Location, S3Store, init, read_followed};
 use satchel_pair::JoinRequest;
@@ -33,6 +41,7 @@ impl std::fmt::Display for CatalogFailure {
 
 impl std::error::Error for CatalogFailure {}
 
+#[cfg(target_os = "android")]
 impl From<jni::errors::Error> for CatalogFailure {
     fn from(_error: jni::errors::Error) -> Self {
         CatalogFailure
@@ -47,6 +56,7 @@ struct RowJson<'a> {
     #[serde(rename = "versionUnix")]
     version_unix: i64,
     devices: &'a [String],
+    holders: &'a [satchel_core::DeviceCard],
     follow: Follow,
 }
 
@@ -71,6 +81,7 @@ fn rows_json(entries: &[satchel_core::CatalogEntry]) -> Result<String, CatalogFa
             size: entry.size,
             version_unix: entry.version_unix,
             devices: &entry.devices,
+            holders: &entry.holders,
             follow: entry.follow,
         });
     }
@@ -98,6 +109,9 @@ fn ensure_sample(root: &Path) -> Result<Location, CatalogFailure> {
     init(&location, PASSWORD, &device).map_err(|_| CatalogFailure)?;
     let mut publisher = Client::open(device, &source, PASSWORD).map_err(|_| CatalogFailure)?;
     publisher
+        .introduce("Publicador", "exemplo")
+        .map_err(|_| CatalogFailure)?;
+    publisher
         .follow("kept.txt", Follow::Always)
         .map_err(|_| CatalogFailure)?;
     publisher
@@ -107,6 +121,7 @@ fn ensure_sample(root: &Path) -> Result<Location, CatalogFailure> {
     Ok(location)
 }
 
+#[cfg(target_os = "android")]
 #[derive(Deserialize)]
 struct StoreSpec {
     bucket: String,
@@ -119,6 +134,7 @@ struct StoreSpec {
     work: String,
 }
 
+#[cfg(target_os = "android")]
 fn catalog_store(spec_path: &Path) -> Result<String, CatalogFailure> {
     let (location, spec) = open_store(spec_path)?;
     let reader = DeviceId::parse(READER).map_err(|_| CatalogFailure)?;
@@ -127,12 +143,27 @@ fn catalog_store(spec_path: &Path) -> Result<String, CatalogFailure> {
     rows_json(&entries)
 }
 
-fn mark_sample(root: &Path, path: &str, follow: &str) -> Result<(), CatalogFailure> {
+fn mark_sample(
+    root: &Path,
+    path: &str,
+    follow: &str,
+    name: &str,
+    os: &str,
+) -> Result<(), CatalogFailure> {
     let follow = parse_follow(follow)?;
     let location = ensure_sample(root)?;
-    publish_mark(&location, root.join("work"), PASSWORD, path, follow)
+    publish_mark(
+        &location,
+        root.join("work"),
+        PASSWORD,
+        path,
+        follow,
+        name,
+        os,
+    )
 }
 
+#[cfg(target_os = "android")]
 fn mark_store(spec_path: &Path, path: &str, follow: &str) -> Result<(), CatalogFailure> {
     let follow = parse_follow(follow)?;
     let (location, spec) = open_store(spec_path)?;
@@ -142,6 +173,8 @@ fn mark_store(spec_path: &Path, path: &str, follow: &str) -> Result<(), CatalogF
         &spec.password,
         path,
         follow,
+        "",
+        "",
     )
 }
 
@@ -151,9 +184,14 @@ fn publish_mark(
     password: &str,
     path: &str,
     follow: Follow,
+    name: &str,
+    os: &str,
 ) -> Result<(), CatalogFailure> {
     let reader = DeviceId::parse(READER).map_err(|_| CatalogFailure)?;
     let mut client = Client::open(reader, work, password).map_err(|_| CatalogFailure)?;
+    if !name.is_empty() || !os.is_empty() {
+        client.introduce(name, os).map_err(|_| CatalogFailure)?;
+    }
     client.follow(path, follow).map_err(|_| CatalogFailure)?;
     client.sync(location).map_err(|_| CatalogFailure)?;
     Ok(())
@@ -172,6 +210,7 @@ fn parse_follow(text: &str) -> Result<Follow, CatalogFailure> {
     Err(CatalogFailure)
 }
 
+#[cfg(target_os = "android")]
 fn read_store(spec_path: &Path, path: &str) -> Result<Vec<u8>, CatalogFailure> {
     let (location, spec) = open_store(spec_path)?;
     let reader = DeviceId::parse(READER).map_err(|_| CatalogFailure)?;
@@ -265,13 +304,22 @@ fn catalog_grant(spec_path: &Path) -> Result<String, CatalogFailure> {
     rows_json(&entries)
 }
 
-fn mark_grant(spec_path: &Path, path: &str, follow: &str) -> Result<(), CatalogFailure> {
+fn mark_grant(
+    spec_path: &Path,
+    path: &str,
+    follow: &str,
+    name: &str,
+    os: &str,
+) -> Result<(), CatalogFailure> {
     let follow = parse_follow(follow)?;
     let spec = read_grant(spec_path)?;
     let location = open_grant(&spec)?;
     let device = DeviceId::parse(&spec.device_id).map_err(|_| CatalogFailure)?;
     let mut client =
         Client::open(device, &spec.work, &spec.device_key_password).map_err(|_| CatalogFailure)?;
+    if !name.is_empty() || !os.is_empty() {
+        client.introduce(name, os).map_err(|_| CatalogFailure)?;
+    }
     client.follow(path, follow).map_err(|_| CatalogFailure)?;
     client.sync(&location).map_err(|_| CatalogFailure)?;
     Ok(())
@@ -314,6 +362,56 @@ fn join_pairing(
     serde_json::to_string(&wire).map_err(|_| CatalogFailure)
 }
 
+/// Canonical invite JSON. Unknown fields, including a recovery password, are rejected.
+fn parse_invite(text: &str) -> Result<String, CatalogFailure> {
+    let invite = satchel_pair::Invite::decode(text).map_err(|_| CatalogFailure)?;
+    invite.encode().map_err(|_| CatalogFailure)
+}
+
+/// Grant file the catalog opens. The joined text has no device id and no work path.
+fn assemble_grant_json(
+    joined: &str,
+    device_id: &str,
+    work: &str,
+) -> Result<String, CatalogFailure> {
+    if DeviceId::parse(device_id).is_err() || work.is_empty() {
+        return Err(CatalogFailure);
+    }
+    let parsed: GrantWireOwned = serde_json::from_str(joined).map_err(|_| CatalogFailure)?;
+    if parsed.endpoint.is_empty()
+        || parsed.bucket_credential.is_empty()
+        || parsed.device_key_password.is_empty()
+    {
+        return Err(CatalogFailure);
+    }
+    let stored = StoredGrant {
+        endpoint: parsed.endpoint,
+        bucket_credential: parsed.bucket_credential,
+        device_key_password: parsed.device_key_password,
+        device_id: device_id.to_string(),
+        work: work.to_string(),
+    };
+    serde_json::to_string(&stored).map_err(|_| CatalogFailure)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GrantWireOwned {
+    endpoint: String,
+    bucket_credential: String,
+    device_key_password: String,
+}
+
+#[derive(Serialize)]
+struct StoredGrant {
+    endpoint: String,
+    bucket_credential: String,
+    device_key_password: String,
+    device_id: String,
+    work: String,
+}
+
+#[cfg(target_os = "android")]
 fn open_store(spec_path: &Path) -> Result<(Location, StoreSpec), CatalogFailure> {
     let text = fs::read_to_string(spec_path).map_err(|_| CatalogFailure)?;
     let spec: StoreSpec = serde_json::from_str(&text).map_err(|_| CatalogFailure)?;
@@ -329,6 +427,7 @@ fn open_store(spec_path: &Path) -> Result<(Location, StoreSpec), CatalogFailure>
     Ok((Location::S3(store), spec))
 }
 
+#[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_sampleCatalog<
     'local,
@@ -350,6 +449,7 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
+#[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_readFile<
     'local,
@@ -373,6 +473,7 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
+#[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_markSample<
     'local,
@@ -391,11 +492,12 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
             if root_text.is_empty() || path_text.is_empty() || follow_text.is_empty() {
                 return Err(CatalogFailure);
             }
-            mark_sample(Path::new(&root_text), &path_text, &follow_text)
+            mark_sample(Path::new(&root_text), &path_text, &follow_text, "", "")
         })
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
+#[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_markStore<
     'local,
@@ -419,6 +521,7 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
+#[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_catalogStore<
     'local,
@@ -440,6 +543,7 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
+#[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_readStore<
     'local,
@@ -463,6 +567,7 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
+#[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_catalogGrant<
     'local,
@@ -484,6 +589,7 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
+#[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_markGrant<
     'local,
@@ -502,11 +608,12 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
             if spec_text.is_empty() || path_text.is_empty() || follow_text.is_empty() {
                 return Err(CatalogFailure);
             }
-            mark_grant(Path::new(&spec_text), &path_text, &follow_text)
+            mark_grant(Path::new(&spec_text), &path_text, &follow_text, "", "")
         })
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
+#[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_readGrant<
     'local,
@@ -530,6 +637,7 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
+#[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_joinPairing<
     'local,
@@ -575,6 +683,7 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
+#[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_newDeviceId<
     'local,
@@ -591,13 +700,78 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-#[cfg(test)]
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_parseInvite<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    text: JString<'local>,
+) -> jstring {
+    unowned
+        .with_env(|env| -> Result<jstring, CatalogFailure> {
+            let raw = text.try_to_string(env)?;
+            if raw.is_empty() {
+                return Err(CatalogFailure);
+            }
+            let json = parse_invite(&raw)?;
+            let value = env.new_string(json)?;
+            Ok(value.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[cfg(any(test, target_os = "ios"))]
+mod ios;
+
+#[cfg(any(test, target_os = "ios"))]
 mod tests {
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{PAYLOAD, READER, mark_sample, read_sample, sample_catalog};
+
+    #[cfg(test)]
+    use std::ffi::CString;
+    #[cfg(test)]
+    use std::ptr;
+
+    #[cfg(test)]
+    use super::ios::satchel_mark_sample;
+
+    #[cfg(test)]
+    #[test]
+    fn parse_invite_returns_the_fields_and_rejects_recovery() {
+        let text = r#"{"v":1,"code":"482193","address":"127.0.0.1:9","fingerprint":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}"#;
+        let parsed = super::parse_invite(text).expect("invite");
+        assert!(parsed.contains("127.0.0.1:9"));
+        assert!(parsed.contains("482193"));
+        assert!(!parsed.contains("recovery"));
+        let bad = text.trim_end_matches('}').to_string() + r#","recovery":"nope"}"#;
+        assert!(super::parse_invite(&bad).is_err());
+        let joined = concat!(
+            r#"{"endpoint":"http://127.0.0.1:9","bucket_credential":"phone-fixture","#,
+            r#""device_key_password":"device-key-password"}"#
+        );
+        let stored =
+            super::assemble_grant_json(joined, "fedcba9876543210fedcba9876543210", "/data/work")
+                .expect("grant");
+        assert_eq!(
+            stored,
+            concat!(
+                r#"{"endpoint":"http://127.0.0.1:9","bucket_credential":"phone-fixture","#,
+                r#""device_key_password":"device-key-password","#,
+                r#""device_id":"fedcba9876543210fedcba9876543210","work":"/data/work"}"#
+            )
+        );
+        let secret = joined.trim_end_matches('}').to_string() + r#","recovery":"secret-value"}"#;
+        assert!(
+            super::assemble_grant_json(&secret, "fedcba9876543210fedcba9876543210", "/data/work")
+                .is_err()
+        );
+    }
 
     struct TempRoot(PathBuf);
 
@@ -607,8 +781,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn sample_lists_metadata_and_keeps_bytes_out_of_the_json() {
+    #[cfg_attr(not(target_os = "ios"), test)]
+    pub(super) fn sample_lists_metadata_and_keeps_bytes_out_of_the_json() {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock")
@@ -622,8 +796,12 @@ mod tests {
         let bytes = read_sample(&root.0, "kept.txt").expect("read");
         assert_eq!(bytes, PAYLOAD.as_bytes());
         assert!(!root.0.join("work").join("kept.txt").exists());
-        assert!(mark_sample(&root.0, "kept.txt", "nope").is_err());
-        mark_sample(&root.0, "kept.txt", "once").expect("mark");
+        assert!(json.contains("\"name\":\"Publicador\""));
+        assert!(json.contains("\"os\":\"exemplo\""));
+        assert!(json.contains("\"enrolledUnix\":1700000000"));
+        assert!(json.contains("\"lastUnix\":1700000000"));
+        assert!(mark_sample(&root.0, "kept.txt", "nope", "", "").is_err());
+        mark_sample(&root.0, "kept.txt", "once", "Leitor", "iOS").expect("mark");
         assert_eq!(
             fs::read(root.0.join("work").join("kept.txt")).expect("work"),
             PAYLOAD.as_bytes()
@@ -631,14 +809,71 @@ mod tests {
         let marked = sample_catalog(&root.0).expect("marked catalog");
         assert!(marked.contains("\"follow\":\"once\""));
         assert!(marked.contains(READER));
+        assert!(marked.contains("\"name\":\"Leitor\""));
+        assert!(marked.contains("\"name\":\"Publicador\""));
         assert!(
             !marked.contains(PAYLOAD),
             "marked catalog includes file bytes"
         );
     }
 
+    #[cfg(test)]
     #[test]
-    fn grant_opens_with_the_device_password() {
+    fn empty_device_label_still_marks_the_sample() {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = TempRoot(std::env::temp_dir().join(format!("satchel-ffi-empty-{nanos}")));
+        let json = sample_catalog(&root.0).expect("catalog");
+        assert!(json.contains("\"follow\":\"see\""));
+        let root_text = CString::new(root.0.to_str().expect("utf-8 root")).expect("root");
+        let path_text = CString::new("kept.txt").expect("path");
+        let once_text = CString::new("once").expect("once");
+        let nope_text = CString::new("nope").expect("nope");
+        let empty = CString::new("").expect("empty");
+        let rejected = satchel_mark_sample(
+            root_text.as_ptr(),
+            path_text.as_ptr(),
+            nope_text.as_ptr(),
+            empty.as_ptr(),
+            empty.as_ptr(),
+        );
+        assert_eq!(rejected, 1);
+        let missing = satchel_mark_sample(
+            root_text.as_ptr(),
+            path_text.as_ptr(),
+            once_text.as_ptr(),
+            ptr::null(),
+            empty.as_ptr(),
+        );
+        assert_eq!(missing, 1);
+        let untouched = sample_catalog(&root.0).expect("untouched");
+        assert!(untouched.contains("\"follow\":\"see\""));
+        assert!(!root.0.join("work").join("kept.txt").exists());
+        let marked = satchel_mark_sample(
+            root_text.as_ptr(),
+            path_text.as_ptr(),
+            once_text.as_ptr(),
+            empty.as_ptr(),
+            empty.as_ptr(),
+        );
+        assert_eq!(marked, 0);
+        let bytes = read_sample(&root.0, "kept.txt").expect("read");
+        assert_eq!(bytes, PAYLOAD.as_bytes());
+        let listed = sample_catalog(&root.0).expect("listed");
+        assert!(listed.contains("\"follow\":\"once\""));
+        assert!(listed.contains(READER));
+        assert!(listed.contains("\"name\":\"Publicador\""));
+        assert!(!listed.contains(&format!("\"id\":\"{READER}\",\"name\"")));
+        assert!(
+            !listed.contains(PAYLOAD),
+            "marked catalog includes file bytes"
+        );
+    }
+
+    #[cfg_attr(not(target_os = "ios"), test)]
+    pub(super) fn grant_opens_with_the_device_password() {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
 
@@ -697,7 +932,7 @@ mod tests {
         assert!(!json.contains("device-key-password"));
         assert!(!json.contains(super::PASSWORD));
         assert!(!work.join("notes/kept.txt").exists());
-        mark_grant(&grant_path, "notes/kept.txt", "once").expect("mark");
+        mark_grant(&grant_path, "notes/kept.txt", "once", "", "").expect("mark");
         assert_eq!(
             fs::read(work.join("notes/kept.txt")).expect("work"),
             PAYLOAD.as_bytes()
@@ -713,8 +948,8 @@ mod tests {
         assert!(read_grant(&rejected).is_err());
     }
 
-    #[test]
-    fn join_returns_the_grant_without_a_recovery_field() {
+    #[cfg_attr(not(target_os = "ios"), test)]
+    pub(super) fn join_returns_the_grant_without_a_recovery_field() {
         use std::thread;
         use std::time::{Duration, Instant};
 
@@ -775,4 +1010,31 @@ mod tests {
         );
         assert!(!json.contains("recovery"));
     }
+}
+
+/// Runs the phone checks on a device. The UI keeps the main thread free.
+#[cfg(target_os = "ios")]
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_run_phone_checks() -> i32 {
+    let checks: [(&str, fn()); 3] = [
+        (
+            "sample",
+            tests::sample_lists_metadata_and_keeps_bytes_out_of_the_json,
+        ),
+        ("grant", tests::grant_opens_with_the_device_password),
+        (
+            "join",
+            tests::join_returns_the_grant_without_a_recovery_field,
+        ),
+    ];
+    for (name, check) in checks {
+        let ran = std::panic::catch_unwind(check);
+        if ran.is_err() {
+            println!("satchel-device-check {name} failed");
+            return 1;
+        }
+        println!("satchel-device-check {name} ok");
+    }
+    println!("satchel-device-check passed");
+    0
 }

@@ -44,6 +44,10 @@ pub enum Error {
     #[error("clock must be zero or later")]
     Clock,
 
+    /// A device label is empty, longer than 64 characters, or has a control character.
+    #[error("device label must be 1 to 64 characters without control characters")]
+    Label,
+
     /// S3, R2, or B2 is missing versioning, or a lifecycle rule deletes objects.
     #[error("object storage needs versioning enabled and no lifecycle rule that deletes objects")]
     ObjectProtection,

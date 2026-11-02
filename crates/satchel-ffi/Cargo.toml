@@ -4,14 +4,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "JNI entry points the Android catalog uses to read metadata."
+description = "Phone entry points for the Android catalog and the iOS app."
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-jni = "0.22"
 satchel-core = { path = "../satchel-core" }
 satchel-pair = { path = "../satchel-pair" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.22"
