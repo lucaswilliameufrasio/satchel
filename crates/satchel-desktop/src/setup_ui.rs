@@ -16,6 +16,7 @@ use std::time::Duration;
 use rand::Rng;
 use satchel_core::{SetupCheck, StorageKind, StorageSetup};
 
+use crate::Role;
 use crate::secrets::SecretStore;
 use crate::{AccessPair, Desktop, Error, JoinTarget, request_grant};
 
@@ -93,10 +94,31 @@ fn serve<S: SecretStore>(mut stream: TcpStream, shared: &Shared<S>) -> std::io::
     let page = match (request.method.as_str(), route) {
         ("GET", "") => form_page(shared, None),
         ("POST", "create") => create(shared, &parse_form(&request.body)),
+        ("POST", "recovery") => change_recovery(shared),
         ("POST", "join") => join(shared, &parse_form(&request.body)),
         _ => return respond(&mut stream, 404, "text/plain", "not found"),
     };
     respond(&mut stream, 200, "text/html; charset=utf-8", &page)
+}
+
+fn change_recovery<S: SecretStore>(shared: &Shared<S>) -> String {
+    let mut desktop = lock(&shared.desktop);
+    match desktop.change_recovery_password(&*shared.secrets) {
+        Ok(password) => page(&format!(
+            "<h1>Recovery password changed</h1>\
+             <p>Save the new password in a password manager that opens without this \
+             repository. It is shown once. The old one no longer opens the repository, \
+             and every device keeps working with its own key.</p><pre>{}</pre>\
+             <p class=\"hint\">Anyone who kept a copy of the old key file, or can read \
+             an older version of it from a versioned bucket, can still use the old \
+             password. This does not rotate the data key.</p>",
+            escape(&password)
+        )),
+        Err(err) => page(&format!(
+            "<h1>Not changed</h1><p class=\"error\">{}</p>",
+            escape(&describe(&err))
+        )),
+    }
 }
 
 fn create<S: SecretStore>(shared: &Shared<S>, form: &BTreeMap<String, String>) -> String {
@@ -224,8 +246,23 @@ fn required_path(form: &BTreeMap<String, String>, name: &str) -> Result<PathBuf,
 
 fn form_page<S: SecretStore>(shared: &Shared<S>, error: Option<&str>) -> String {
     let desktop = lock(&shared.desktop);
-    if desktop.profile().is_some() && error.is_none() {
-        return page("<h1>Satchel</h1><p>A folder is already set up on this device.</p>");
+    if let Some(profile) = desktop.profile()
+        && error.is_none()
+    {
+        let base = format!("/{}/", shared.token);
+        let change = if profile.role == Role::Maintainer {
+            format!(
+                "<h2>Recovery password</h2><p>Replace it if it leaked or you lost track of \
+                 it. Devices keep working. You get the new one once.</p>\
+                 <form method=\"post\" action=\"{base}recovery\" \
+                 onsubmit=\"busy(this,'Changing…')\"><button>Change recovery password</button></form>"
+            )
+        } else {
+            String::new()
+        };
+        return page(&format!(
+            "<h1>Satchel</h1><p>A folder is already set up on this device.</p>{change}"
+        ));
     }
     let notice = match error {
         Some(message) => format!("<p class=\"error\">{}</p>", escape(message)),

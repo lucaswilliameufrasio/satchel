@@ -148,12 +148,13 @@ fn page_creates_and_joins_and_refuses_strangers() {
         ("code", &offer.code),
         ("fingerprint", &offer.fingerprint),
     ]);
+    let (join_host, join_base) = (second_host.clone(), second_base.clone());
     let joiner = thread::spawn(move || {
         http(
-            &second_host,
-            &second_host,
+            &join_host,
+            &join_host,
             "POST",
-            &format!("{second_base}join"),
+            &format!("{join_base}join"),
             &join_body,
         )
     });
@@ -189,6 +190,56 @@ fn page_creates_and_joins_and_refuses_strangers() {
             .expect("get")
             .is_none()
     );
+
+    // The device that joined cannot change the recovery password and sees no button.
+    let denied = http(
+        &second_host,
+        &second_host,
+        "POST",
+        &format!("{second_base}recovery"),
+        "",
+    );
+    assert!(denied.body.contains("Not changed"), "{}", denied.body);
+    let member_page = http(&second_host, &second_host, "GET", &second_base, "");
+    assert!(!member_page.body.contains("Change recovery password"));
+
+    // The creator changes it: shown once, stored, the old one no longer opens, the device keeps working.
+    assert!(
+        http(&host, &host, "GET", &base, "")
+            .body
+            .contains("Change recovery password")
+    );
+    let changed = http(&host, &host, "POST", &format!("{base}recovery"), "");
+    assert!(
+        changed.body.contains("Recovery password changed"),
+        "{}",
+        changed.body
+    );
+    let fresh = first_store
+        .get(Account::RecoveryPassword)
+        .expect("get")
+        .expect("stored");
+    assert_ne!(fresh, password);
+    assert!(changed.body.contains(&fresh), "shown once");
+    assert!(!changed.body.contains(&password));
+    assert!(
+        first_store
+            .get(Account::PendingRecoveryPassword)
+            .expect("get")
+            .is_none()
+    );
+    assert!(!http(&host, &host, "GET", &base, "").body.contains(&fresh));
+    // Both devices still sync: the creator with the new password, the member with its own key.
+    first
+        .lock()
+        .expect("lock")
+        .publish(&*first_store)
+        .expect("creator publishes");
+    second
+        .lock()
+        .expect("lock")
+        .publish(&*second_store)
+        .expect("member publishes");
 }
 
 /// Serves the page for a person or a browser tool. `SATCHEL_URL_FILE` receives the address.

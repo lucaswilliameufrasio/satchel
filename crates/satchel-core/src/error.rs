@@ -52,6 +52,10 @@ pub enum Error {
     #[error("object storage needs versioning enabled and no lifecycle rule that deletes objects")]
     ObjectProtection,
 
+    /// The new password is the one already in use.
+    #[error("the new password is the same as the current one")]
+    SamePassword,
+
     /// A repository already exists at this location.
     #[error("a repository already exists here")]
     RepositoryExists,

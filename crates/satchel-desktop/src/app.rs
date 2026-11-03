@@ -4,8 +4,9 @@ use std::time::Duration;
 
 use satchel_core::{
     Client, DeviceId, DeviceKeyRecord, Location, S3Store, SetupCheck, StorageKind, StorageSetup,
-    check_setup, create_repository, generate_recovery_password, list_other_device_keys,
-    probe_object_protection, provision_device_key, remove_device_key, sync_folder,
+    change_recovery_password, check_setup, create_repository, generate_recovery_password,
+    list_other_device_keys, probe_object_protection, provision_device_key, remove_device_key,
+    sync_folder,
 };
 use satchel_pair::{
     ApprovalRequest, Decision, DeviceSecrets, Invite, ListenConfig, Offer, PairingSession,
@@ -450,6 +451,34 @@ impl Desktop {
         Ok(())
     }
 
+    /// Replace the recovery password. Only the device that created the repository can.
+    ///
+    /// The new value is kept in the keystore before the repository changes, so a
+    /// crash between the two steps never loses the only copy. Device keys keep
+    /// working: the master key does not change. Returns the new password for the
+    /// caller to show once.
+    pub fn change_recovery_password(&mut self, store: &dyn SecretStore) -> Result<String, Error> {
+        let Some(profile) = self.profile.as_ref() else {
+            return Err(Error::Profile);
+        };
+        if profile.role != Role::Maintainer {
+            return Err(Error::NotMaintainer);
+        }
+        let Some(old) = store.get(Account::RecoveryPassword)? else {
+            return Err(Error::MissingRecovery);
+        };
+        let location = self.open_location(store)?;
+        let new = generate_recovery_password();
+        store.put(Account::PendingRecoveryPassword, &new)?;
+        if let Err(err) = change_recovery_password(&location, &old, &new) {
+            let _ = store.delete(Account::PendingRecoveryPassword);
+            return Err(err.into());
+        }
+        store.put(Account::RecoveryPassword, &new)?;
+        let _ = store.delete(Account::PendingRecoveryPassword);
+        Ok(new)
+    }
+
     /// Delete one device key. The key that opened the repository stays.
     pub fn revoke_device_key(
         &mut self,
@@ -679,6 +708,11 @@ impl Desktop {
                     TrayCommand::OpenAddDevice,
                 ));
                 items.push(item("Devices".to_string(), true, TrayCommand::LoadDevices));
+                items.push(item(
+                    "Recovery password…".to_string(),
+                    true,
+                    TrayCommand::OpenSetup,
+                ));
             }
             if let Some(keys) = &self.device_keys {
                 for key in keys {
@@ -760,6 +794,7 @@ fn access_json(access_key_id: &str, secret_access_key: &str) -> Result<String, E
 
 fn forget_all(store: &dyn SecretStore) {
     let _ = store.delete(Account::RecoveryPassword);
+    let _ = store.delete(Account::PendingRecoveryPassword);
     let _ = store.delete(Account::BucketCredential);
     let _ = store.delete(Account::PhoneCredential);
     let _ = store.delete(Account::DeviceKeyPassword);

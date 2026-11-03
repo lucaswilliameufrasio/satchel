@@ -237,6 +237,49 @@ pub fn remove_device_key(location: &Location, opener: &str, key_id: &str) -> Res
     Ok(())
 }
 
+/// Replace the key file that `old_password` opens with one that `new_password` opens.
+///
+/// The master key does not change, so every device key keeps working. The new
+/// key file keeps the opaque id of the old one. It is written and opened with
+/// the new password before the old file is deleted, so the repository is never
+/// left without a key that opens it. Returns the new key id (64 hex, not a secret).
+///
+/// This does not rotate the master key. Anyone who kept a copy of the old key
+/// file, or can read an older version of it from a versioned bucket, still
+/// opens the repository with the old password.
+pub fn change_recovery_password(
+    location: &Location,
+    old_password: &str,
+    new_password: &str,
+) -> Result<String, Error> {
+    require_password(new_password)?;
+    if old_password == new_password {
+        return Err(Error::SamePassword);
+    }
+    let repo = open_unlocked(location, old_password)?;
+    let old_id = repo.key_id().ok_or(Error::CurrentKey)?;
+    let old_file = repo
+        .get_file::<KeyFile>(&old_id)
+        .map_err(Error::repository)?;
+    let hostname = old_file.hostname.clone();
+    let username = old_file.username.clone();
+    let options = KeyOptions::default()
+        .hostname(hostname)
+        .username(username)
+        .with_created(false);
+    let new_id = repo
+        .add_key(new_password, &options)
+        .map_err(Error::repository)?;
+
+    // Prove the new password opens before the old key file goes away.
+    let reopened = open_unlocked(location, new_password)?;
+    if reopened.key_id().as_ref() != Some(&new_id) {
+        return Err(Error::CurrentKey);
+    }
+    reopened.delete_key(&old_id).map_err(Error::repository)?;
+    Ok(new_id.into_inner().to_hex().as_str().to_string())
+}
+
 /// List device keys other than the one `opener` used and other than `holder`.
 ///
 /// `holder` is the device that opened the repository, so its recovery key is

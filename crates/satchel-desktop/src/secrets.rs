@@ -14,6 +14,9 @@ pub enum Account {
     BucketCredential,
     /// Credential sent to a phone. It is not the recovery password and not the desktop key.
     PhoneCredential,
+    /// The new recovery password while a change is under way. It is removed once
+    /// the repository and `RecoveryPassword` both hold the new value.
+    PendingRecoveryPassword,
     /// Password of this device's own key. Only a device that joined holds one.
     DeviceKeyPassword,
 }
@@ -23,6 +26,7 @@ impl Account {
         match self {
             Self::RecoveryPassword => "recovery-password",
             Self::BucketCredential => "bucket-credential",
+            Self::PendingRecoveryPassword => "recovery-password-pending",
             Self::PhoneCredential => "phone-credential",
             Self::DeviceKeyPassword => "device-key-password",
         }
