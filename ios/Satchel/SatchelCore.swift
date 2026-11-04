@@ -41,6 +41,15 @@ private func satchelCreateFailure() -> UnsafeMutablePointer<CChar>?
 @_silgen_name("satchel_is_maintainer")
 private func satchelIsMaintainer(_ grant: UnsafePointer<CChar>) -> Int32
 
+@_silgen_name("satchel_recovery_prepare")
+private func satchelRecoveryPrepare(_ grant: UnsafePointer<CChar>) -> UnsafeMutablePointer<CChar>?
+
+@_silgen_name("satchel_recovery_commit")
+private func satchelRecoveryCommit(_ old: UnsafePointer<CChar>, _ new: UnsafePointer<CChar>) -> Int32
+
+@_silgen_name("satchel_grant_opens")
+private func satchelGrantOpens(_ grant: UnsafePointer<CChar>) -> Int32
+
 @_silgen_name("satchel_hold_start")
 private func satchelHoldStart(
     _ grant: UnsafePointer<CChar>,
@@ -232,6 +241,26 @@ enum SatchelCore {
     /// `protection`, `exists`, `unreachable` or `fields` for the last refused create.
     static func createFailure() -> String {
         takeString(satchelCreateFailure()) ?? ""
+    }
+
+    /// First half of a recovery change: the new password and the new grant. Changes nothing.
+    static func recoveryPrepare(grant: String) -> (String, String)? {
+        let pointer = grant.withCString { satchelRecoveryPrepare($0) }
+        guard let text = takeString(pointer), let split = text.firstIndex(of: "\n") else {
+            return nil
+        }
+        return (String(text[text.startIndex..<split]), String(text[text.index(after: split)...]))
+    }
+
+    /// Second half: true when the repository now opens with the new grant.
+    static func recoveryCommit(old: String, new: String) -> Bool {
+        old.withCString { oldPointer in
+            new.withCString { satchelRecoveryCommit(oldPointer, $0) == 1 }
+        }
+    }
+
+    static func grantOpens(_ grant: String) -> Bool {
+        grant.withCString { satchelGrantOpens($0) == 1 }
     }
 
     static func isMaintainer(grant: String) -> Bool {

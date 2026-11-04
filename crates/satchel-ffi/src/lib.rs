@@ -958,6 +958,60 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_recoveryPrepare<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    grant: JString<'local>,
+) -> jstring {
+    unowned
+        .with_env(|env| -> Result<jstring, CatalogFailure> {
+            let grant_text = text_arg(env, &grant, false)?;
+            let prepared = maker::recovery_prepare(&grant_text)?;
+            Ok(env.new_string(prepared)?.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_recoveryCommit<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    old: JString<'local>,
+    new: JString<'local>,
+) -> jni::sys::jboolean {
+    unowned
+        .with_env(|env| -> Result<jni::sys::jboolean, CatalogFailure> {
+            let old_text = text_arg(env, &old, false)?;
+            let new_text = text_arg(env, &new, false)?;
+            Ok(maker::recovery_commit(&old_text, &new_text).is_ok())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_grantOpens<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    grant: JString<'local>,
+) -> jni::sys::jboolean {
+    unowned
+        .with_env(|env| -> Result<jni::sys::jboolean, CatalogFailure> {
+            let grant_text = text_arg(env, &grant, false)?;
+            Ok(maker::grant_opens(&grant_text))
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
 #[cfg(any(test, target_os = "ios"))]
 mod ios;
 mod maker;

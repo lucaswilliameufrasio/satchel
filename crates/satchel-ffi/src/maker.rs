@@ -10,8 +10,8 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 use satchel_core::{
-    DeviceId, Location, StorageKind, StorageSetup, create_repository, generate_recovery_password,
-    provision_device_key, remove_device_key,
+    DeviceId, Location, StorageKind, StorageSetup, change_recovery_password, create_repository,
+    generate_recovery_password, list_other_device_keys, provision_device_key, remove_device_key,
 };
 use satchel_pair::{
     ApprovalRequest, Decision, DeviceSecrets, Invite, ListenConfig, PairingSession,
@@ -186,6 +186,66 @@ pub(crate) fn is_maintainer(grant_path: &Path) -> bool {
         Ok(spec) => spec.role == "maintainer",
         Err(_) => false,
     }
+}
+
+fn grant_text(grant: &str) -> Result<String, CatalogFailure> {
+    if grant.trim_start().starts_with('{') {
+        return Ok(grant.to_string());
+    }
+    std::fs::read_to_string(grant).map_err(|_| CatalogFailure)
+}
+
+/// First half of changing the recovery password: `new password\nnew grant JSON`.
+///
+/// Nothing in the repository changes. The caller seals the new grant as pending
+/// before calling [`recovery_commit`], so a crash in between never leaves the
+/// device without a password that opens the repository.
+pub(crate) fn recovery_prepare(grant: &str) -> Result<String, CatalogFailure> {
+    let spec = read_grant(Path::new(grant))?;
+    if spec.role != "maintainer" {
+        return Err(CatalogFailure);
+    }
+    let mut value: serde_json::Value =
+        serde_json::from_str(&grant_text(grant)?).map_err(|_| CatalogFailure)?;
+    let fresh = generate_recovery_password();
+    value["device_key_password"] = serde_json::Value::String(fresh.clone());
+    let body = serde_json::to_string(&value).map_err(|_| CatalogFailure)?;
+    Ok(format!("{fresh}\n{body}"))
+}
+
+/// Second half: replace the key file that `old` opens with one `new` opens.
+/// Both grants must be this maintainer's, for the same repository and device.
+pub(crate) fn recovery_commit(old: &str, new: &str) -> Result<(), CatalogFailure> {
+    let before = read_grant(Path::new(old))?;
+    let after = read_grant(Path::new(new))?;
+    if before.role != "maintainer"
+        || after.role != "maintainer"
+        || before.device_id != after.device_id
+        || before.endpoint != after.endpoint
+        || before.bucket_credential != after.bucket_credential
+    {
+        return Err(CatalogFailure);
+    }
+    let location = open_grant(&before)?;
+    change_recovery_password(
+        &location,
+        &before.device_key_password,
+        &after.device_key_password,
+    )
+    .map(|_| ())
+    .map_err(|_| CatalogFailure)
+}
+
+/// True when the grant's password opens the repository. Used on launch to settle
+/// a change that stopped between [`recovery_prepare`] and the end of [`recovery_commit`].
+pub(crate) fn grant_opens(grant: &str) -> bool {
+    let Ok(spec) = read_grant(Path::new(grant)) else {
+        return false;
+    };
+    let (Ok(location), Ok(device)) = (open_grant(&spec), DeviceId::parse(&spec.device_id)) else {
+        return false;
+    };
+    list_other_device_keys(&location, &spec.device_key_password, &device).is_ok()
 }
 
 struct Holding {
@@ -472,6 +532,53 @@ mod tests {
         }
         // The session ended with the decision.
         assert!(hold_poll().is_err());
+    }
+
+    #[test]
+    fn phone_changes_the_recovery_password_in_two_steps_and_devices_keep_opening() {
+        let _guard = ONE_AT_A_TIME.lock().unwrap_or_else(|p| p.into_inner());
+        let root = Temp::new("recovery");
+        let (old_password, old_grant) = made(&root.0);
+        assert!(grant_opens(&old_grant));
+
+        // Another device with its own key.
+        let spec = read_grant(Path::new(&old_grant)).expect("spec");
+        let location = open_grant(&spec).expect("location");
+        let other = DeviceId::generate();
+        let provisioned =
+            provision_device_key(&location, &old_password, &other).expect("device key");
+        let mut member: serde_json::Value = serde_json::from_str(&old_grant).expect("json");
+        member["role"] = serde_json::Value::String(String::new());
+        member["device_id"] = serde_json::Value::String(other.as_str().to_string());
+        member["device_key_password"] =
+            serde_json::Value::String(provisioned.device_key_password.clone());
+        let member = member.to_string();
+        assert!(grant_opens(&member));
+        assert!(
+            recovery_prepare(&member).is_err(),
+            "only the maintainer prepares"
+        );
+
+        let prepared = recovery_prepare(&old_grant).expect("prepare");
+        let (new_password, new_grant) = prepared.split_once('\n').expect("two parts");
+        assert_eq!(new_password.len(), 64);
+        assert_ne!(new_password, old_password);
+        assert!(!grant_opens(new_grant), "prepare changes nothing");
+        assert!(grant_opens(&old_grant));
+        assert!(recovery_commit(&member, new_grant).is_err());
+
+        recovery_commit(&old_grant, new_grant).expect("commit");
+        assert!(grant_opens(new_grant));
+        assert!(!grant_opens(&old_grant));
+        assert!(grant_opens(&member), "the other device keeps its key");
+        assert!(is_maintainer(Path::new(new_grant)));
+        assert_eq!(key_files(&root.0).len(), 2);
+        for text in key_files(&root.0) {
+            assert!(!text.contains("created"));
+        }
+        // A second commit with the stale grant is refused and changes nothing.
+        assert!(recovery_commit(&old_grant, new_grant).is_err());
+        assert!(grant_opens(new_grant));
     }
 
     #[test]

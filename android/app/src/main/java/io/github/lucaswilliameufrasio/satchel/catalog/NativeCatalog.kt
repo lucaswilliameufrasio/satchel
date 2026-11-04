@@ -189,6 +189,15 @@ object NativeCatalog {
 
     external fun invitePng(invite: String): ByteArray
 
+    /** First half of a recovery change: `new password\nnew grant JSON`. Changes nothing. */
+    external fun recoveryPrepare(grant: String): String
+
+    /** Second half: true when the repository now opens with the new grant. */
+    external fun recoveryCommit(old: String, new: String): Boolean
+
+    /** True when the grant's password opens the repository. */
+    external fun grantOpens(grant: String): Boolean
+
     /** Canonical invite JSON. Rejects unknown fields, including a recovery password. */
     external fun parseInvite(text: String): String
 }

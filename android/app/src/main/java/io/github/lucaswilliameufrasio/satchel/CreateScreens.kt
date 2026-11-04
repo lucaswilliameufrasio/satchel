@@ -210,3 +210,18 @@ private fun copySensitive(context: Context, text: String) {
     }
     manager.setPrimaryClip(clip)
 }
+
+@Composable
+internal fun RecoveryChangeScreen(busy: Boolean, failed: Boolean, onChange: () -> Unit, onBack: () -> Unit) {
+    PhoneScaffold(title = RECOVERY_CHANGE_TITLE, onBack = onBack, backEnabled = !busy) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+            Text(RECOVERY_CHANGE_NOTE)
+            if (failed) {
+                Text(RECOVERY_CHANGE_FAILED, modifier = Modifier.padding(top = 12.dp))
+            }
+            TextButton(onClick = onChange, enabled = !busy, modifier = Modifier.padding(top = 16.dp)) {
+                Text(if (busy) "Trocando…" else "Trocar agora")
+            }
+        }
+    }
+}

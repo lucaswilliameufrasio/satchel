@@ -15,12 +15,15 @@ import javax.crypto.spec.GCMParameterSpec
  * leaves the Android Keystore, and the native library receives the JSON as text,
  * so no plaintext copy is written to disk.
  */
-internal class SecureGrant(private val filesDir: File) {
-    private val file = File(filesDir, "grant.enc")
+internal class SecureGrant(
+    private val filesDir: File,
+    private val name: String = "grant.enc",
+) : GrantSlot {
+    private val file = File(filesDir, name)
 
     fun exists(): Boolean = file.isFile
 
-    fun read(): String? {
+    override fun read(): String? {
         if (!file.isFile) {
             return null
         }
@@ -41,11 +44,11 @@ internal class SecureGrant(private val filesDir: File) {
         }
     }
 
-    fun write(text: String) {
+    override fun write(text: String) {
         val cipher = Cipher.getInstance(TRANSFORM)
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val sealed = cipher.doFinal(text.toByteArray(Charsets.UTF_8))
-        val temporary = File(filesDir, "grant.enc.tmp")
+        val temporary = File(filesDir, "$name.tmp")
         temporary.writeBytes(cipher.iv + sealed)
         if (!temporary.renameTo(file)) {
             temporary.delete()
@@ -53,7 +56,7 @@ internal class SecureGrant(private val filesDir: File) {
         }
     }
 
-    fun clear() {
+    override fun clear() {
         file.delete()
     }
 

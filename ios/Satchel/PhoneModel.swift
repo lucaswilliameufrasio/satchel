@@ -8,9 +8,11 @@ import Security
 /// library receives the JSON as text, so no plaintext file is written.
 enum GrantVault {
     private static let service = "io.github.lucaswilliameufrasio.satchel"
-    private static let account = "grant"
+    static let main = "grant"
+    /// The new grant while the recovery password changes. See `PhoneModel.changeRecovery`.
+    static let pending = "grant-pending"
 
-    private static var match: [String: Any] {
+    private static func match(_ account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -18,8 +20,8 @@ enum GrantVault {
         ]
     }
 
-    static func read() -> String? {
-        var query = match
+    static func read(_ account: String = main) -> String? {
+        var query = match(account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var found: CFTypeRef?
@@ -32,16 +34,16 @@ enum GrantVault {
     }
 
     @discardableResult
-    static func write(_ text: String) -> Bool {
-        SecItemDelete(match as CFDictionary)
-        var item = match
+    static func write(_ text: String, _ account: String = main) -> Bool {
+        SecItemDelete(match(account) as CFDictionary)
+        var item = match(account)
         item[kSecValueData as String] = Data(text.utf8)
         item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
     }
 
-    static func clear() {
-        SecItemDelete(match as CFDictionary)
+    static func clear(_ account: String = main) {
+        SecItemDelete(match(account) as CFDictionary)
     }
 }
 
@@ -63,6 +65,7 @@ final class PhoneModel: ObservableObject {
         case scanning(address: String, code: String, fingerprint: String, name: String)
         case creating(CreateDraft)
         case recovery(password: String, note: String?)
+        case changingRecovery(busy: Bool, failed: Bool)
         case holding(HoldState)
     }
 
@@ -130,6 +133,7 @@ final class PhoneModel: ObservableObject {
         // UI tests start from an empty phone: no grant in the Keychain, no id, no work copy.
         if CommandLine.arguments.contains("-satchel-reset") {
             GrantVault.clear()
+            GrantVault.clear(GrantVault.pending)
             try? FileManager.default.removeItem(at: supportURL)
             try? FileManager.default.removeItem(at: sampleURL)
         }
@@ -173,9 +177,13 @@ final class PhoneModel: ObservableObject {
     func openCatalog() {
         screen = .loading
         let sample = sampleURL.path
-        let grant = GrantVault.read() ?? ""
-        let paired = !grant.isEmpty
         Task {
+            // A change that stopped halfway is settled before the grant is read.
+            if GrantVault.read(GrantVault.pending) != nil {
+                await Task.detached { PhoneModel.settleRecovery() }.value
+            }
+            let grant = GrantVault.read() ?? ""
+            let paired = !grant.isEmpty
             let rows = await Task.detached {
                 if paired {
                     return SatchelCore.catalogGrant(specPath: grant)
@@ -187,6 +195,61 @@ final class PhoneModel: ObservableObject {
             } else {
                 screen = .failed
             }
+        }
+    }
+
+    func showRecoveryChange() {
+        screen = .changingRecovery(busy: false, failed: false)
+    }
+
+    func changeRecovery() {
+        if case .changingRecovery(true, _) = screen {
+            return
+        }
+        screen = .changingRecovery(busy: true, failed: false)
+        Task {
+            let fresh = await Task.detached { PhoneModel.runRecoveryChange() }.value
+            if let fresh {
+                screen = .recovery(
+                    password: fresh,
+                    note: "A senha antiga não abre mais o repositório. Guarde esta no gerenciador de senhas."
+                )
+            } else {
+                screen = .changingRecovery(busy: false, failed: true)
+            }
+        }
+    }
+
+    /// The new grant is in the Keychain as pending before the repository changes,
+    /// so a crash in between never leaves this phone without a password that opens it.
+    nonisolated static func runRecoveryChange() -> String? {
+        guard let old = GrantVault.read(),
+              let (password, fresh) = SatchelCore.recoveryPrepare(grant: old),
+              GrantVault.write(fresh, GrantVault.pending)
+        else {
+            return nil
+        }
+        guard SatchelCore.recoveryCommit(old: old, new: fresh) else {
+            GrantVault.clear(GrantVault.pending)
+            return nil
+        }
+        GrantVault.write(fresh)
+        GrantVault.clear(GrantVault.pending)
+        return password
+    }
+
+    /// Keep the main grant if it still opens, promote the pending one if only it opens,
+    /// and leave both when neither answers (no network) to try on the next launch.
+    nonisolated static func settleRecovery() {
+        guard let waiting = GrantVault.read(GrantVault.pending) else {
+            return
+        }
+        if let current = GrantVault.read(), SatchelCore.grantOpens(current) {
+            GrantVault.clear(GrantVault.pending)
+            return
+        }
+        if SatchelCore.grantOpens(waiting), GrantVault.write(waiting) {
+            GrantVault.clear(GrantVault.pending)
         }
     }
 

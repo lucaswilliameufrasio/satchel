@@ -79,6 +79,45 @@ final class CatalogLaunchUITests: XCTestCase {
         capture(name: "invite", text: "\(code.label)\n\(address)")
     }
 
+    func testCreatorChangesTheRecoveryPasswordAndSeesTheNewOneOnce() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-satchel-reset"]
+        app.launch()
+        let create = app.descendants(matching: .any)["create-repository"]
+        XCTAssertTrue(create.waitForExistence(timeout: 60))
+        create.tap()
+        let submit = app.descendants(matching: .any)["create-submit"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 10))
+        submit.tap()
+        let first = app.descendants(matching: .any)["recovery-password"]
+        XCTAssertTrue(first.waitForExistence(timeout: 60))
+        let old = first.label
+        app.descendants(matching: .any)["recovery-done"].tap()
+
+        let change = app.descendants(matching: .any)["change-recovery"]
+        XCTAssertTrue(change.waitForExistence(timeout: 60), "change card did not appear")
+        change.tap()
+        let now = app.descendants(matching: .any)["recovery-change-now"]
+        XCTAssertTrue(now.waitForExistence(timeout: 10))
+        now.tap()
+        let second = app.descendants(matching: .any)["recovery-password"]
+        XCTAssertTrue(second.waitForExistence(timeout: 60), "new password did not appear")
+        let fresh = second.label
+        XCTAssertEqual(fresh.count, 64)
+        XCTAssertNotEqual(fresh, old)
+        proof("recovery-changed \(old.prefix(4))… -> \(fresh.prefix(4))…")
+        app.descendants(matching: .any)["recovery-done"].tap()
+        // The catalog opens again with the new grant from the Keychain, and the password is gone.
+        XCTAssertTrue(app.descendants(matching: .any)["show-invite"].waitForExistence(timeout: 60))
+        XCTAssertFalse(app.descendants(matching: .any)["recovery-password"].exists)
+
+        // A relaunch without reset still opens: the Keychain holds the new grant, nothing is pending.
+        app.terminate()
+        app.launchArguments = []
+        app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["show-invite"].waitForExistence(timeout: 60))
+    }
+
     /// Needs a local S3 emulator. Start one on 127.0.0.1:4566 with the buckets `ios-unprotected`
     /// (versioning never on) and `ios-protected` (versioning on), then run xcodebuild with
     /// `TEST_RUNNER_SATCHEL_FLOCI=http://127.0.0.1:4566`. Skipped when the variable is absent.

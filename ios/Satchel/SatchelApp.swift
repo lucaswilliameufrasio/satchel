@@ -32,6 +32,7 @@ struct PhoneView: View {
                 onCreate: { model.showCreate() },
                 canInvite: model.canInvite,
                 onInvite: { model.showInvite() },
+                onChangeRecovery: { model.showRecoveryChange() },
                 onPair: {
                     model.showPairing()
                 },
@@ -45,6 +46,13 @@ struct PhoneView: View {
                 onChange: { model.update($0) },
                 onBack: { model.openCatalog() },
                 onSubmit: { model.create(draft) }
+            )
+        case .changingRecovery(let busy, let failed):
+            RecoveryChangePage(
+                busy: busy,
+                failed: failed,
+                onChange: { model.changeRecovery() },
+                onBack: { model.openCatalog() }
             )
         case .recovery(let password, let note):
             RecoveryPage(password: password, note: note, onDone: { model.finishRecovery() })
@@ -143,6 +151,7 @@ struct CatalogList: View {
     var onCreate: () -> Void = {}
     var canInvite: Bool = false
     var onInvite: () -> Void = {}
+    var onChangeRecovery: () -> Void = {}
     let onPair: () -> Void
     let onOpen: (String) -> Void
 
@@ -162,6 +171,12 @@ struct CatalogList: View {
                     "A senha de recuperação não vai no convite.",
                     id: "show-invite",
                     action: onInvite
+                )
+                actionCard(
+                    "Trocar senha de recuperação",
+                    "Só este aparelho, que criou o repositório, pode trocar.",
+                    id: "change-recovery",
+                    action: onChangeRecovery
                 )
             }
             if canPair {
@@ -637,6 +652,33 @@ struct CreatePage: View {
                 id: "create-submit",
                 action: onSubmit
             )
+        }
+    }
+}
+
+struct RecoveryChangePage: View {
+    let busy: Bool
+    let failed: Bool
+    let onChange: () -> Void
+    let onBack: () -> Void
+
+    var body: some View {
+        ProductScreen(title: "Trocar senha de recuperação") {
+            Text(
+                "Gera uma senha nova e a mostra uma vez. Os outros aparelhos continuam abrindo com a chave deles. Quem guardou o arquivo de chave antigo, ou lê versões antigas num bucket com versionamento, ainda abre com a senha velha: a chave dos dados não muda."
+            )
+            .font(.subheadline)
+            .foregroundStyle(SatchelInk.secondary)
+            if failed {
+                Text("Não foi possível trocar. A senha antiga continua valendo. Confira a conexão com o armazenamento.")
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.ink)
+                    .accessibilityIdentifier("recovery-change-failed")
+            }
+            WideButton(title: busy ? "Trocando…" : "Trocar agora", id: "recovery-change-now", action: onChange)
+                .disabled(busy)
+            WideButton(title: "Voltar", id: "recovery-change-back", action: onBack)
+                .disabled(busy)
         }
     }
 }

@@ -332,6 +332,37 @@ pub extern "C" fn satchel_is_maintainer(grant: *const c_char) -> i32 {
     i32::from(maker::is_maintainer(Path::new(&grant)))
 }
 
+/// First half of changing the recovery password: `new password\nnew grant JSON`, or NULL.
+/// Nothing changes yet; seal the new grant as pending before committing.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_recovery_prepare(grant: *const c_char) -> *mut c_char {
+    let Ok(grant) = text_from(grant) else {
+        return ptr::null_mut();
+    };
+    match maker::recovery_prepare(&grant) {
+        Ok(prepared) => leak_string(prepared),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// Second half: 1 when the repository now opens with the new grant's password.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_recovery_commit(old: *const c_char, new: *const c_char) -> i32 {
+    let (Ok(old), Ok(new)) = (text_from(old), text_from(new)) else {
+        return 0;
+    };
+    i32::from(maker::recovery_commit(&old, &new).is_ok())
+}
+
+/// 1 when the grant's password opens the repository.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_grant_opens(grant: *const c_char) -> i32 {
+    let Ok(grant) = text_from(grant) else {
+        return 0;
+    };
+    i32::from(maker::grant_opens(&grant))
+}
+
 /// Start showing the invite. `bind` may be empty. Offer JSON, or NULL.
 #[unsafe(no_mangle)]
 pub extern "C" fn satchel_hold_start(grant: *const c_char, bind: *const c_char) -> *mut c_char {

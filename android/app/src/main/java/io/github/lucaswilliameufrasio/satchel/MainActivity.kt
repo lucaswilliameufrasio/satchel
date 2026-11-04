@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
         val storePath = intent.getStringExtra(EXTRA_STORE)
         val pairRequested = intent.getBooleanExtra(EXTRA_PAIR, false)
         val vault = SecureGrant(filesDir)
+        val pendingVault = SecureGrant(filesDir, PENDING_GRANT)
         vault.migrateLegacy()
         val storedGrant = vault.read()
         val canPair = storedGrant == null && !fixture && storePath.isNullOrEmpty()
@@ -118,6 +119,16 @@ class MainActivity : ComponentActivity() {
                 }
                 val scope = rememberCoroutineScope()
                 LaunchedEffect(fixture, storePath, storedGrant) {
+                    if (ordinary && pendingVault.exists()) {
+                        val moved = withContext(Dispatchers.IO) {
+                            settleRecovery(vault, pendingVault) { grant ->
+                                runCatching { NativeCatalog.grantOpens(grant) }.getOrDefault(false)
+                            }
+                        }
+                        if (moved) {
+                            session = CatalogSession(GrantCatalog(vault.read().orEmpty(), apelido))
+                        }
+                    }
                     val opened = session
                     if (opened != null) {
                         screen = withContext(Dispatchers.IO) {
@@ -134,6 +145,9 @@ class MainActivity : ComponentActivity() {
                         canCreate = canCreate,
                         onCreate = { screen = CatalogScreenState.Creating(CreateForm()) },
                         canInvite = canInvite,
+                        onChangeRecovery = {
+                            screen = CatalogScreenState.ChangingRecovery(busy = false, failed = false)
+                        },
                         onInvite = {
                             scope.launch {
                                 val started = withContext(Dispatchers.IO) {
@@ -339,6 +353,36 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                     )
+                    is CatalogScreenState.ChangingRecovery -> RecoveryChangeScreen(
+                        busy = current.busy,
+                        failed = current.failed,
+                        onChange = {
+                            screen = CatalogScreenState.ChangingRecovery(busy = true, failed = false)
+                            scope.launch {
+                                val fresh = withContext(Dispatchers.IO) {
+                                    changeRecovery(
+                                        vault,
+                                        pendingVault,
+                                        prepare = { NativeCatalog.recoveryPrepare(it) },
+                                        commit = { old, new -> NativeCatalog.recoveryCommit(old, new) },
+                                    )
+                                }
+                                screen = if (fresh == null) {
+                                    CatalogScreenState.ChangingRecovery(busy = false, failed = true)
+                                } else {
+                                    CatalogScreenState.Recovery(fresh, RECOVERY_CHANGED_NOTE)
+                                }
+                            }
+                        },
+                        onBack = {
+                            val opened = session
+                            if (opened != null) {
+                                scope.launch {
+                                    screen = withContext(Dispatchers.IO) { openCatalog(opened) }
+                                }
+                            }
+                        },
+                    )
                     is CatalogScreenState.Recovery -> RecoveryScreen(
                         current.password,
                         current.warning,
@@ -441,6 +485,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+internal const val PENDING_GRANT = "grant.pending.enc"
+
 private sealed interface CatalogScreenState {
     data object Loading : CatalogScreenState
 
@@ -474,6 +520,8 @@ private sealed interface CatalogScreenState {
     data class Creating(val form: CreateForm) : CatalogScreenState
 
     data class Recovery(val password: String, val warning: String?) : CatalogScreenState
+
+    data class ChangingRecovery(val busy: Boolean, val failed: Boolean) : CatalogScreenState
 
     data class Holding(
         val offer: HoldOffer,
@@ -690,6 +738,7 @@ private fun CatalogScreen(
     canCreate: Boolean,
     onCreate: () -> Unit,
     canInvite: Boolean,
+    onChangeRecovery: () -> Unit,
     onInvite: () -> Unit,
     onPair: () -> Unit,
     onOpen: (String) -> Unit,
@@ -712,6 +761,13 @@ private fun CatalogScreen(
                         headlineContent = { Text("Mostrar convite") },
                         supportingContent = { Text(INVITE_NOTE) },
                         modifier = Modifier.clickable(onClick = onInvite),
+                    )
+                }
+                item {
+                    ListItem(
+                        headlineContent = { Text(RECOVERY_CHANGE_TITLE) },
+                        supportingContent = { Text("Só este aparelho, que criou o repositório, pode trocar.") },
+                        modifier = Modifier.clickable(onClick = onChangeRecovery),
                     )
                 }
             }
