@@ -328,7 +328,7 @@ impl AutoSync {
         if desktop.profile().is_none() || desktop.add_device_open() {
             return;
         }
-        if let Err(err) = desktop.publish(secrets) {
+        if let Err(err) = desktop.auto_sync(secrets) {
             eprintln!("satchel-desktop: {err}");
         }
     }

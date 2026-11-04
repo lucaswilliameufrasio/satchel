@@ -3,10 +3,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use satchel_core::{
-    Client, DeviceId, DeviceKeyRecord, Location, S3Store, SetupCheck, StorageKind, StorageSetup,
-    change_recovery_password, check_setup, create_repository, generate_recovery_password,
-    list_other_device_keys, probe_object_protection, provision_device_key, remove_device_key,
-    sync_folder,
+    Client, DeviceId, DeviceKeyRecord, Location, QuietMark, S3Store, SetupCheck, StorageKind,
+    StorageSetup, change_recovery_password, check_setup, create_repository,
+    generate_recovery_password, list_other_device_keys, probe_object_protection,
+    provision_device_key, quiet_mark, remove_device_key, sync_folder,
 };
 use satchel_pair::{
     ApprovalRequest, Decision, DeviceSecrets, Invite, ListenConfig, Offer, PairingSession,
@@ -178,6 +178,8 @@ pub struct Desktop {
     pending: Option<ApprovalRequest>,
     device_keys: Option<Vec<DeviceKeyRecord>>,
     last_sync: Option<SyncStatus>,
+    /// State after the last full sync, so the timer can skip a cycle with nothing to do.
+    quiet: Option<(QuietMark, SetupCheck)>,
 }
 
 /// How the last sync ended, for the tray. A failure keeps its reason; it never carries a secret.
@@ -212,6 +214,7 @@ impl Desktop {
             pending: None,
             device_keys: None,
             last_sync: None,
+            quiet: None,
         })
     }
 
@@ -397,7 +400,11 @@ impl Desktop {
     /// Send the folder and bring in what other devices published. A local folder warns that
     /// versioning is absent. A device that joined uses its own key, not the recovery password.
     pub fn publish(&mut self, store: &dyn SecretStore) -> Result<PublishReport, Error> {
+        self.quiet = None;
         let result = self.publish_inner(store);
+        if let Ok(report) = &result {
+            self.remember_quiet(store, report.protection);
+        }
         self.last_sync = Some(match &result {
             Ok(report) => SyncStatus::Done {
                 unix: now_unix(),
@@ -409,6 +416,36 @@ impl Desktop {
             },
         });
         result
+    }
+
+    /// The timer's sync. When neither the folder nor the repository's snapshot
+    /// list changed since the last full sync, this costs one listing and returns
+    /// `None` instead of opening the repository.
+    pub fn auto_sync(&mut self, store: &dyn SecretStore) -> Result<Option<PublishReport>, Error> {
+        if let (Some((previous, protection)), Some(profile)) = (&self.quiet, &self.profile) {
+            let protection = *protection;
+            let location = self.open_location(store)?;
+            if quiet_mark(&location, &profile.folder).ok().as_ref() == Some(previous) {
+                self.last_sync = Some(SyncStatus::Done {
+                    unix: now_unix(),
+                    unprotected: protection == SetupCheck::Unprotected,
+                });
+                return Ok(None);
+            }
+        }
+        self.publish(store).map(Some)
+    }
+
+    fn remember_quiet(&mut self, store: &dyn SecretStore, protection: SetupCheck) {
+        let Some(profile) = &self.profile else {
+            return;
+        };
+        let Ok(location) = self.open_location(store) else {
+            return;
+        };
+        self.quiet = quiet_mark(&location, &profile.folder)
+            .ok()
+            .map(|mark| (mark, protection));
     }
 
     fn publish_inner(&self, store: &dyn SecretStore) -> Result<PublishReport, Error> {

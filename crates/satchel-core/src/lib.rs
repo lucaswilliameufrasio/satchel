@@ -21,6 +21,6 @@ pub use setup::{
 };
 pub use storage::{SetupCheck, StorageKind, Versioning, check_setup};
 pub use sync::{
-    CatalogEntry, Client, Cursor, DeviceCard, Follow, MarkedConflict, SyncOutcome, cursors,
-    publish_folder, read_followed, read_version, restore_latest, sync_folder,
+    CatalogEntry, Client, Cursor, DeviceCard, Follow, MarkedConflict, QuietMark, SyncOutcome,
+    cursors, publish_folder, quiet_mark, read_followed, read_version, restore_latest, sync_folder,
 };

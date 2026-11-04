@@ -935,6 +935,52 @@ pub fn sync_folder(
     client.sync(location)
 }
 
+/// A cheap answer to "did anything change since the last sync?".
+///
+/// It holds the snapshot ids in the repository and the name, size and
+/// modification time of every file in the folder. Taking one costs a single
+/// listing of `snapshots/` and a walk of the folder: no password, no key
+/// derivation, no index. Two equal marks mean a sync would find nothing to do.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QuietMark {
+    snapshots: Vec<String>,
+    files: Vec<(String, u64, u128)>,
+}
+
+/// Take a [`QuietMark`] for `folder` and the repository at `location`.
+pub fn quiet_mark(location: &Location, folder: &Path) -> Result<QuietMark, Error> {
+    let snapshots = crate::format::snapshot_ids(location)?;
+    let mut files = Vec::new();
+    let mut pending = vec![(folder.to_path_buf(), String::new())];
+    while let Some((dir, prefix)) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries {
+            let entry = entry.map_err(Error::repository)?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let rel = if prefix.is_empty() {
+                name
+            } else {
+                format!("{prefix}/{name}")
+            };
+            let metadata = fs::symlink_metadata(entry.path()).map_err(Error::repository)?;
+            if metadata.is_dir() {
+                pending.push((entry.path(), rel.clone()));
+            }
+            let modified = metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|age| age.as_nanos())
+                .unwrap_or(0);
+            files.push((rel, metadata.len(), modified));
+        }
+    }
+    files.sort();
+    Ok(QuietMark { snapshots, files })
+}
+
 /// Read cursors from every satchel snapshot.
 pub fn cursors(location: &Location, password: &str) -> Result<Vec<Cursor>, Error> {
     let repo = open_indexed(location, password)?;

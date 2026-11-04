@@ -322,6 +322,22 @@ pub fn list_other_device_keys(
     Ok(records)
 }
 
+/// Snapshot ids in the repository, sorted. One listing; no password and no key derivation.
+pub fn snapshot_ids(location: &Location) -> Result<Vec<String>, Error> {
+    let backends = location
+        .backend_options()?
+        .to_backends()
+        .map_err(Error::repository)?;
+    let repo = Repository::new(&repository_options(), &backends).map_err(Error::repository)?;
+    let mut ids: Vec<String> = repo
+        .list::<rustic_core::repofile::SnapshotId>()
+        .map_err(Error::repository)?
+        .map(|id| id.to_hex().as_str().to_string())
+        .collect();
+    ids.sort();
+    Ok(ids)
+}
+
 fn open_unlocked(location: &Location, password: &str) -> Result<Repository<OpenStatus>, Error> {
     require_password(password)?;
     let backends = location

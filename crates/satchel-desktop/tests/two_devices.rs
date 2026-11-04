@@ -140,6 +140,39 @@ fn folder_repository_is_created_by_one_device_and_joined_by_the_other_without_th
         "from-second"
     );
 
+    // The timer skips a cycle with nothing new, and wakes for either side.
+    assert!(first.auto_sync(&first_store).expect("idle").is_none());
+    assert!(
+        second.auto_sync(&second_store).expect("idle").is_some(),
+        "first's pull is news"
+    );
+    assert!(second.auto_sync(&second_store).expect("idle").is_none());
+    thread::sleep(Duration::from_millis(20));
+    fs::write(first_folder.join("late.txt"), "late").expect("late");
+    assert!(first.auto_sync(&first_store).expect("local edit").is_some());
+    assert!(
+        second
+            .auto_sync(&second_store)
+            .expect("remote news")
+            .is_some()
+    );
+    assert_eq!(
+        fs::read_to_string(second_folder.join("late.txt")).expect("late pulled"),
+        "late"
+    );
+    // Each side may write one snapshot that wakes the other once. They must settle.
+    let mut rounds = 0;
+    loop {
+        let woke_first = first.auto_sync(&first_store).expect("settle").is_some();
+        let woke_second = second.auto_sync(&second_store).expect("settle").is_some();
+        eprintln!("settle round {rounds}: first {woke_first} second {woke_second}");
+        if !woke_first && !woke_second {
+            break;
+        }
+        rounds += 1;
+        assert!(rounds < 4, "the two devices keep waking each other");
+    }
+
     // Two keys, both opaque. The member never had the recovery password.
     let keys = key_file_texts(&repository);
     assert_eq!(keys.len(), 2);
