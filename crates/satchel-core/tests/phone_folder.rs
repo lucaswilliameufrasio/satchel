@@ -100,7 +100,14 @@ fn the_phone_folder_and_a_desktop_folder_follow_each_other() {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("time")
         .as_secs() as i64;
-    let stamped = first.outcome.cursor.as_ref().expect("cursor").time_unix;
+    let stamped = first
+        .outcome
+        .as_ref()
+        .expect("synced")
+        .cursor
+        .as_ref()
+        .expect("cursor")
+        .time_unix;
     assert!(
         (now - 60..=now + 60).contains(&stamped),
         "snapshot time {stamped}"
@@ -115,10 +122,25 @@ fn the_phone_folder_and_a_desktop_folder_follow_each_other() {
         Some(&b"first"[..])
     );
 
-    // A round with nothing new moves nothing.
+    // A round with nothing new moves nothing and does not open the repository:
+    // a client with a wrong password still gets through it.
+    let woken = rig.phone_round();
+    assert!(!woken.quiet, "the desktop's snapshot wakes one round");
+    assert!(woken.imported.is_empty() && woken.exported.is_empty());
     let idle = rig.phone_round();
+    assert!(idle.quiet, "nothing changed since the last round");
     assert!(idle.imported.is_empty() && idle.exported.is_empty());
     assert!(idle.deleted_here.is_empty() && idle.deleted_there.is_empty());
+    let mut stranger =
+        Client::open(rig.phone.clone(), &rig.phone_work, "not-the-password").expect("client");
+    let quiet = sync_mirrored(
+        &mut stranger,
+        &rig.location,
+        &mut DirectoryTree::new(&rig.phone_folder),
+        &rig.manifest,
+    )
+    .expect("quiet round needs no key");
+    assert!(quiet.quiet);
 
     // The desktop edits a file the phone keeps and adds one the phone never saw.
     put(
@@ -129,6 +151,7 @@ fn the_phone_folder_and_a_desktop_folder_follow_each_other() {
     put(&rig.desktop_folder, "big-video.mov", b"video-bytes");
     rig.desktop_sync();
     let pulled = rig.phone_round();
+    assert!(!pulled.quiet, "a new snapshot wakes the round");
     assert_eq!(pulled.exported, vec!["notes/a.txt"]);
     assert_eq!(
         read(&rig.phone_folder, "notes/a.txt").as_deref(),
@@ -158,6 +181,7 @@ fn the_phone_folder_and_a_desktop_folder_follow_each_other() {
     // The person deletes a photo on the phone: the desktop loses it too.
     fs::remove_file(rig.phone_folder.join("photo.jpg")).expect("delete");
     let deleted = rig.phone_round();
+    assert!(!deleted.quiet, "a change in the folder wakes the round");
     assert_eq!(deleted.deleted_here, vec!["photo.jpg"]);
     rig.desktop_sync();
     assert!(read(&rig.desktop_folder, "photo.jpg").is_none());
@@ -254,8 +278,11 @@ fn an_edit_during_the_round_is_not_overwritten_and_is_kept_as_a_conflict() {
     // conflict: the folder gets v2 and the typed text is kept as a marked copy.
     let next = rig.phone_round();
     assert_eq!(next.imported, vec!["shared.txt"]);
-    assert_eq!(next.outcome.conflicts.len(), 1);
-    assert_eq!(next.outcome.conflicts[0].path, "shared.txt");
+    assert_eq!(next.outcome.as_ref().expect("synced").conflicts.len(), 1);
+    assert_eq!(
+        next.outcome.as_ref().expect("synced").conflicts[0].path,
+        "shared.txt"
+    );
     assert_eq!(
         read(&rig.phone_folder, "shared.txt").as_deref(),
         Some(&b"v2 from the desktop"[..])

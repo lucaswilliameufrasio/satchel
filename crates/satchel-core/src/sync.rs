@@ -290,6 +290,11 @@ impl Client {
         Ok(())
     }
 
+    /// True when a caller set a follow on this client since it was opened.
+    pub(crate) fn has_marks(&self) -> bool {
+        !self.follows.is_empty()
+    }
+
     /// Local copy this client syncs.
     pub(crate) fn work(&self) -> &Path {
         &self.work

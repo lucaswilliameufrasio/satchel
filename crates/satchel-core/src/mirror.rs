@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::Error;
-use crate::format::Location;
+use crate::format::{Location, snapshot_ids};
 use crate::sync::{
     Client, Follow, SyncOutcome, is_marked, normalize_path, read_work, regular_files, remove_work,
     work_path, write_under,
@@ -114,8 +114,10 @@ pub struct MirrorReport {
     pub deleted_there: Vec<String>,
     /// Paths the person changed during the round. The next round takes them.
     pub deferred: Vec<String>,
-    /// What the sync itself wrote.
-    pub outcome: SyncOutcome,
+    /// True when the round found nothing new and did not open the repository.
+    pub quiet: bool,
+    /// What the sync itself wrote. Absent on a quiet round.
+    pub outcome: Option<SyncOutcome>,
 }
 
 const UNSEEN: (u64, i64) = (u64::MAX, i64::MIN);
@@ -123,6 +125,9 @@ const UNSEEN: (u64, i64) = (u64::MAX, i64::MIN);
 #[derive(Default, Deserialize, Serialize)]
 struct Manifest {
     files: BTreeMap<String, (u64, i64)>,
+    /// Snapshot ids in the repository at the end of the last round.
+    #[serde(default)]
+    snapshots: Option<Vec<String>>,
 }
 
 fn load_manifest(path: &Path) -> Result<Manifest, Error> {
@@ -179,6 +184,11 @@ fn digests(work: &Path) -> Result<BTreeMap<String, [u8; 32]>, Error> {
 /// already carries (for example a file marked to download once) still apply, and
 /// what they download lands in the folder. `manifest` is a file the app owns,
 /// outside the folder.
+///
+/// When no follow was set on `client`, the folder matches the manifest and the
+/// snapshot ids match the last round, the round stops there: one listing of
+/// `snapshots/`, no password and no key derivation. A changed device name waits
+/// for the next round that has something to do.
 pub fn sync_mirrored(
     client: &mut Client,
     location: &Location,
@@ -189,6 +199,19 @@ pub fn sync_mirrored(
     let before = listing(tree.list()?);
     if before.is_empty() && !manifest.files.is_empty() {
         return Err(Error::FolderUnavailable);
+    }
+    let ids = snapshot_ids(location)?;
+    if !client.has_marks() && manifest.snapshots.as_ref() == Some(&ids) && manifest.files == before
+    {
+        return Ok(MirrorReport {
+            imported: Vec::new(),
+            deleted_here: Vec::new(),
+            exported: Vec::new(),
+            deleted_there: Vec::new(),
+            deferred: Vec::new(),
+            quiet: true,
+            outcome: None,
+        });
     }
     let work = client.work().to_path_buf();
 
@@ -272,6 +295,12 @@ pub fn sync_mirrored(
         let old = manifest.files.get(path).copied().unwrap_or(UNSEEN);
         next.insert(path.clone(), old);
     }
+    // Ids after this round's own snapshot, so the next quiet check matches.
+    manifest.snapshots = if deferred.is_empty() {
+        Some(snapshot_ids(location)?)
+    } else {
+        None
+    };
     manifest.files = next;
     save_manifest(manifest_path, &manifest)?;
 
@@ -281,6 +310,7 @@ pub fn sync_mirrored(
         exported,
         deleted_there,
         deferred: deferred.into_iter().collect(),
-        outcome,
+        quiet: false,
+        outcome: Some(outcome),
     })
 }

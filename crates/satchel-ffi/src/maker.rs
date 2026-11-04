@@ -587,6 +587,9 @@ mod tests {
         let first = round(&maker_grant, &maker_folder, "maker.manifest", "", "");
         assert_eq!(first["status"], "ok");
         assert_eq!(first["imported"], 1);
+        assert_eq!(first["quiet"], false);
+        let again = round(&maker_grant, &maker_folder, "maker.manifest", "", "");
+        assert_eq!(again["quiet"], true, "nothing new: no repository open");
 
         let unmarked = round(&member_grant, &member_folder, "member.manifest", "", "");
         assert_eq!(unmarked["exported"], 0);

@@ -407,7 +407,12 @@ fn folder_grant(
             deleted_here: report.deleted_here.len(),
             deleted_there: report.deleted_there.len(),
             deferred: report.deferred.len(),
-            conflicts: report.outcome.conflicts.len(),
+            conflicts: report
+                .outcome
+                .as_ref()
+                .map(|outcome| outcome.conflicts.len())
+                .unwrap_or(0),
+            quiet: report.quiet,
         })
         .map_err(|_| CatalogFailure),
         Err(satchel_core::Error::FolderUnavailable) => serde_json::to_string(&FolderReportJson {
@@ -429,6 +434,7 @@ struct FolderReportJson {
     deleted_there: usize,
     deferred: usize,
     conflicts: usize,
+    quiet: bool,
 }
 
 fn read_grant_bytes(spec_path: &Path, path: &str) -> Result<Vec<u8>, CatalogFailure> {
