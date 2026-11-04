@@ -535,6 +535,97 @@ mod tests {
     }
 
     #[test]
+    fn two_phones_sync_their_folders_through_the_c_entry_point() {
+        use std::ffi::{CStr, CString};
+
+        let _guard = ONE_AT_A_TIME.lock().unwrap_or_else(|p| p.into_inner());
+        let root = Temp::new("folder");
+        let (password, maker_grant) = made(&root.0);
+        let spec = read_grant(Path::new(&maker_grant)).expect("spec");
+        let location = open_grant(&spec).expect("location");
+        let other = DeviceId::generate();
+        let provisioned = provision_device_key(&location, &password, &other).expect("device key");
+        let mut member: serde_json::Value = serde_json::from_str(&maker_grant).expect("json");
+        member["role"] = serde_json::Value::String(String::new());
+        member["device_id"] = serde_json::Value::String(other.as_str().to_string());
+        member["device_key_password"] =
+            serde_json::Value::String(provisioned.device_key_password.clone());
+        member["work"] =
+            serde_json::Value::String(root.0.join("member-work").to_string_lossy().into_owned());
+        let member_grant = member.to_string();
+
+        let maker_folder = root.0.join("maker-folder");
+        let member_folder = root.0.join("member-folder");
+        fs::create_dir_all(maker_folder.join("trip")).expect("maker folder");
+        fs::create_dir_all(&member_folder).expect("member folder");
+        fs::write(maker_folder.join("trip/day1.txt"), b"day one").expect("file");
+
+        let round = |grant: &str, folder: &Path, manifest: &str, mark: &str, follow: &str| {
+            let c = |text: &str| CString::new(text).expect("c string");
+            let (grant, folder) = (c(grant), c(folder.to_str().expect("utf-8")));
+            let manifest = c(root.0.join(manifest).to_str().expect("utf-8"));
+            let (mark, follow, name, os) = (c(mark), c(follow), c("Phone"), c("android"));
+            let raw = crate::ios::satchel_sync_folder(
+                grant.as_ptr(),
+                folder.as_ptr(),
+                manifest.as_ptr(),
+                mark.as_ptr(),
+                follow.as_ptr(),
+                name.as_ptr(),
+                os.as_ptr(),
+            );
+            assert!(!raw.is_null(), "the round runs");
+            // SAFETY: the pointer came from leak_string and is freed right after.
+            let text = unsafe { CStr::from_ptr(raw) }
+                .to_str()
+                .expect("utf-8")
+                .to_string();
+            crate::ios::satchel_free_string(raw);
+            serde_json::from_str::<serde_json::Value>(&text).expect("report")
+        };
+
+        let first = round(&maker_grant, &maker_folder, "maker.manifest", "", "");
+        assert_eq!(first["status"], "ok");
+        assert_eq!(first["imported"], 1);
+
+        let unmarked = round(&member_grant, &member_folder, "member.manifest", "", "");
+        assert_eq!(unmarked["exported"], 0);
+        assert!(
+            !member_folder.join("trip/day1.txt").exists(),
+            "an unmarked file stays in the catalog"
+        );
+        let marked = round(
+            &member_grant,
+            &member_folder,
+            "member.manifest",
+            "trip/day1.txt",
+            "always",
+        );
+        assert_eq!(marked["exported"], 1);
+        assert_eq!(
+            fs::read(member_folder.join("trip/day1.txt")).expect("copied"),
+            b"day one"
+        );
+
+        // The member edits it; the maker's folder follows.
+        fs::write(member_folder.join("trip/day1.txt"), b"day one, edited").expect("edit");
+        round(&member_grant, &member_folder, "member.manifest", "", "");
+        let back = round(&maker_grant, &maker_folder, "maker.manifest", "", "");
+        assert_eq!(back["exported"], 1);
+        assert_eq!(
+            fs::read(maker_folder.join("trip/day1.txt")).expect("maker copy"),
+            b"day one, edited"
+        );
+
+        // A folder that lists nothing after holding files deletes nothing.
+        fs::remove_file(maker_folder.join("trip/day1.txt")).expect("empty");
+        let refused = round(&maker_grant, &maker_folder, "maker.manifest", "", "");
+        assert_eq!(refused["status"], "unavailable");
+        round(&member_grant, &member_folder, "member.manifest", "", "");
+        assert!(member_folder.join("trip/day1.txt").exists());
+    }
+
+    #[test]
     fn phone_changes_the_recovery_password_in_two_steps_and_devices_keep_opening() {
         let _guard = ONE_AT_A_TIME.lock().unwrap_or_else(|p| p.into_inner());
         let root = Temp::new("recovery");

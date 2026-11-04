@@ -235,11 +235,17 @@ impl Client {
         }
         let work = work.into();
         fs::create_dir_all(&work).map_err(Error::repository)?;
+        // Wall time by default, so a real snapshot carries a real date. Tests set
+        // their own clock. A sync still moves it past the newest snapshot.
+        let clock = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|time| i64::try_from(time.as_secs()).unwrap_or(0))
+            .unwrap_or(0);
         Ok(Self {
             device_id,
             work,
             password,
-            clock: 0,
+            clock,
             follows: BTreeMap::new(),
             cursor: None,
             last_cursor: None,
@@ -282,6 +288,11 @@ impl Client {
         let path = normalize_path(path)?;
         self.follows.insert(path, follow);
         Ok(())
+    }
+
+    /// Local copy this client syncs.
+    pub(crate) fn work(&self) -> &Path {
+        &self.work
     }
 
     /// Borrow the opaque device id.
@@ -1378,12 +1389,12 @@ fn logical_path(repo_path: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn is_marked(path: &str) -> bool {
+pub(crate) fn is_marked(path: &str) -> bool {
     let name = path.rsplit_once('/').map(|(_, name)| name).unwrap_or(path);
     name.contains(CONFLICT_MARK)
 }
 
-fn normalize_path(path: &str) -> Result<String, Error> {
+pub(crate) fn normalize_path(path: &str) -> Result<String, Error> {
     let path = path.trim_end_matches('/');
     if path.is_empty() || Path::new(path).is_absolute() {
         return Err(Error::Path {
@@ -1423,7 +1434,7 @@ fn path_to_rel(path: &Path) -> Result<String, Error> {
     Ok(parts.join("/"))
 }
 
-fn work_path(work: &Path, rel: &str) -> Result<PathBuf, Error> {
+pub(crate) fn work_path(work: &Path, rel: &str) -> Result<PathBuf, Error> {
     let rel = normalize_path(rel)?;
     let mut path = work.to_path_buf();
     for part in rel.split('/') {
@@ -1432,7 +1443,7 @@ fn work_path(work: &Path, rel: &str) -> Result<PathBuf, Error> {
     Ok(path)
 }
 
-fn read_work(work: &Path, rel: &str) -> Result<Option<Vec<u8>>, Error> {
+pub(crate) fn read_work(work: &Path, rel: &str) -> Result<Option<Vec<u8>>, Error> {
     let path = work_path(work, rel)?;
     let metadata = match fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
@@ -1462,7 +1473,7 @@ fn write_work(work: &Path, rel: &str, bytes: &[u8]) -> Result<(), Error> {
     write_under(work, rel, bytes)
 }
 
-fn write_under(root: &Path, rel: &str, bytes: &[u8]) -> Result<(), Error> {
+pub(crate) fn write_under(root: &Path, rel: &str, bytes: &[u8]) -> Result<(), Error> {
     let path = work_path(root, rel)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(Error::repository)?;
@@ -1477,7 +1488,7 @@ fn write_under(root: &Path, rel: &str, bytes: &[u8]) -> Result<(), Error> {
     Ok(())
 }
 
-fn remove_work(work: &Path, rel: &str) -> Result<(), Error> {
+pub(crate) fn remove_work(work: &Path, rel: &str) -> Result<(), Error> {
     let path = work_path(work, rel)?;
     match fs::symlink_metadata(&path) {
         Ok(metadata) if metadata.file_type().is_file() => {
@@ -1511,7 +1522,7 @@ fn work_is_empty(work: &Path) -> Result<bool, Error> {
     Ok(true)
 }
 
-fn regular_files(folder: &Path) -> Result<Vec<String>, Error> {
+pub(crate) fn regular_files(folder: &Path) -> Result<Vec<String>, Error> {
     let mut files = Vec::new();
     let mut pending = vec![(folder.to_path_buf(), String::new())];
     while let Some((dir, prefix)) = pending.pop() {

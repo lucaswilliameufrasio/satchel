@@ -374,6 +374,63 @@ fn mark_grant(
     Ok(())
 }
 
+/// One folder round through a grant. `mark` sets a follow first, as `mark_grant` does.
+///
+/// Returns report JSON. `"status":"unavailable"` means the folder listed nothing
+/// while the last round saw files, so nothing was deleted anywhere.
+fn folder_grant(
+    spec_path: &Path,
+    tree: &mut dyn satchel_core::FolderTree,
+    manifest: &Path,
+    mark: Option<(&str, &str)>,
+    name: &str,
+    os: &str,
+) -> Result<String, CatalogFailure> {
+    let spec = read_grant(spec_path)?;
+    let location = open_grant(&spec)?;
+    let device = DeviceId::parse(&spec.device_id).map_err(|_| CatalogFailure)?;
+    let mut client =
+        Client::open(device, &spec.work, &spec.device_key_password).map_err(|_| CatalogFailure)?;
+    if !name.is_empty() || !os.is_empty() {
+        client.introduce(name, os).map_err(|_| CatalogFailure)?;
+    }
+    if let Some((path, follow)) = mark {
+        client
+            .follow(path, parse_follow(follow)?)
+            .map_err(|_| CatalogFailure)?;
+    }
+    match satchel_core::sync_mirrored(&mut client, &location, tree, manifest) {
+        Ok(report) => serde_json::to_string(&FolderReportJson {
+            status: "ok",
+            imported: report.imported.len(),
+            exported: report.exported.len(),
+            deleted_here: report.deleted_here.len(),
+            deleted_there: report.deleted_there.len(),
+            deferred: report.deferred.len(),
+            conflicts: report.outcome.conflicts.len(),
+        })
+        .map_err(|_| CatalogFailure),
+        Err(satchel_core::Error::FolderUnavailable) => serde_json::to_string(&FolderReportJson {
+            status: "unavailable",
+            ..FolderReportJson::default()
+        })
+        .map_err(|_| CatalogFailure),
+        Err(_) => Err(CatalogFailure),
+    }
+}
+
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FolderReportJson {
+    status: &'static str,
+    imported: usize,
+    exported: usize,
+    deleted_here: usize,
+    deleted_there: usize,
+    deferred: usize,
+    conflicts: usize,
+}
+
 fn read_grant_bytes(spec_path: &Path, path: &str) -> Result<Vec<u8>, CatalogFailure> {
     let spec = read_grant(spec_path)?;
     let location = open_grant(&spec)?;
@@ -417,6 +474,7 @@ fn parse_invite(text: &str) -> Result<String, CatalogFailure> {
     invite.encode().map_err(|_| CatalogFailure)
 }
 
+#[cfg(any(test, target_os = "ios"))]
 /// Grant file the catalog opens. The joined text has no device id and no work path.
 fn assemble_grant_json(
     joined: &str,
@@ -443,6 +501,7 @@ fn assemble_grant_json(
     serde_json::to_string(&stored).map_err(|_| CatalogFailure)
 }
 
+#[cfg(any(test, target_os = "ios"))]
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GrantWireOwned {
@@ -451,6 +510,7 @@ struct GrantWireOwned {
     device_key_password: String,
 }
 
+#[cfg(any(test, target_os = "ios"))]
 #[derive(Serialize)]
 struct StoredGrant {
     endpoint: String,
@@ -1008,6 +1068,153 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
         .with_env(|env| -> Result<jni::sys::jboolean, CatalogFailure> {
             let grant_text = text_arg(env, &grant, false)?;
             Ok(maker::grant_opens(&grant_text))
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// The Kotlin `FolderTree` the Storage Access Framework folder implements.
+#[cfg(target_os = "android")]
+struct JniTree<'a, 'env, 'obj> {
+    env: &'a mut jni::Env<'env>,
+    tree: &'a jni::objects::JObject<'obj>,
+}
+
+#[cfg(target_os = "android")]
+impl JniTree<'_, '_, '_> {
+    /// A thrown Kotlin exception becomes an error here and is cleared, so the
+    /// caller decides what the app sees.
+    fn failed(&mut self) -> satchel_core::Error {
+        if self.env.exception_check() {
+            self.env.exception_clear();
+        }
+        satchel_core::Error::FolderUnavailable
+    }
+}
+
+#[cfg(target_os = "android")]
+#[derive(Deserialize)]
+struct TreeFileJson {
+    path: String,
+    size: u64,
+    modified: i64,
+}
+
+#[cfg(target_os = "android")]
+impl satchel_core::FolderTree for JniTree<'_, '_, '_> {
+    fn list(&mut self) -> Result<Vec<satchel_core::TreeFile>, satchel_core::Error> {
+        let text = (|| -> Result<String, jni::errors::Error> {
+            let value = self.env.call_method(
+                self.tree,
+                jni::jni_str!("list"),
+                jni::jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )?;
+            let object = value.l()?;
+            let string = self.env.cast_local::<JString>(object)?;
+            string.try_to_string(self.env)
+        })();
+        let Ok(text) = text else {
+            return Err(self.failed());
+        };
+        let files: Vec<TreeFileJson> = serde_json::from_str(&text).map_err(|_| self.failed())?;
+        Ok(files
+            .into_iter()
+            .map(|file| satchel_core::TreeFile {
+                path: file.path,
+                size: file.size,
+                modified: file.modified,
+            })
+            .collect())
+    }
+
+    fn read(&mut self, path: &str) -> Result<Vec<u8>, satchel_core::Error> {
+        let bytes = (|| -> Result<Vec<u8>, jni::errors::Error> {
+            let name = self.env.new_string(path)?;
+            let value = self.env.call_method(
+                self.tree,
+                jni::jni_str!("read"),
+                jni::jni_sig!("(Ljava/lang/String;)[B"),
+                &[(&name).into()],
+            )?;
+            let object = value.l()?;
+            let array = self.env.cast_local::<jni::objects::JByteArray>(object)?;
+            self.env.convert_byte_array(&array)
+        })();
+        bytes.map_err(|_| self.failed())
+    }
+
+    fn write(&mut self, path: &str, bytes: &[u8]) -> Result<(), satchel_core::Error> {
+        let done = (|| -> Result<(), jni::errors::Error> {
+            let name = self.env.new_string(path)?;
+            let array = self.env.byte_array_from_slice(bytes)?;
+            self.env.call_method(
+                self.tree,
+                jni::jni_str!("write"),
+                jni::jni_sig!("(Ljava/lang/String;[B)V"),
+                &[(&name).into(), (&array).into()],
+            )?;
+            Ok(())
+        })();
+        done.map_err(|_| self.failed())
+    }
+
+    fn remove(&mut self, path: &str) -> Result<(), satchel_core::Error> {
+        let done = (|| -> Result<(), jni::errors::Error> {
+            let name = self.env.new_string(path)?;
+            self.env.call_method(
+                self.tree,
+                jni::jni_str!("remove"),
+                jni::jni_sig!("(Ljava/lang/String;)V"),
+                &[(&name).into()],
+            )?;
+            Ok(())
+        })();
+        done.map_err(|_| self.failed())
+    }
+}
+
+/// One folder round. `path` and `follow` may be empty; when set they mark first.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_syncFolder<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    grant: JString<'local>,
+    tree: jni::objects::JObject<'local>,
+    manifest: JString<'local>,
+    path: JString<'local>,
+    follow: JString<'local>,
+    name: JString<'local>,
+    os: JString<'local>,
+) -> jstring {
+    unowned
+        .with_env(|env| -> Result<jstring, CatalogFailure> {
+            let grant_text = text_arg(env, &grant, false)?;
+            let manifest_text = text_arg(env, &manifest, false)?;
+            let path_text = text_arg(env, &path, true)?;
+            let follow_text = text_arg(env, &follow, true)?;
+            let name_text = text_arg(env, &name, true)?;
+            let os_text = text_arg(env, &os, true)?;
+            let mark = if path_text.is_empty() {
+                None
+            } else {
+                Some((path_text.as_str(), follow_text.as_str()))
+            };
+            let json = {
+                let mut folder = JniTree { env, tree: &tree };
+                folder_grant(
+                    Path::new(&grant_text),
+                    &mut folder,
+                    Path::new(&manifest_text),
+                    mark,
+                    &name_text,
+                    &os_text,
+                )?
+            };
+            let value = env.new_string(json)?;
+            Ok(value.into_raw())
         })
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }

@@ -44,14 +44,32 @@ class SharedCatalog(
 class GrantCatalog(
     specPath: String,
     apelido: () -> String = { "" },
+    folder: () -> PhoneFolder? = { null },
 ) : CatalogSource by SessionMarks(
     listJson = { NativeCatalog.catalogGrant(specPath) },
     readBytes = { path -> NativeCatalog.readGrant(specPath, path) },
     persist = { path, follow ->
         val request = markRequest(path, follow, apelido())
-        NativeCatalog.markGrant(specPath, request.path, request.follow, request.name, request.os)
+        val chosen = folder()
+        if (chosen == null) {
+            NativeCatalog.markGrant(specPath, request.path, request.follow, request.name, request.os)
+        } else {
+            // With a folder, the mark runs a folder round so a download lands in it.
+            NativeCatalog.syncFolder(
+                specPath,
+                chosen.tree,
+                chosen.manifest,
+                request.path,
+                request.follow,
+                request.name,
+                request.os,
+            )
+        }
     },
 )
+
+/** A picked folder and the manifest file the app keeps for it, outside the folder. */
+class PhoneFolder(val tree: FolderTree, val manifest: String)
 
 private class SessionMarks(
     private val listJson: () -> String,
@@ -197,6 +215,21 @@ object NativeCatalog {
 
     /** True when the grant's password opens the repository. */
     external fun grantOpens(grant: String): Boolean
+
+    /**
+     * One folder round: the folder into the work copy, sync, and back.
+     * [path] and [follow] may be empty; when set they mark first.
+     * Returns report JSON; `"status":"unavailable"` means nothing was deleted.
+     */
+    external fun syncFolder(
+        grant: String,
+        tree: FolderTree,
+        manifest: String,
+        path: String,
+        follow: String,
+        name: String,
+        os: String,
+    ): String
 
     /** Canonical invite JSON. Rejects unknown fields, including a recovery password. */
     external fun parseInvite(text: String): String

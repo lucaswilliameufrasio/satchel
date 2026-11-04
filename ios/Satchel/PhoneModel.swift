@@ -78,6 +78,10 @@ final class PhoneModel: ObservableObject {
     }
 
     @Published var screen: Screen = .loading
+    /// Name of the picked folder, nil until one is picked.
+    @Published var folderName: String?
+    @Published var folderStatus: String?
+    @Published var folderBusy = false
 
     let supportURL: URL
     let sampleURL: URL
@@ -86,6 +90,7 @@ final class PhoneModel: ObservableObject {
     let deviceURL: URL
     let labelURL: URL
     let workURL: URL
+    let folder: FolderStore
 
     var canPair: Bool {
         GrantVault.read() == nil
@@ -129,12 +134,20 @@ final class PhoneModel: ObservableObject {
         deviceURL = supportURL.appendingPathComponent("device-id")
         labelURL = supportURL.appendingPathComponent("device-label")
         workURL = supportURL.appendingPathComponent("work", isDirectory: true)
+        folder = FolderStore(
+            bookmarkURL: supportURL.appendingPathComponent("folder.bookmark"),
+            manifestURL: supportURL.appendingPathComponent("folder.manifest")
+        )
         #if targetEnvironment(simulator)
         // UI tests start from an empty phone: no grant in the Keychain, no id, no work copy.
         if CommandLine.arguments.contains("-satchel-reset") {
             GrantVault.clear()
             GrantVault.clear(GrantVault.pending)
             try? FileManager.default.removeItem(at: supportURL)
+            try? FileManager.default.removeItem(
+                at: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("satchel-folder-fixture", isDirectory: true)
+            )
             try? FileManager.default.removeItem(at: sampleURL)
         }
         #endif
@@ -151,6 +164,18 @@ final class PhoneModel: ObservableObject {
         }
         try? BackupExclusion.exclude(deviceURL)
         try? BackupExclusion.exclude(labelURL)
+        #if targetEnvironment(simulator)
+        // UI tests cannot drive the system folder picker, so they hand over a folder here.
+        if CommandLine.arguments.contains("-satchel-folder-fixture") {
+            let picked = FileManager.default.temporaryDirectory
+                .appendingPathComponent("satchel-folder-fixture", isDirectory: true)
+            try? FileManager.default.removeItem(at: picked)
+            try? FileManager.default.createDirectory(at: picked, withIntermediateDirectories: true)
+            try? Data("from the picked folder".utf8).write(to: picked.appendingPathComponent("hello.txt"))
+            _ = folder.save(picked)
+        }
+        #endif
+        folderName = folder.resolve()?.lastPathComponent
     }
 
     private static func migrateLegacyGrant(_ file: URL) {
@@ -192,8 +217,50 @@ final class PhoneModel: ObservableObject {
             }.value
             if let rows {
                 screen = .ready(rows: rows, busy: false)
+                if paired && folderName != nil {
+                    syncFolder()
+                }
             } else {
                 screen = .failed
+            }
+        }
+    }
+
+    /// Remember the folder the picker returned and run a first round.
+    func chooseFolder(_ url: URL) {
+        if folderBusy {
+            return
+        }
+        if folder.save(url) {
+            folderName = url.lastPathComponent
+            syncFolder()
+        } else {
+            folderStatus = folderLost
+        }
+    }
+
+    /// One folder round, then the catalog again so the rows match.
+    func syncFolder() {
+        let grant = GrantVault.read() ?? ""
+        if folderBusy || grant.isEmpty {
+            return
+        }
+        if case .ready(_, true) = screen {
+            return
+        }
+        folderBusy = true
+        folderStatus = folderSyncing
+        let store = folder
+        let label = storedLabel()
+        Task {
+            let (said, rows) = await Task.detached {
+                let said = store.round(grant: grant, name: label.name, os: label.os)
+                return (said, SatchelCore.catalogGrant(specPath: grant))
+            }.value
+            folderStatus = said
+            folderBusy = false
+            if case .ready(_, false) = screen, let rows {
+                screen = .ready(rows: rows, busy: false)
             }
         }
     }
@@ -517,6 +584,9 @@ final class PhoneModel: ObservableObject {
         default:
             return
         }
+        if folderBusy {
+            return
+        }
         if stayOnFile {
             screen = .file(path: path, rows: rows, busy: true)
         } else {
@@ -526,6 +596,7 @@ final class PhoneModel: ObservableObject {
         let grant = GrantVault.read() ?? ""
         let paired = !grant.isEmpty
         let label = storedLabel()
+        let store = folderName == nil ? nil : folder
         Task {
             let listed = await Task.detached {
                 applyFollow(
@@ -535,7 +606,8 @@ final class PhoneModel: ObservableObject {
                     grant: grant,
                     paired: paired,
                     name: label.name,
-                    os: label.os
+                    os: label.os,
+                    folder: store
                 )
             }.value
             if let listed {
@@ -685,10 +757,16 @@ private func applyFollow(
     grant: String,
     paired: Bool,
     name: String,
-    os: String
+    os: String,
+    folder: FolderStore? = nil
 ) -> [CatalogRow]? {
     if paired {
-        if !SatchelCore.markGrant(specPath: grant, path: path, follow: follow, name: name, os: os) {
+        if let folder {
+            // With a folder, the mark runs a folder round so a download lands in it.
+            if folder.round(grant: grant, mark: (path, follow), name: name, os: os) == folderSyncFailed {
+                return nil
+            }
+        } else if !SatchelCore.markGrant(specPath: grant, path: path, follow: follow, name: name, os: os) {
             return nil
         }
         if follow != "see" && !SatchelCore.readGrant(specPath: grant, path: path) {
@@ -703,4 +781,74 @@ private func applyFollow(
         return nil
     }
     return SatchelCore.sampleCatalog(root: sample)
+}
+
+/// The folder the person picked in the system picker, kept as a bookmark.
+///
+/// The bookmark and the manifest stay in Application Support, excluded from
+/// backup. Picking another folder drops the manifest: the old folder's files are
+/// not deletions in the new one.
+struct FolderStore: Sendable {
+    let bookmarkURL: URL
+    let manifestURL: URL
+
+    func save(_ url: URL) -> Bool {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer {
+            if scoped {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        guard let data = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil),
+              (try? data.write(to: bookmarkURL, options: .atomic)) != nil
+        else {
+            return false
+        }
+        try? FileManager.default.removeItem(at: manifestURL)
+        try? BackupExclusion.exclude(bookmarkURL)
+        return true
+    }
+
+    func resolve() -> URL? {
+        guard let data = try? Data(contentsOf: bookmarkURL) else {
+            return nil
+        }
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale)
+        else {
+            return nil
+        }
+        if stale, let fresh = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
+            try? fresh.write(to: bookmarkURL, options: .atomic)
+        }
+        return url
+    }
+
+    /// Run one round and say what happened.
+    func round(grant: String, mark: (String, String)? = nil, name: String, os: String) -> String {
+        guard let url = resolve() else {
+            return folderLost
+        }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer {
+            if scoped {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        try? FileManager.default.createDirectory(
+            at: manifestURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let report = SatchelCore.syncFolder(
+            grant: grant,
+            folder: url.path,
+            manifest: manifestURL.path,
+            path: mark?.0 ?? "",
+            follow: mark?.1 ?? "",
+            name: name,
+            os: os
+        )
+        try? BackupExclusion.exclude(manifestURL)
+        return folderSummary(report)
+    }
 }

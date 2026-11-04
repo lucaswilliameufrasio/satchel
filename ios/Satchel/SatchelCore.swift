@@ -102,6 +102,17 @@ private func satchelMarkGrant(
     _ os: UnsafePointer<CChar>
 ) -> Int32
 
+@_silgen_name("satchel_sync_folder")
+private func satchelSyncFolder(
+    _ grant: UnsafePointer<CChar>,
+    _ folder: UnsafePointer<CChar>,
+    _ manifest: UnsafePointer<CChar>,
+    _ path: UnsafePointer<CChar>,
+    _ follow: UnsafePointer<CChar>,
+    _ name: UnsafePointer<CChar>,
+    _ os: UnsafePointer<CChar>
+) -> UnsafeMutablePointer<CChar>?
+
 @_silgen_name("satchel_read_grant")
 private func satchelReadGrant(
     _ specPath: UnsafePointer<CChar>,
@@ -415,6 +426,43 @@ enum SatchelCore {
         }
     }
 
+    /// One folder round: the folder into the work copy, sync, and back.
+    /// `path` and `follow` may be empty; when set they mark first. Report JSON, or nil.
+    static func syncFolder(
+        grant: String,
+        folder: String,
+        manifest: String,
+        path: String = "",
+        follow: String = "",
+        name: String,
+        os: String
+    ) -> String? {
+        let raw = grant.withCString { grantPointer in
+            folder.withCString { folderPointer in
+                manifest.withCString { manifestPointer in
+                    path.withCString { pathPointer in
+                        follow.withCString { followPointer in
+                            name.withCString { namePointer in
+                                os.withCString { osPointer in
+                                    satchelSyncFolder(
+                                        grantPointer,
+                                        folderPointer,
+                                        manifestPointer,
+                                        pathPointer,
+                                        followPointer,
+                                        namePointer,
+                                        osPointer
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return takeString(raw)
+    }
+
     private static func rows(_ json: String?) -> [CatalogRow]? {
         guard let json else {
             return nil
@@ -627,3 +675,50 @@ func shortZoneName(_ zone: TimeZone, at instant: Date) -> String {
 }
 
 
+
+/// What the person reads after a folder round. Matches the Android copy.
+func folderSummary(_ reportJSON: String?) -> String {
+    guard let reportJSON,
+          let data = reportJSON.data(using: .utf8),
+          let report = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    else {
+        return folderSyncFailed
+    }
+    if report["status"] as? String == "unavailable" {
+        return folderUnavailable
+    }
+    let count = { (key: String) in report[key] as? Int ?? 0 }
+    let sent = count("imported") + count("deletedHere")
+    let received = count("exported") + count("deletedThere")
+    var parts: [String] = []
+    if sent > 0 {
+        parts.append(sent == 1 ? "1 mudança enviada" : "\(sent) mudanças enviadas")
+    }
+    if received > 0 {
+        parts.append(received == 1 ? "1 mudança recebida" : "\(received) mudanças recebidas")
+    }
+    let conflicts = count("conflicts")
+    if conflicts > 0 {
+        parts.append(conflicts == 1 ? "1 conflito guardado no catálogo" : "\(conflicts) conflitos guardados no catálogo")
+    }
+    if count("deferred") > 0 {
+        parts.append("arquivos editados durante a sincronização vão na próxima")
+    }
+    if parts.isEmpty {
+        return "Em dia."
+    }
+    let joined = parts.joined(separator: ", ")
+    return joined.prefix(1).uppercased() + joined.dropFirst() + "."
+}
+
+let folderTitle = "Pasta do celular"
+let folderChooseNote =
+    "Escolha uma pasta. O que você puser nela vai para o repositório. "
+    + "O que vem dos outros aparelhos aparece no catálogo e entra na pasta quando você marca para baixar."
+let folderReadyNote = "Toque para sincronizar agora. O app também sincroniza ao abrir."
+let folderSwitchNote = "A pasta atual fica como está. A nova recebe os arquivos que este aparelho sincroniza."
+let folderUnavailable =
+    "A pasta não respondeu ou ficou vazia de repente. Nada foi apagado. Confira a pasta ou escolha de novo."
+let folderLost = "O app não consegue mais abrir esta pasta. Escolha de novo."
+let folderSyncFailed = "A sincronização da pasta falhou. Confira a rede e tente de novo."
+let folderSyncing = "Sincronizando a pasta…"

@@ -16,8 +16,19 @@ struct SatchelApp: App {
 
 struct PhoneView: View {
     @ObservedObject var model: PhoneModel
+    @State private var pickingFolder = false
 
     var body: some View {
+        screenView
+            .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder]) { result in
+                if case .success(let url) = result {
+                    model.chooseFolder(url)
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var screenView: some View {
         switch model.screen {
         case .loading:
             StatusPage(title: "Catálogo", message: "Lendo o catálogo…")
@@ -33,6 +44,11 @@ struct PhoneView: View {
                 canInvite: model.canInvite,
                 onInvite: { model.showInvite() },
                 onChangeRecovery: { model.showRecoveryChange() },
+                folder: model.canPair
+                    ? nil
+                    : FolderCardState(name: model.folderName, status: model.folderStatus, busy: model.folderBusy),
+                onChooseFolder: { pickingFolder = true },
+                onSyncFolder: { model.syncFolder() },
                 onPair: {
                     model.showPairing()
                 },
@@ -128,6 +144,13 @@ struct PhoneView: View {
     }
 }
 
+/// The folder card on the catalog. `name` is nil until a folder is picked.
+struct FolderCardState {
+    let name: String?
+    let status: String?
+    let busy: Bool
+}
+
 struct StatusPage: View {
     let title: String
     let message: String
@@ -152,6 +175,9 @@ struct CatalogList: View {
     var canInvite: Bool = false
     var onInvite: () -> Void = {}
     var onChangeRecovery: () -> Void = {}
+    var folder: FolderCardState?
+    var onChooseFolder: () -> Void = {}
+    var onSyncFolder: () -> Void = {}
     let onPair: () -> Void
     let onOpen: (String) -> Void
 
@@ -178,6 +204,26 @@ struct CatalogList: View {
                     id: "change-recovery",
                     action: onChangeRecovery
                 )
+            }
+            if let folder {
+                if let name = folder.name {
+                    actionCard(
+                        "\(folderTitle): \(name)",
+                        folder.status ?? folderReadyNote,
+                        id: "folder-sync",
+                        action: onSyncFolder
+                    )
+                    .disabled(folder.busy)
+                    actionCard(
+                        "Escolher outra pasta",
+                        folderSwitchNote,
+                        id: "folder-switch",
+                        action: onChooseFolder
+                    )
+                    .disabled(folder.busy)
+                } else {
+                    actionCard(folderTitle, folderChooseNote, id: "folder-choose", action: onChooseFolder)
+                }
             }
             if canPair {
                 Button(action: onPair) {

@@ -229,6 +229,20 @@ final class ProductSurfaceTests: XCTestCase {
         proof("qr-fills-without-submit")
     }
 
+    func testFolderSummaryMatchesTheAndroidCopy() {
+        XCTAssertEqual(folderSummary(nil), folderSyncFailed)
+        XCTAssertEqual(folderSummary(#"{"status":"unavailable"}"#), folderUnavailable)
+        XCTAssertEqual(
+            folderSummary(#"{"status":"ok","imported":0,"exported":0,"deletedHere":0,"deletedThere":0,"deferred":0,"conflicts":0}"#),
+            "Em dia."
+        )
+        XCTAssertEqual(
+            folderSummary(#"{"status":"ok","imported":1,"exported":1,"deletedHere":0,"deletedThere":1,"deferred":0,"conflicts":1}"#),
+            "1 mudança enviada, 2 mudanças recebidas, 1 conflito guardado no catálogo."
+        )
+        proof("folder-summary")
+    }
+
     func testSampleKeepsApelidoOutOfTheKeyFile() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("satchel-product-\(UUID().uuidString)", isDirectory: true)

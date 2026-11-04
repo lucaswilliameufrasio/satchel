@@ -4,7 +4,9 @@ package io.github.lucaswilliameufrasio.satchel
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -43,7 +45,11 @@ import io.github.lucaswilliameufrasio.satchel.catalog.ENTRY_FIELDS
 import io.github.lucaswilliameufrasio.satchel.catalog.ENTRY_NOTE
 import io.github.lucaswilliameufrasio.satchel.catalog.ENTRY_TITLE
 import io.github.lucaswilliameufrasio.satchel.catalog.Follow
+import io.github.lucaswilliameufrasio.satchel.catalog.FOLDER_CHOOSE_NOTE
+import io.github.lucaswilliameufrasio.satchel.catalog.FOLDER_LOST
+import io.github.lucaswilliameufrasio.satchel.catalog.FOLDER_TITLE
 import io.github.lucaswilliameufrasio.satchel.catalog.GrantCatalog
+import io.github.lucaswilliameufrasio.satchel.catalog.PhoneFolder
 import io.github.lucaswilliameufrasio.satchel.catalog.LOADING_COPY
 import io.github.lucaswilliameufrasio.satchel.catalog.NativeCatalog
 import io.github.lucaswilliameufrasio.satchel.catalog.OPEN_FAILURE_COPY
@@ -83,11 +89,13 @@ class MainActivity : ComponentActivity() {
         val canPair = storedGrant == null && !fixture && storePath.isNullOrEmpty()
         val showPair = pairRequested && canPair
         val apelido = { readDeviceLabel(filesDir) }
+        val folderChoice = FolderChoice(filesDir)
+        val openFolder = { folderChoice.open(contentResolver) }
         val initialPhoneId = localDeviceId(storedGrant != null, readStoredDeviceId(filesDir))
         val initialSession = if (showPair) {
             null
         } else {
-            CatalogSession(sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido))
+            CatalogSession(sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido, openFolder))
         }
         setContent {
             MaterialTheme {
@@ -118,6 +126,46 @@ class MainActivity : ComponentActivity() {
                             .getOrDefault(false)
                 }
                 val scope = rememberCoroutineScope()
+                var folderUri by remember { mutableStateOf(folderChoice.read()) }
+                var folderStatus by remember { mutableStateOf<String?>(null) }
+                var folderBusy by remember { mutableStateOf(false) }
+                val folderName = remember(folderUri) {
+                    folderUri?.let { folderDisplayName(contentResolver, it) }
+                }
+                val runFolder: () -> Unit = runFolder@{
+                    val active = session
+                    if (folderBusy || active == null || !hasGrant || !ordinary) {
+                        return@runFolder
+                    }
+                    folderBusy = true
+                    folderStatus = FOLDER_SYNCING
+                    scope.launch {
+                        val (summary, next) = withContext(Dispatchers.IO) {
+                            synchronized(active) {
+                                val said = folderRound(vault.read().orEmpty(), openFolder(), apelido())
+                                said to openCatalog(active)
+                            }
+                        }
+                        folderStatus = summary
+                        folderBusy = false
+                        if (screen is CatalogScreenState.Ready && next is CatalogScreenState.Ready) {
+                            screen = next
+                        }
+                    }
+                }
+                val pickFolder = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenDocumentTree(),
+                ) { picked ->
+                    if (picked != null) {
+                        val kept = runCatching { folderChoice.choose(contentResolver, picked) }.isSuccess
+                        folderUri = folderChoice.read()
+                        if (kept) {
+                            runFolder()
+                        } else {
+                            folderStatus = FOLDER_LOST
+                        }
+                    }
+                }
                 LaunchedEffect(fixture, storePath, storedGrant) {
                     if (ordinary && pendingVault.exists()) {
                         val moved = withContext(Dispatchers.IO) {
@@ -126,7 +174,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         if (moved) {
-                            session = CatalogSession(GrantCatalog(vault.read().orEmpty(), apelido))
+                            session = CatalogSession(GrantCatalog(vault.read().orEmpty(), apelido, openFolder))
                         }
                     }
                     val opened = session
@@ -134,6 +182,9 @@ class MainActivity : ComponentActivity() {
                         screen = withContext(Dispatchers.IO) {
                             openCatalog(opened)
                         }
+                    }
+                    if (folderUri != null) {
+                        runFolder()
                     }
                 }
                 when (val current = screen) {
@@ -148,6 +199,13 @@ class MainActivity : ComponentActivity() {
                         onChangeRecovery = {
                             screen = CatalogScreenState.ChangingRecovery(busy = false, failed = false)
                         },
+                        folder = if (ordinary && hasGrant) {
+                            FolderCard(folderName, folderStatus, folderBusy)
+                        } else {
+                            null
+                        },
+                        onChooseFolder = { pickFolder.launch(folderUri) },
+                        onSyncFolder = runFolder,
                         onInvite = {
                             scope.launch {
                                 val started = withContext(Dispatchers.IO) {
@@ -242,7 +300,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onBack = {
                             val opened = CatalogSession(
-                                sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido),
+                                sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido, openFolder),
                             )
                             session = opened
                             scope.launch {
@@ -278,7 +336,7 @@ class MainActivity : ComponentActivity() {
                                     if (storedApelido.isEmpty()) {
                                         null
                                     } else {
-                                        joinGrant(filesDir, address, code, fingerprint, storedApelido)
+                                        joinGrant(filesDir, address, code, fingerprint, storedApelido, openFolder)
                                     }
                                 }
                                 if (joined == null) {
@@ -319,7 +377,7 @@ class MainActivity : ComponentActivity() {
                         onForm = { screen = CatalogScreenState.Creating(it) },
                         onBack = {
                             val opened = CatalogSession(
-                                sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido),
+                                sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido, openFolder),
                             )
                             session = opened
                             scope.launch {
@@ -388,7 +446,7 @@ class MainActivity : ComponentActivity() {
                         current.warning,
                         onDone = {
                             val opened = CatalogSession(
-                                GrantCatalog(vault.read().orEmpty(), apelido),
+                                GrantCatalog(vault.read().orEmpty(), apelido, openFolder),
                             )
                             session = opened
                             scope.launch {
@@ -486,6 +544,16 @@ class MainActivity : ComponentActivity() {
 }
 
 internal const val PENDING_GRANT = "grant.pending.enc"
+
+/** The folder card on the catalog. [name] is null until a folder is picked. */
+internal data class FolderCard(val name: String?, val status: String?, val busy: Boolean)
+
+internal const val FOLDER_SYNCING = "Sincronizando a pasta…"
+
+internal const val FOLDER_READY_NOTE = "Toque para sincronizar agora. O app também sincroniza ao abrir."
+
+internal const val FOLDER_SWITCH_NOTE =
+    "A pasta atual fica como está. A nova recebe os arquivos que este aparelho sincroniza."
 
 private sealed interface CatalogScreenState {
     data object Loading : CatalogScreenState
@@ -606,6 +674,7 @@ internal fun sourceFor(
     storePath: String?,
     grantPath: String?,
     apelido: () -> String = { "" },
+    folder: () -> PhoneFolder? = { null },
 ): CatalogSource {
     if (fixture) {
         return FixtureCatalog()
@@ -614,7 +683,7 @@ internal fun sourceFor(
         return SharedCatalog(storePath, apelido)
     }
     if (!grantPath.isNullOrEmpty()) {
-        return GrantCatalog(grantPath, apelido)
+        return GrantCatalog(grantPath, apelido, folder)
     }
     return CoreCatalog(sampleRoot, apelido)
 }
@@ -625,6 +694,7 @@ private fun joinGrant(
     code: String,
     fingerprint: String,
     apelido: String,
+    folder: () -> PhoneFolder?,
 ): CatalogSession? {
     try {
         val deviceId = readOrCreateDeviceId(filesDir)
@@ -639,7 +709,7 @@ private fun joinGrant(
         )
         val text = assembleGrant(raw, deviceId, work.absolutePath)
         SecureGrant(filesDir).write(text)
-        return CatalogSession(GrantCatalog(text) { readDeviceLabel(filesDir) })
+        return CatalogSession(GrantCatalog(text, { readDeviceLabel(filesDir) }, folder))
     } catch (_: Exception) {
         return null
     }
@@ -739,6 +809,9 @@ private fun CatalogScreen(
     onCreate: () -> Unit,
     canInvite: Boolean,
     onChangeRecovery: () -> Unit,
+    folder: FolderCard?,
+    onChooseFolder: () -> Unit,
+    onSyncFolder: () -> Unit,
     onInvite: () -> Unit,
     onPair: () -> Unit,
     onOpen: (String) -> Unit,
@@ -769,6 +842,36 @@ private fun CatalogScreen(
                         supportingContent = { Text("Só este aparelho, que criou o repositório, pode trocar.") },
                         modifier = Modifier.clickable(onClick = onChangeRecovery),
                     )
+                }
+            }
+            if (folder != null) {
+                item {
+                    if (folder.name == null) {
+                        ListItem(
+                            headlineContent = { Text(FOLDER_TITLE) },
+                            supportingContent = { Text(FOLDER_CHOOSE_NOTE) },
+                            trailingContent = { Text("Escolher") },
+                            modifier = Modifier.clickable(onClick = onChooseFolder),
+                        )
+                    } else {
+                        ListItem(
+                            headlineContent = { Text("$FOLDER_TITLE: ${folder.name}") },
+                            supportingContent = { Text(folder.status ?: FOLDER_READY_NOTE) },
+                            trailingContent = {
+                                Text(if (folder.busy) "Sincronizando" else "Sincronizar")
+                            },
+                            modifier = Modifier.clickable(enabled = !folder.busy, onClick = onSyncFolder),
+                        )
+                    }
+                }
+                if (folder.name != null) {
+                    item {
+                        ListItem(
+                            headlineContent = { Text("Escolher outra pasta") },
+                            supportingContent = { Text(FOLDER_SWITCH_NOTE) },
+                            modifier = Modifier.clickable(enabled = !folder.busy, onClick = onChooseFolder),
+                        )
+                    }
                 }
             }
             if (canPair) {

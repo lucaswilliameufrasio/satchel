@@ -56,6 +56,13 @@ pub enum Error {
     #[error("the new password is the same as the current one")]
     SamePassword,
 
+    /// The phone folder listed no file while the last round saw some.
+    ///
+    /// A revoked folder permission or an unmounted card looks like this. Nothing
+    /// is deleted on either side until the folder is reachable again.
+    #[error("the folder looks empty or unreachable, so nothing was deleted")]
+    FolderUnavailable,
+
     /// A repository already exists at this location.
     #[error("a repository already exists here")]
     RepositoryExists,

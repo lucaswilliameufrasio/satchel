@@ -363,6 +363,50 @@ pub extern "C" fn satchel_grant_opens(grant: *const c_char) -> i32 {
     i32::from(maker::grant_opens(&grant))
 }
 
+/// One folder round on a folder the app reaches by path (the iOS folder picker).
+/// `path` and `follow` may be NULL or empty; when set they mark first. Report JSON, or NULL.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_sync_folder(
+    grant: *const c_char,
+    folder: *const c_char,
+    manifest: *const c_char,
+    path: *const c_char,
+    follow: *const c_char,
+    name: *const c_char,
+    os: *const c_char,
+) -> *mut c_char {
+    let (Ok(grant), Ok(folder), Ok(manifest)) =
+        (text_from(grant), text_from(folder), text_from(manifest))
+    else {
+        return ptr::null_mut();
+    };
+    let (Ok(path), Ok(follow), Ok(name), Ok(os)) = (
+        optional_text_from(path),
+        optional_text_from(follow),
+        optional_text_from(name),
+        optional_text_from(os),
+    ) else {
+        return ptr::null_mut();
+    };
+    let mark = if path.is_empty() {
+        None
+    } else {
+        Some((path.as_str(), follow.as_str()))
+    };
+    let mut tree = satchel_core::DirectoryTree::new(folder);
+    match super::folder_grant(
+        Path::new(&grant),
+        &mut tree,
+        Path::new(&manifest),
+        mark,
+        &name,
+        &os,
+    ) {
+        Ok(json) => leak_string(json),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
 /// Start showing the invite. `bind` may be empty. Offer JSON, or NULL.
 #[unsafe(no_mangle)]
 pub extern "C" fn satchel_hold_start(grant: *const c_char, bind: *const c_char) -> *mut c_char {

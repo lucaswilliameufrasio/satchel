@@ -118,6 +118,40 @@ final class CatalogLaunchUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["show-invite"].waitForExistence(timeout: 60))
     }
 
+    /// The system folder picker runs in another process, so the simulator build takes a
+    /// folder from `-satchel-folder-fixture`: a temporary folder holding `hello.txt`.
+    func testCreatorsFolderGoesUpOnTheFirstRoundAndThenIsQuiet() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-satchel-reset", "-satchel-folder-fixture"]
+        app.launch()
+        let create = app.descendants(matching: .any)["create-repository"]
+        XCTAssertTrue(create.waitForExistence(timeout: 60))
+        XCTAssertFalse(app.descendants(matching: .any)["folder-sync"].exists, "no folder card before a grant")
+        create.tap()
+        let submit = app.descendants(matching: .any)["create-submit"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 10))
+        submit.tap()
+        let password = app.descendants(matching: .any)["recovery-password"]
+        XCTAssertTrue(password.waitForExistence(timeout: 60))
+        app.descendants(matching: .any)["recovery-done"].tap()
+
+        let card = app.descendants(matching: .any)["folder-sync"]
+        XCTAssertTrue(card.waitForExistence(timeout: 60), "folder card did not appear")
+        let sent = NSPredicate(format: "label CONTAINS %@", "1 mudança enviada")
+        expectation(for: sent, evaluatedWith: card)
+        waitForExpectations(timeout: 60)
+        XCTAssertTrue(card.label.contains("satchel-folder-fixture"))
+        XCTAssertTrue(app.descendants(matching: .any)["catalog-row-hello.txt"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.descendants(matching: .any)["folder-switch"].exists)
+        proof("folder-first-round \(card.label)")
+
+        card.tap()
+        let quiet = NSPredicate(format: "label CONTAINS %@", "Em dia.")
+        expectation(for: quiet, evaluatedWith: card)
+        waitForExpectations(timeout: 60)
+        proof("folder-second-round \(card.label)")
+    }
+
     /// Needs a local S3 emulator. Start one on 127.0.0.1:4566 with the buckets `ios-unprotected`
     /// (versioning never on) and `ios-protected` (versioning on), then run xcodebuild with
     /// `TEST_RUNNER_SATCHEL_FLOCI=http://127.0.0.1:4566`. Skipped when the variable is absent.
