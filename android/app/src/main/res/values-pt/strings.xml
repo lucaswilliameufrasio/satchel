@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brazilian Portuguese. values-pt so every Portuguese locale gets this copy. -->
+<resources>
+    <string name="clock_pattern">dd/MM/yyyy HH:mm</string>
+    <string name="format_locale">pt-BR</string>
+
+    <string name="catalog_title">Catálogo</string>
+    <string name="catalog_loading">Lendo o catálogo…</string>
+    <string name="catalog_open_failed">Não foi possível abrir o catálogo. Confira a rede e tente de novo.</string>
+    <string name="catalog_empty">Nenhum arquivo ainda. O que este ou outro aparelho enviar aparece aqui.</string>
+    <string name="try_again">Tentar de novo</string>
+    <string name="back">Voltar</string>
+    <string name="saving_choice">Salvando a escolha…</string>
+    <string name="folder">Pasta</string>
+    <string name="devices_none">Nenhum aparelho</string>
+    <plurals name="device_count">
+        <item quantity="one">%d aparelho</item>
+        <item quantity="many">%d aparelhos</item>
+        <item quantity="other">%d aparelhos</item>
+    </plurals>
+
+    <string name="follow_see">Ver</string>
+    <string name="follow_once">Baixar agora</string>
+    <string name="follow_always">Sincronizar sempre</string>
+    <string name="follow_see_detail">O conteúdo fica no storage. Este aparelho não baixa.</string>
+    <string name="follow_once_detail">Traz o arquivo uma vez e não acompanha mudanças posteriores.</string>
+    <string name="follow_always_detail">Baixa, envia e acompanha.</string>
+    <string name="follow_always_folder_detail">Baixa, envia e acompanha. Arquivo novo dentro desta pasta entra nesse estado.</string>
+
+    <string name="header_size">Tamanho</string>
+    <string name="header_synced">Sincronizado</string>
+    <string name="section_this_device">Neste aparelho</string>
+    <string name="section_devices">Aparelhos</string>
+    <string name="this_device">Este aparelho</string>
+    <string name="card_nickname">Apelido %1$s</string>
+    <string name="card_system">Sistema %1$s</string>
+    <string name="card_enrolled">Registrado %1$s</string>
+    <string name="card_last_sent">Último envio %1$s</string>
+    <string name="devices_none_keep">Nenhum aparelho mantém cópia.</string>
+
+    <string name="entry_title">Entrar neste aparelho</string>
+    <string name="entry_note">O desktop mostra o QR. A senha de recuperação não faz parte do convite.</string>
+    <string name="pair_support">Ler o QR mostrado no desktop, ou informar o convite.</string>
+    <string name="field_address">Endereço</string>
+    <string name="field_code">Código</string>
+    <string name="field_fingerprint">Impressão digital</string>
+    <string name="field_nickname">Apelido</string>
+    <string name="join_failed">Não foi possível entrar. Confira o código e se o outro aparelho ainda mostra o convite.</string>
+    <string name="scan_qr">Ler QR</string>
+    <string name="join">Entrar</string>
+    <string name="qr_point">Aponte a câmera para o QR do desktop.</string>
+    <string name="qr_viewfinder">Visor da câmera</string>
+    <string name="qr_camera_title">Câmera</string>
+    <string name="qr_camera_why">O Satchel usa a câmera só para ler o QR do desktop. Nada é gravado.</string>
+    <string name="qr_camera_refused">Sem a câmera não dá para ler o QR. Permita, ou volte e digite o código.</string>
+    <string name="qr_camera_blocked">O acesso à câmera está desligado para o Satchel. Ligue nas Configurações, ou volte e digite o código.</string>
+    <string name="qr_open_settings">Abrir configurações</string>
+    <string name="qr_no_camera_title">Sem câmera</string>
+    <string name="qr_no_camera">Este aparelho não tem câmera. Volte e digite o endereço, o código e a impressão digital.</string>
+    <string name="qr_type_instead">Digitar o código</string>
+    <string name="qr_allow_camera">Permitir câmera</string>
+
+    <string name="folder_title">Pasta do celular</string>
+    <string name="folder_card_title">Pasta do celular: %1$s</string>
+    <string name="folder_choose_note">Escolha uma pasta. O que você puser nela vai para o repositório. O que vem dos outros aparelhos aparece no catálogo e entra na pasta quando você marca para baixar.</string>
+    <string name="folder_choose">Escolher</string>
+    <string name="folder_choose_other">Escolher outra pasta</string>
+    <string name="folder_switch_note">A pasta atual fica como está. A nova recebe os arquivos que este aparelho sincroniza.</string>
+    <string name="folder_ready_note">Toque para sincronizar agora. O app também sincroniza ao abrir.</string>
+    <string name="folder_sync">Sincronizar</string>
+    <string name="folder_syncing_short">Sincronizando</string>
+    <string name="folder_syncing">Sincronizando a pasta…</string>
+    <string name="folder_sync_failed">A sincronização da pasta falhou. Confira a rede e tente de novo.</string>
+    <string name="folder_unavailable">A pasta não respondeu ou ficou vazia de repente. Nada foi apagado. Confira a pasta ou escolha de novo.</string>
+    <string name="folder_lost">O Android não deixa mais o app abrir esta pasta. Escolha de novo.</string>
+    <string name="folder_up_to_date">Em dia.</string>
+    <string name="folder_deferred">arquivos editados durante a sincronização vão na próxima</string>
+    <plurals name="folder_sent">
+        <item quantity="one">%d mudança enviada</item>
+        <item quantity="many">%d mudanças enviadas</item>
+        <item quantity="other">%d mudanças enviadas</item>
+    </plurals>
+    <plurals name="folder_received">
+        <item quantity="one">%d mudança recebida</item>
+        <item quantity="many">%d mudanças recebidas</item>
+        <item quantity="other">%d mudanças recebidas</item>
+    </plurals>
+    <plurals name="folder_conflicts">
+        <item quantity="one">%d conflito guardado no catálogo</item>
+        <item quantity="many">%d conflitos guardados no catálogo</item>
+        <item quantity="other">%d conflitos guardados no catálogo</item>
+    </plurals>
+
+    <string name="create_title">Criar repositório</string>
+    <string name="create_note">Este aparelho passa a guardar a senha de recuperação e a credencial de manutenção. O outro aparelho entra com um código e não digita a conta de novo.</string>
+    <string name="create_folder_note">A pasta fica só neste aparelho. Ela não tem versionamento de objeto.</string>
+    <string name="create_object_note">O armazenamento precisa ter versionamento ligado e nenhum ciclo de vida que apague objeto. A chave dos aparelhos só fica limitada a apagar os próprios locks se o armazenamento aplicar política por chave (S3 da AWS, MinIO, RustFS). No R2 e no B2 essa chave pode apagar tudo.</string>
+    <string name="storage_folder">Pasta</string>
+    <string name="field_endpoint">Endpoint</string>
+    <string name="field_bucket">Bucket</string>
+    <string name="field_region">Região</string>
+    <string name="field_prefix">Prefixo (pode ficar vazio)</string>
+    <string name="field_maintenance_key">Chave de acesso de manutenção</string>
+    <string name="field_maintenance_secret">Segredo de manutenção</string>
+    <string name="field_device_key">Chave de acesso dos aparelhos</string>
+    <string name="field_device_secret">Segredo dos aparelhos</string>
+    <string name="create">Criar</string>
+    <string name="creating">Criando…</string>
+    <string name="create_refused">Não foi possível criar. Confira os campos, o versionamento e o ciclo de vida.</string>
+    <string name="create_failed_protection">O armazenamento recusou: ligue o versionamento do bucket e remova regras de ciclo de vida que apagam objetos.</string>
+    <string name="create_failed_denied">O armazenamento não deixou esta chave consultar o versionamento. Dê a ela permissão de administrador no bucket. O R2 não expõe versionamento pela API S3 e será sempre recusado.</string>
+    <string name="create_failed_exists">Já existe um repositório neste lugar. Escolha outro prefixo, ou entre nele com um código.</string>
+    <string name="create_failed_unreachable">Não consegui falar com o armazenamento. Confira endpoint, região e as chaves.</string>
+    <string name="create_failed_fields">Confira os campos. A chave dos aparelhos precisa ser diferente da de manutenção.</string>
+    <string name="vault_failed">O repositório foi criado, mas este aparelho não conseguiu guardar a concessão no cofre. Guarde a senha abaixo agora: sem ela e sem a concessão não dá para abrir de novo por aqui.</string>
+
+    <string name="recovery_title">Senha de recuperação</string>
+    <string name="recovery_note">Guarde esta senha num gerenciador de senhas que abre sem este repositório. Ela aparece só agora e o restic oficial usa esta senha.</string>
+    <string name="recovery_clip_label">senha de recuperação</string>
+    <string name="copy">Copiar</string>
+    <string name="saved_it">Guardei</string>
+    <string name="recovery_change_title">Trocar senha de recuperação</string>
+    <string name="recovery_change_only_here">Só este aparelho, que criou o repositório, pode trocar.</string>
+    <string name="recovery_change_note">Gera uma senha nova e a mostra uma vez. Os outros aparelhos continuam abrindo com a chave deles. Quem guardou o arquivo de chave antigo, ou lê versões antigas num bucket com versionamento, ainda abre com a senha velha: a chave dos dados não muda.</string>
+    <string name="recovery_change_failed">Não foi possível trocar. A senha antiga continua valendo. Confira a conexão com o armazenamento.</string>
+    <string name="recovery_changed_note">A senha antiga não abre mais o repositório. Guarde esta no gerenciador de senhas.</string>
+    <string name="change_now">Trocar agora</string>
+    <string name="changing">Trocando…</string>
+
+    <string name="show_invite">Mostrar convite</string>
+    <string name="invite_title">Convite</string>
+    <string name="invite_waiting">Esperando o outro aparelho digitar o código.</string>
+    <string name="invite_note">A senha de recuperação não vai no convite.</string>
+    <string name="invite_qr_description">QR do convite</string>
+    <string name="invite_code">Código %1$s</string>
+    <string name="invite_address">Endereço %1$s</string>
+    <string name="invite_fingerprint">Impressão digital %1$s</string>
+    <string name="invite_device">Aparelho %1$s</string>
+    <string name="approve_failed">Não foi possível aprovar. Feche o convite e abra de novo.</string>
+    <string name="approve">Aprovar</string>
+    <string name="deny">Negar</string>
+</resources>

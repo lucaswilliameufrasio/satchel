@@ -10,7 +10,8 @@ O `.kdbx` foi o caso que revelou a necessidade. O produto não sabe o que é um 
 - O núcleo é Rust. O desktop entra depois, com bandeja. O celular entra depois do núcleo cumprir as regras de sincronização.
 - A senha de recuperação é aleatória, vira um arquivo normal em `keys/` e fica num gerenciador de senhas que abre sem este repositório. O `restic` oficial usa essa senha.
 - YubiKeys são opcionais. Cada uma embrulha a mesma senha de recuperação com FIDO2 `hmac-secret`. O uso diário abre pelo cofre do sistema. No iPhone isso fica para um spike posterior.
-- O arquivo `keys/` do restic recebe um identificador opaco, não o nome da máquina.
+- O arquivo `keys/` do restic recebe um identificador opaco, não o nome da máquina. Esse arquivo também não leva `created`: hostname, username e created ficam legíveis para quem lista `keys/`.
+- Apelido, sistema e a data de registro viajam no estado cifrado do snapshot daquele aparelho. O último envio é a data do snapshot mais novo desse id. Um apelido novo não move a data de registro. Sem esses campos, a tela omite a linha em vez de inventar.
 - O cursor da sincronização vive no snapshot, com o pai e o id do aparelho. O SQLite do aparelho é cache.
 - Na v1 entram só arquivos regulares, lidos de uma cópia estável.
 - A credencial do celular lista, lê e grava, e só apaga os próprios locks. Apagar pack, índice, snapshot e chave fica na credencial do desktop.

@@ -3,6 +3,10 @@ use std::path::PathBuf;
 /// Failure from the repository core.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// A wake key is not 32 bytes of hex, or a wake socket could not be opened.
+    #[error("wake notice setup failed")]
+    Wake,
+
     /// The device id is not 32 lowercase hexadecimal characters.
     #[error("device id must be 32 lowercase hexadecimal characters")]
     DeviceId,
@@ -44,9 +48,38 @@ pub enum Error {
     #[error("clock must be zero or later")]
     Clock,
 
+    /// A device label is empty, longer than 64 characters, or has a control character.
+    #[error("device label must be 1 to 64 characters without control characters")]
+    Label,
+
     /// S3, R2, or B2 is missing versioning, or a lifecycle rule deletes objects.
     #[error("object storage needs versioning enabled and no lifecycle rule that deletes objects")]
     ObjectProtection,
+
+    /// The new password is the one already in use.
+    #[error("the new password is the same as the current one")]
+    SamePassword,
+
+    /// The phone folder listed no file while the last round saw some.
+    ///
+    /// A revoked folder permission or an unmounted card looks like this. Nothing
+    /// is deleted on either side until the folder is reachable again.
+    #[error("the folder looks empty or unreachable, so nothing was deleted")]
+    FolderUnavailable,
+
+    /// A repository already exists at this location.
+    #[error("a repository already exists here")]
+    RepositoryExists,
+
+    /// WebDAV and SFTP have no setup in this cut.
+    #[error("this storage kind has no setup yet")]
+    UnsupportedStorage,
+
+    /// The storage refused the key when it asked about versioning (HTTP 401 or 403).
+    #[error(
+        "the storage would not let this key read the bucket's versioning; give it bucket permissions (R2 does not offer versioning over the S3 API and will always be refused)"
+    )]
+    ProbeDenied,
 
     /// The bucket probe did not return a usable answer. The message has no credential.
     #[error("object storage probe failed")]

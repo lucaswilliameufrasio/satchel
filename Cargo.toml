@@ -12,3 +12,19 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.91"
 version = "0.1.0"
+
+# Published rustic_core 0.13.0 passes a u64 device id to mknod on iOS.
+# This copy adds target_os = "ios" next to macOS in that conversion,
+# which upstream main already does. The phone app links this copy.
+[patch.crates-io]
+rustic_core = { path = "third_party/rustic_core-0.13.0" }
+
+# The catalog opens the repository with scrypt N=2^17. A debug build
+# compiles that KDF unoptimized, so the phone sits on the loading
+# screen for about a minute. The parameters stay in the key file.
+# salsa20 owns the inner rounds; they are not inlined into scrypt.
+[profile.dev.package.scrypt]
+opt-level = 3
+
+[profile.dev.package.salsa20]
+opt-level = 3

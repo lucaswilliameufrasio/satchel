@@ -45,6 +45,21 @@ pub enum Error {
         kind: &'static str,
     },
 
+    /// The grant from the other device could not be used or did not open the repository.
+    #[error("the grant did not open the repository")]
+    Grant,
+
+    /// Only the device that created the repository holds the recovery password.
+    #[error("only the device that created the repository can change the recovery password")]
+    NotMaintainer,
+
+    /// A setup field is empty or malformed. `field` names it and never carries the value.
+    #[error("setup field `{field}` is not usable")]
+    Field {
+        /// Name of the field.
+        field: &'static str,
+    },
+
     /// StatusNotifier did not start.
     #[error("the tray did not start")]
     Tray,

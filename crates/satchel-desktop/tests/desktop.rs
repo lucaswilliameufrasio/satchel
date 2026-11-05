@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 
 use satchel_core::{Client, DeviceId, Follow, Location, SetupCheck, init};
 use satchel_desktop::{
-    Account, Desktop, KeyringStore, MemoryStore, ObjectStore, SecretStore, phone_grant_secret,
+    Account, Desktop, KeyringStore, Language, MemoryStore, ObjectStore, SecretStore,
+    phone_grant_secret,
 };
 use satchel_pair::{Error as PairError, JoinRequest, ListenConfig};
 use tempfile::tempdir;
@@ -43,7 +44,9 @@ fn one_folder_is_stored_without_secrets() {
     let root = tempdir().expect("temp");
     let config = root.path().join("config");
     let (folder, repository) = folder_and_repo(root.path());
-    let mut desktop = Desktop::open(&config).expect("open");
+    let mut desktop = Desktop::open(&config)
+        .expect("open")
+        .with_language(Language::En);
     let device = DeviceId::generate();
     desktop
         .create_profile(folder.clone(), repository.clone(), device.clone())
@@ -88,17 +91,23 @@ fn one_folder_is_stored_without_secrets() {
         vec![
             "device_id".to_string(),
             "folder".to_string(),
-            "repository".to_string()
+            "repository".to_string(),
+            "role".to_string(),
+            "storage".to_string()
         ]
     );
-    let loaded = Desktop::open(&config).expect("reload");
+    let loaded = Desktop::open(&config)
+        .expect("reload")
+        .with_language(Language::En);
     assert_eq!(loaded.profile().expect("profile").folder, folder);
     assert_eq!(loaded.profile().expect("profile").device_id, device);
 }
 
 fn fresh_create_inside(root: &std::path::Path) -> Result<(), satchel_desktop::Error> {
     let config = root.join("inside-config");
-    let mut desktop = Desktop::open(&config).expect("open");
+    let mut desktop = Desktop::open(&config)
+        .expect("open")
+        .with_language(Language::En);
     let folder = root.join("synced");
     fs::create_dir_all(&folder).expect("folder");
     let repository = folder.join("repository");
@@ -110,7 +119,9 @@ fn add_device_screen_approves_without_the_recovery_password() {
     let root = tempdir().expect("temp");
     let config = root.path().join("config");
     let (folder, repository) = folder_and_repo(root.path());
-    let mut desktop = Desktop::open(&config).expect("open");
+    let mut desktop = Desktop::open(&config)
+        .expect("open")
+        .with_language(Language::En);
     let holder = DeviceId::parse("0123456789abcdef0123456789abcdef").expect("holder");
     desktop
         .create_profile(folder, repository.clone(), holder.clone())
@@ -141,7 +152,7 @@ fn add_device_screen_approves_without_the_recovery_password() {
     assert!(desktop.add_device_open());
     let mut saw_qr = false;
     for item in &desktop.tray_view().items {
-        if item.label == "QR" {
+        if item.label == "Or scan this code with the phone" {
             let png = item.icon_png.as_ref().expect("qr");
             assert!(png.starts_with(b"\x89PNG"));
             saw_qr = true;
@@ -176,13 +187,25 @@ fn add_device_screen_approves_without_the_recovery_password() {
     assert_eq!(pending.device_name, "phone");
     assert_eq!(pending.os, "android");
     assert!(pending.peer_address.ip().is_loopback());
-    assert_eq!(pending.local_interface, "lo");
+    assert_ne!(pending.local_interface, "tailscale0");
+    assert!(
+        pending.local_interface == "lo" || pending.local_interface == "lo0",
+        "local interface {}",
+        pending.local_interface
+    );
     let view = desktop.tray_view();
     let mut labels = String::new();
     for item in &view.items {
         labels.push_str(&item.label);
         labels.push('\n');
     }
+    assert!(labels.contains("“phone” wants to join"));
+    assert!(labels.contains("System: android"));
+    assert!(labels.contains("From "));
+    assert!(labels.contains(&format!(" on {}", pending.local_interface)));
+    assert!(labels.contains("Code typed: "));
+    assert!(labels.contains("Approve “phone”"));
+    assert!(labels.contains("Deny"));
     assert!(labels.contains("phone"));
     assert!(labels.contains("android"));
     assert!(labels.contains("127.0.0.1"));
@@ -234,7 +257,9 @@ impl TcpJoin {
 #[test]
 fn closing_the_screen_stops_listening() {
     let root = tempdir().expect("temp");
-    let mut desktop = Desktop::open(root.path().join("config")).expect("open");
+    let mut desktop = Desktop::open(root.path().join("config"))
+        .expect("open")
+        .with_language(Language::En);
     let offer = desktop
         .open_add_device(ListenConfig {
             bind: "127.0.0.1:0".parse().expect("bind"),
@@ -253,7 +278,9 @@ fn closing_the_screen_stops_listening() {
 #[test]
 fn deny_from_the_screen_sends_nothing() {
     let root = tempdir().expect("temp");
-    let mut desktop = Desktop::open(root.path().join("config")).expect("open");
+    let mut desktop = Desktop::open(root.path().join("config"))
+        .expect("open")
+        .with_language(Language::En);
     let offer = desktop
         .open_add_device(ListenConfig {
             bind: "127.0.0.1:0".parse().expect("bind"),
@@ -289,7 +316,9 @@ fn deny_from_the_screen_sends_nothing() {
 fn approve_without_a_recovery_password_sends_no_grant() {
     let root = tempdir().expect("temp");
     let (folder, repository) = folder_and_repo(root.path());
-    let mut desktop = Desktop::open(root.path().join("config")).expect("open");
+    let mut desktop = Desktop::open(root.path().join("config"))
+        .expect("open")
+        .with_language(Language::En);
     desktop
         .create_profile(folder, repository.clone(), DeviceId::generate())
         .expect("profile");
@@ -374,7 +403,9 @@ fn os_keystore_roundtrip_uses_a_throwaway_service() {
 fn approve_without_a_phone_credential_sends_no_grant() {
     let root = tempdir().expect("temp");
     let (folder, repository) = folder_and_repo(root.path());
-    let mut desktop = Desktop::open(root.path().join("config")).expect("open");
+    let mut desktop = Desktop::open(root.path().join("config"))
+        .expect("open")
+        .with_language(Language::En);
     desktop
         .create_profile(folder, repository.clone(), DeviceId::generate())
         .expect("profile");
@@ -455,7 +486,9 @@ fn publish_lists_metadata_and_revoke_removes_only_the_device_key() {
     let (folder, repository) = folder_and_repo(root.path());
     fs::create_dir_all(folder.join("notes")).expect("notes");
     fs::write(folder.join("notes/kept.txt"), "desk-bytes").expect("file");
-    let mut desktop = Desktop::open(&config).expect("open");
+    let mut desktop = Desktop::open(&config)
+        .expect("open")
+        .with_language(Language::En);
     let holder = DeviceId::parse("0123456789abcdef0123456789abcdef").expect("holder");
     desktop
         .create_profile(folder, repository.clone(), holder.clone())
@@ -526,14 +559,22 @@ fn publish_lists_metadata_and_revoke_removes_only_the_device_key() {
         labels.push_str(&item.label);
         labels.push('\n');
     }
-    assert!(labels.contains("Revoke fedcba9876543210fedcba9876543210"));
+    assert!(labels.contains("Remove device fedc ba98 7654 3210 fedc ba98 7654 3210"));
+    assert!(!labels.contains("Remove device 0123 4567 89ab cdef 0123 4567 89ab cdef"));
     assert!(!labels.contains("recovery-canary"));
     let mut key_id = String::new();
+    let mut revoke_count = 0;
     for item in desktop.tray_view().items {
         if let satchel_desktop::TrayCommand::Revoke(id) = item.command {
+            revoke_count += 1;
+            assert_ne!(
+                item.label,
+                "Remove device 0123 4567 89ab cdef 0123 4567 89ab cdef"
+            );
             key_id = id;
         }
     }
+    assert_eq!(revoke_count, 1);
     assert_eq!(key_id.len(), 64);
     desktop.revoke_device_key(&store, &key_id).expect("revoke");
     let phone = DeviceId::parse("fedcba9876543210fedcba9876543210").expect("phone");
@@ -555,6 +596,118 @@ fn publish_lists_metadata_and_revoke_removes_only_the_device_key() {
         .expect("recovery catalog");
 }
 
+#[test]
+fn tray_view_is_the_product_surface() {
+    let mark = include_bytes!("../../../assets/satchel-tray.rgba");
+    assert_eq!(satchel_desktop::tray_mark_rgba(), mark);
+    assert_eq!(mark.len(), 36 * 36 * 4);
+    let mut index = 0;
+    while index < mark.len() {
+        assert_eq!(mark[index], 0);
+        assert_eq!(mark[index + 1], 0);
+        assert_eq!(mark[index + 2], 0);
+        index += 4;
+    }
+
+    let root = tempdir().expect("temp");
+    let config = root.path().join("config");
+    let mut desktop = Desktop::open(&config)
+        .expect("open")
+        .with_language(Language::En);
+    let idle = desktop.tray_view();
+    assert_eq!(idle.title, "Satchel");
+    assert!(idle.invite.is_none());
+    assert_eq!(idle.items[0].label, "No folder set up");
+    assert!(idle.items.iter().any(|item| item.label == "Quit Satchel"));
+    assert!(idle.items.iter().all(|item| item.icon_png.is_none()));
+    assert!(
+        idle.items
+            .iter()
+            .all(|item| !matches!(item.command, satchel_desktop::TrayCommand::Revoke(_)))
+    );
+
+    let (folder, repository) = folder_and_repo(root.path());
+    let holder = DeviceId::parse("0123456789abcdef0123456789abcdef").expect("holder");
+    desktop
+        .create_profile(folder, repository, holder)
+        .expect("profile");
+    let ready = desktop.tray_view();
+    let ready_labels: Vec<&str> = ready.items.iter().map(|item| item.label.as_str()).collect();
+    assert!(
+        ready_labels
+            .iter()
+            .any(|label| label.starts_with("Folder: "))
+    );
+    assert!(ready_labels.contains(&"Sync now"));
+    assert!(ready_labels.contains(&"Add device…"));
+    assert!(ready_labels.contains(&"Show devices"));
+    assert!(ready_labels.contains(&"Quit Satchel"));
+    assert!(
+        ready
+            .items
+            .iter()
+            .all(|item| !item.label.starts_with("Remove device "))
+    );
+
+    let offer = desktop
+        .open_add_device(ListenConfig {
+            bind: "127.0.0.1:0".parse().expect("bind"),
+            timeout: Duration::from_secs(30),
+            advertise: false,
+        })
+        .expect("add device");
+    let adding = desktop.tray_view();
+    let adding_labels: Vec<&str> = adding
+        .items
+        .iter()
+        .map(|item| item.label.as_str())
+        .collect();
+    assert!(
+        adding_labels
+            .iter()
+            .any(|label| label.starts_with("Type on the other device: "))
+    );
+    assert!(
+        adding_labels
+            .iter()
+            .any(|label| label.starts_with("Address: "))
+    );
+    assert!(
+        adding_labels
+            .iter()
+            .any(|label| label.starts_with("Fingerprint: "))
+    );
+    assert!(adding_labels.contains(&"Stop adding"));
+    assert!(adding_labels.contains(&"Or scan this code with the phone"));
+    let qr = adding
+        .items
+        .iter()
+        .find(|item| item.label == "Or scan this code with the phone")
+        .expect("qr row");
+    let png = qr.icon_png.as_ref().expect("png");
+    assert!(png.starts_with(b"\x89PNG"));
+    assert!(png.len() > 8);
+    let invite = adding.invite.expect("invite");
+    let parsed = satchel_pair::Invite::decode(&invite).expect("decode invite");
+    let digits: String = offer
+        .code
+        .chars()
+        .filter(|character| character.is_ascii_digit())
+        .collect();
+    assert_eq!(parsed.code, digits);
+    assert_eq!(parsed.address, offer.address.to_string());
+    assert_eq!(parsed.fingerprint, offer.fingerprint);
+    assert!(!invite.contains("recovery"));
+    for item in &adding.items {
+        assert!(!item.label.contains("recovery"));
+        if let satchel_desktop::TrayCommand::Revoke(id) = &item.command {
+            panic!("revoke offered during add-device: {id}");
+        }
+    }
+    desktop.close_add_device();
+    assert!(desktop.tray_view().invite.is_none());
+}
+
 struct Cleanup<'a>(&'a KeyringStore);
 
 impl Drop for Cleanup<'_> {
@@ -563,4 +716,45 @@ impl Drop for Cleanup<'_> {
         let _ = self.0.delete(Account::BucketCredential);
         let _ = self.0.delete(Account::PhoneCredential);
     }
+}
+
+#[test]
+fn the_tray_speaks_portuguese_when_asked() {
+    let root = tempdir().expect("temp");
+    let config = root.path().join("config");
+    let mut desktop = Desktop::open(&config)
+        .expect("open")
+        .with_language(Language::PtBr);
+    let idle: Vec<String> = desktop
+        .tray_view()
+        .items
+        .into_iter()
+        .map(|item| item.label)
+        .collect();
+    assert_eq!(idle[0], "Nenhuma pasta configurada");
+    assert!(idle.contains(&"Criar ou entrar…".to_string()));
+    assert!(idle.contains(&"Sair do Satchel".to_string()));
+
+    let (folder, repository) = folder_and_repo(root.path());
+    let holder = DeviceId::parse("0123456789abcdef0123456789abcdef").expect("holder");
+    desktop
+        .create_profile(folder, repository, holder)
+        .expect("profile");
+    let ready: Vec<String> = desktop
+        .tray_view()
+        .items
+        .into_iter()
+        .map(|item| item.label)
+        .collect();
+    assert!(ready.iter().any(|label| label.starts_with("Pasta: ")));
+    assert!(
+        ready
+            .iter()
+            .any(|label| label.starts_with("Armazenamento: Pasta · "))
+    );
+    assert!(ready.contains(&"Aparelho principal: adiciona e remove aparelhos".to_string()));
+    assert!(ready.contains(&"Ainda não sincronizado".to_string()));
+    assert!(ready.contains(&"Sincronizar agora".to_string()));
+    assert!(ready.contains(&"Adicionar aparelho…".to_string()));
+    assert!(ready.iter().all(|label| !label.contains("Sync")));
 }
