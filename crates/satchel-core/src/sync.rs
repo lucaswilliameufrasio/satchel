@@ -3,9 +3,16 @@
 //! The cursor is the snapshot parent plus the opaque device id. Subscriptions,
 //! tombstones, and conflict marks ride in the encrypted snapshot description.
 //! File bytes are read only for Baixar agora and Sincronizar sempre.
+//!
+//! A round does not hold file contents in memory. A work file counts as
+//! unchanged while its size and modification time match the version it was
+//! synced with, and a remote version as unchanged while its content blob ids
+//! match. Bytes move in chunks of [`CHUNK`], and the stage that feeds the
+//! backup holds hard links to the work files rather than copies.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -13,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use rustic_core::jiff::{Timestamp, tz::TimeZone};
 use rustic_core::repofile::SnapshotFile;
 use rustic_core::{
-    BackupOptions, IndexedFullStatus, LsOptions, ParentOptions, PathList, Repository,
+    BackupOptions, DataId, IndexedFullStatus, LsOptions, ParentOptions, PathList, Repository,
     SnapshotGroupCriterion, SnapshotOptions, TreeId,
 };
 
@@ -25,6 +32,8 @@ const STATE_VERSION: u32 = 1;
 const CONFLICT_MARK: &str = ".satchel-conflict-";
 /// Virtual root stored in the snapshot so the tree does not contain a machine path.
 const TREE_ROOT: &str = "satchel";
+/// Bytes moved per read or write when a file goes between the repository and disk.
+const CHUNK: usize = 4 << 20;
 
 /// How this device treats a file or a folder.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -170,15 +179,35 @@ struct Snap {
     files: BTreeMap<String, FileMeta>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct FileMeta {
     size: u64,
     is_dir: bool,
+    mtime: Option<Timestamp>,
+    /// Data blob ids. Two files with the same list hold the same bytes.
+    content: Vec<DataId>,
+}
+
+/// One version of a file in the repository, and the work file that matches it.
+#[derive(Clone, Debug)]
+struct Stored {
+    tree: TreeId,
+    content: Vec<DataId>,
+    size: u64,
+    /// Modification time of the work file holding exactly this version.
+    mtime: Option<Timestamp>,
+}
+
+/// A work file as `stat` reports it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Seen {
+    size: u64,
+    mtime: Option<Timestamp>,
 }
 
 #[derive(Clone, Debug)]
 enum Presence {
-    Bytes(Vec<u8>),
+    Content(Stored),
     Deleted,
 }
 
@@ -200,17 +229,14 @@ enum Winner {
 }
 
 enum Plan {
-    Adopt {
-        bytes: Option<Vec<u8>>,
-    },
-    Conflict {
-        local: Vec<u8>,
-        bytes: Option<Vec<u8>>,
-    },
-    Upload {
-        bytes: Option<Vec<u8>>,
-    },
-    Restore(Vec<u8>),
+    /// Take the remote version, or the remote deletion when `None`.
+    Adopt { remote: Option<Stored> },
+    /// Keep the local file as a marked copy, then take the remote version.
+    Conflict { remote: Option<Stored> },
+    /// Send the local file, or its deletion when `present` is false.
+    Upload { present: bool },
+    /// Write back a version this device already holds.
+    Restore(Stored),
 }
 
 /// One headless device. The work directory is the local copy.
@@ -230,6 +256,8 @@ pub struct Client {
     intro: Option<IntroDraft>,
     /// `None` until a caller says; then kept, or cleared with `Some(None)`.
     wake: Option<Option<WakeEndpoint>>,
+    /// True after a snapshot was written in this session: see `remember_published_tree`.
+    rebase: bool,
 }
 
 impl Client {
@@ -266,6 +294,7 @@ impl Client {
             published: None,
             intro: None,
             wake: None,
+            rebase: false,
         })
     }
 
@@ -371,7 +400,7 @@ impl Client {
         let snaps = load_snaps(&repo)?;
         self.adopt_clock(&snaps);
         let materialize = if self.cursor.is_none() {
-            self.resume_from_repository(&repo, &snaps)?
+            self.resume_from_repository(&snaps)?
         } else {
             false
         };
@@ -380,22 +409,30 @@ impl Client {
         for (path, follow) in &follows {
             self.follows.entry(path.clone()).or_insert(*follow);
         }
+        self.rebase_from(our_snap(&latest, self.device_id.as_str()));
         let found = winners(&latest);
         let local = scan_followed(&self.work, &self.follows, Follow::Always)?;
         let plans = self.plan_always(&repo, &latest, &found, &local, materialize)?;
         let mut dirty = false;
         let mut new_marks = Vec::new();
+        let hold = self.hold_dir();
         for (path, plan) in plans {
             match plan {
-                Plan::Adopt { bytes } => {
-                    self.apply_remote(&path, bytes)?;
+                Plan::Adopt { remote } => {
+                    self.apply_remote(&repo, &path, remote)?;
                 }
-                Plan::Conflict { local, bytes } => {
+                Plan::Conflict { remote } => {
                     let marked_path = format!(
                         "{path}{CONFLICT_MARK}{}-{}",
                         self.device_id.as_str(),
                         self.clock
                     );
+                    // The local version waits beside the stage until the snapshot holds it.
+                    let held = work_path(&hold, &marked_path)?;
+                    if let Some(parent) = held.parent() {
+                        fs::create_dir_all(parent).map_err(Error::repository)?;
+                    }
+                    fs::rename(work_path(&self.work, &path)?, &held).map_err(Error::repository)?;
                     new_marks.push((
                         StoredConflict {
                             path: path.clone(),
@@ -403,26 +440,42 @@ impl Client {
                             device_id: self.device_id.as_str().to_string(),
                             snapshot_id: None,
                         },
-                        local,
+                        held,
                     ));
-                    self.apply_remote(&path, bytes)?;
+                    self.apply_remote(&repo, &path, remote)?;
                 }
-                Plan::Upload { bytes } => {
+                Plan::Upload { present } => {
                     dirty = true;
-                    if bytes.is_some() {
+                    if present {
                         self.tombstones.remove(&path);
                     } else {
                         remove_work(&self.work, &path)?;
                         self.tombstones.insert(path);
                     }
                 }
-                Plan::Restore(bytes) => {
-                    write_work(&self.work, &path, &bytes)?;
+                Plan::Restore(stored) => {
+                    copy_out(&repo, stored.tree, &path, &self.work)?;
                 }
             }
         }
         self.apply_once(&repo, &snaps, &found)?;
-        self.publish(&repo, &latest, dirty, new_marks)
+        let outcome = self.publish(&repo, &latest, dirty, new_marks)?;
+        // Only now does a snapshot hold the marked copies.
+        let _ = fs::remove_dir_all(&hold);
+        Ok(outcome)
+    }
+
+    /// Where a conflicting local version waits until the snapshot holds it.
+    fn hold_dir(&self) -> PathBuf {
+        self.stage_parent()
+            .join(format!(".satchel-hold-{}", self.device_id.as_str()))
+    }
+
+    fn stage_parent(&self) -> PathBuf {
+        self.work
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| self.work.clone())
     }
 
     /// Conflicts recorded on the latest snapshot of every device.
@@ -445,11 +498,7 @@ impl Client {
     }
 
     /// Returns whether a missing work tree should be filled from this device's snapshot.
-    fn resume_from_repository(
-        &mut self,
-        repo: &Repository<IndexedFullStatus>,
-        snaps: &[Snap],
-    ) -> Result<bool, Error> {
+    fn resume_from_repository(&mut self, snaps: &[Snap]) -> Result<bool, Error> {
         let latest = latest_by_device(snaps);
         let Some(our) = our_snap(&latest, self.device_id.as_str()) else {
             return Ok(false);
@@ -499,11 +548,10 @@ impl Client {
             if follow_for(&self.follows, path) != Some(Follow::Always) {
                 continue;
             }
-            let bytes = read_snapshot_file(repo, our.tree, path)?;
             self.bases.insert(
                 path.clone(),
                 Base {
-                    presence: Presence::Bytes(bytes),
+                    presence: Presence::Content(stored_from(our.tree, meta)),
                 },
             );
         }
@@ -515,7 +563,7 @@ impl Client {
         repo: &Repository<IndexedFullStatus>,
         latest: &BTreeMap<String, Snap>,
         found: &BTreeMap<String, Winner>,
-        local: &BTreeMap<String, Vec<u8>>,
+        local: &BTreeMap<String, Seen>,
         materialize: bool,
     ) -> Result<Vec<(String, Plan)>, Error> {
         let mut paths = BTreeSet::new();
@@ -537,20 +585,20 @@ impl Client {
         }
         let mut plans = Vec::new();
         for path in paths {
-            let local_bytes = local.get(&path).cloned();
+            let seen = local.get(&path).copied();
             let base = self.bases.get(&path);
             let remote = found.get(&path);
-            let local_changed = local_change(base, local_bytes.as_deref(), materialize);
-            let remote_bytes = remote_present_bytes(repo, latest, remote, &path)?;
-            let remote_changed = remote_content_changed(base, remote, remote_bytes.as_deref());
+            let remote_stored = remote_version(latest, remote, &path)?;
+            let local_changed = local_change(base, seen, materialize);
+            let remote_changed = remote_content_changed(base, remote, remote_stored.as_ref());
             if !local_changed && !remote_changed {
                 if materialize
-                    && local_bytes.is_none()
+                    && seen.is_none()
                     && let Some(Base {
-                        presence: Presence::Bytes(bytes),
+                        presence: Presence::Content(stored),
                     }) = base
                 {
-                    plans.push((path, Plan::Restore(bytes.clone())));
+                    plans.push((path, Plan::Restore(stored.clone())));
                 }
                 continue;
             }
@@ -559,14 +607,13 @@ impl Client {
                     return Err(Error::repository("remote change without a snapshot"));
                 }
                 if local_changed
-                    && local_bytes.as_deref() != remote_bytes.as_deref()
-                    && let Some(bytes) = local_bytes
+                    && seen.is_some()
+                    && !same_as_remote(repo, &self.work, &path, remote_stored.as_ref())?
                 {
                     plans.push((
                         path,
                         Plan::Conflict {
-                            local: bytes,
-                            bytes: remote_bytes,
+                            remote: remote_stored,
                         },
                     ));
                     continue;
@@ -574,24 +621,38 @@ impl Client {
                 plans.push((
                     path,
                     Plan::Adopt {
-                        bytes: remote_bytes,
+                        remote: remote_stored,
                     },
                 ));
                 continue;
             }
-            plans.push((path, Plan::Upload { bytes: local_bytes }));
+            plans.push((
+                path,
+                Plan::Upload {
+                    present: seen.is_some(),
+                },
+            ));
         }
         Ok(plans)
     }
 
-    fn apply_remote(&mut self, path: &str, bytes: Option<Vec<u8>>) -> Result<(), Error> {
-        if let Some(bytes) = bytes {
-            write_work(&self.work, path, &bytes)?;
+    fn apply_remote(
+        &mut self,
+        repo: &Repository<IndexedFullStatus>,
+        path: &str,
+        remote: Option<Stored>,
+    ) -> Result<(), Error> {
+        if let Some(mut stored) = remote {
+            copy_out(repo, stored.tree, path, &self.work)?;
+            // The base is the file as written here, whatever time the disk kept.
+            if let Some(seen) = seen_at(&work_path(&self.work, path)?)? {
+                stored.mtime = seen.mtime;
+            }
             self.tombstones.remove(path);
             self.bases.insert(
                 path.to_string(),
                 Base {
-                    presence: Presence::Bytes(bytes),
+                    presence: Presence::Content(stored),
                 },
             );
         } else {
@@ -629,7 +690,7 @@ impl Client {
             if follow_for(&self.follows, &path) != Some(Follow::Once) {
                 continue;
             }
-            let existing = read_work(&self.work, &path)?;
+            let existing = seen_at(&work_path(&self.work, &path)?)?;
             if let Some(pinned) = self.once_done.get(&path) {
                 if existing.is_none() {
                     downloads.push((path, pinned.clone()));
@@ -644,8 +705,17 @@ impl Client {
             }
         }
         for (path, snapshot_id) in downloads {
-            let bytes = read_tree_at(repo, snaps, &snapshot_id, &path)?;
-            write_work(&self.work, &path, &bytes)?;
+            let snap = snaps
+                .iter()
+                .find(|snap| snap.id == snapshot_id)
+                .ok_or_else(|| Error::MissingFile {
+                    snapshot: snapshot_id.clone(),
+                    path: path.clone(),
+                })?;
+            copy_out(repo, snap.tree, &path, &self.work).map_err(|_| Error::MissingFile {
+                snapshot: snapshot_id.clone(),
+                path: path.clone(),
+            })?;
             self.once_done.entry(path).or_insert(snapshot_id);
         }
         Ok(())
@@ -656,7 +726,7 @@ impl Client {
         repo: &Repository<IndexedFullStatus>,
         latest: &BTreeMap<String, Snap>,
         dirty: bool,
-        new_marks: Vec<(StoredConflict, Vec<u8>)>,
+        new_marks: Vec<(StoredConflict, PathBuf)>,
     ) -> Result<SyncOutcome, Error> {
         let extras: Vec<StoredConflict> = new_marks
             .iter()
@@ -674,12 +744,9 @@ impl Client {
             });
         }
 
-        let stage_parent = self
-            .work
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| self.work.clone());
-        let stage = stage_parent.join(format!(".satchel-stage-{}", self.device_id.as_str()));
+        let stage = self
+            .stage_parent()
+            .join(format!(".satchel-stage-{}", self.device_id.as_str()));
         let _cleanup = DeleteOnDrop(stage.clone());
         fill_stage(&stage, &self.work, &self.follows, &new_marks)?;
 
@@ -692,6 +759,7 @@ impl Client {
                 parents.push(snap.id.clone());
             }
         }
+        // The stage holds hard links, so ctime and inode say nothing about the content.
         let parent_opts = if parents.is_empty() {
             ParentOptions::default()
                 .force(true)
@@ -700,6 +768,8 @@ impl Client {
             ParentOptions::default()
                 .group_by(SnapshotGroupCriterion::new())
                 .parents(parents.clone())
+                .ignore_ctime(true)
+                .ignore_inode(true)
         };
         let zoned = Timestamp::from_second(self.clock)
             .map_err(Error::repository)?
@@ -761,7 +831,7 @@ impl Client {
             time_unix: self.clock,
         };
         self.last_cursor = Some(cursor.clone());
-        self.remember_published_tree()?;
+        self.remember_published_tree();
         let mut conflicts = Vec::new();
         for (conflict, _) in new_marks {
             conflicts.push(MarkedConflict {
@@ -830,16 +900,10 @@ impl Client {
         })
     }
 
-    fn remember_published_tree(&mut self) -> Result<(), Error> {
-        let files = scan_followed(&self.work, &self.follows, Follow::Always)?;
-        for (path, bytes) in files {
-            self.bases.insert(
-                path,
-                Base {
-                    presence: Presence::Bytes(bytes),
-                },
-            );
-        }
+    /// The in-memory index does not know the tree just written, so the next round
+    /// takes the bases of the sent files from this device's newest snapshot.
+    fn remember_published_tree(&mut self) {
+        self.rebase = true;
         let tombstones = self.tombstones.clone();
         for path in tombstones {
             self.bases.insert(
@@ -849,7 +913,30 @@ impl Client {
                 },
             );
         }
-        Ok(())
+    }
+
+    fn rebase_from(&mut self, our: Option<&Snap>) {
+        if !self.rebase {
+            return;
+        }
+        self.rebase = false;
+        let Some(our) = our else {
+            return;
+        };
+        for (path, meta) in &our.files {
+            if meta.is_dir
+                || is_marked(path)
+                || follow_for(&self.follows, path) != Some(Follow::Always)
+            {
+                continue;
+            }
+            self.bases.insert(
+                path.clone(),
+                Base {
+                    presence: Presence::Content(stored_from(our.tree, meta)),
+                },
+            );
+        }
     }
 }
 
@@ -881,7 +968,7 @@ impl Winner {
 fn remote_content_changed(
     base: Option<&Base>,
     remote: Option<&Winner>,
-    remote_bytes: Option<&[u8]>,
+    remote_stored: Option<&Stored>,
 ) -> bool {
     match (base, remote) {
         (None, None) => false,
@@ -890,49 +977,101 @@ fn remote_content_changed(
         (Some(base), Some(Winner::Deleted { .. })) => !matches!(base.presence, Presence::Deleted),
         (Some(base), Some(Winner::Present { .. })) => match &base.presence {
             Presence::Deleted => true,
-            Presence::Bytes(old) => remote_bytes != Some(old.as_slice()),
+            Presence::Content(old) => remote_stored.is_none_or(|now| now.content != old.content),
         },
     }
 }
 
-fn local_change(base: Option<&Base>, local: Option<&[u8]>, materialize: bool) -> bool {
+fn local_change(base: Option<&Base>, local: Option<Seen>, materialize: bool) -> bool {
     match (base, local) {
         (None, None) => false,
         (None, Some(_)) => true,
         (Some(base), None) => {
-            if materialize && matches!(base.presence, Presence::Bytes(_)) {
+            if materialize && matches!(base.presence, Presence::Content(_)) {
                 false
             } else {
-                matches!(base.presence, Presence::Bytes(_))
+                matches!(base.presence, Presence::Content(_))
             }
         }
-        (Some(base), Some(bytes)) => match &base.presence {
+        (Some(base), Some(seen)) => match &base.presence {
             Presence::Deleted => true,
-            Presence::Bytes(old) => old != bytes,
+            Presence::Content(old) => old.size != seen.size || old.mtime != seen.mtime,
         },
     }
 }
 
-fn remote_present_bytes(
-    repo: &Repository<IndexedFullStatus>,
+/// The version the winning snapshot holds for `path`, if it holds one.
+fn remote_version(
     latest: &BTreeMap<String, Snap>,
     winner: Option<&Winner>,
     path: &str,
-) -> Result<Option<Vec<u8>>, Error> {
-    let Some(winner) = winner else {
+) -> Result<Option<Stored>, Error> {
+    let Some(Winner::Present { snapshot_id, .. }) = winner else {
         return Ok(None);
     };
-    match winner {
-        Winner::Deleted { .. } => Ok(None),
-        Winner::Present { snapshot_id, .. } => {
-            let snap = latest
-                .values()
-                .find(|snap| snap.id == *snapshot_id)
-                .ok_or_else(|| Error::repository(format!("missing snapshot {snapshot_id}")))?;
-            let bytes = read_snapshot_file(repo, snap.tree, path)?;
-            Ok(Some(bytes))
-        }
+    let snap = latest
+        .values()
+        .find(|snap| snap.id == *snapshot_id)
+        .ok_or_else(|| Error::repository(format!("missing snapshot {snapshot_id}")))?;
+    let meta = snap
+        .files
+        .get(path)
+        .ok_or_else(|| Error::repository(format!("snapshot {snapshot_id} lost `{path}`")))?;
+    Ok(Some(stored_from(snap.tree, meta)))
+}
+
+fn stored_from(tree: TreeId, meta: &FileMeta) -> Stored {
+    Stored {
+        tree,
+        content: meta.content.clone(),
+        size: meta.size,
+        mtime: meta.mtime,
     }
+}
+
+/// True when the work file holds the same bytes as `remote`. Reads both in chunks.
+fn same_as_remote(
+    repo: &Repository<IndexedFullStatus>,
+    work: &Path,
+    path: &str,
+    remote: Option<&Stored>,
+) -> Result<bool, Error> {
+    let Some(remote) = remote else {
+        return Ok(false);
+    };
+    let local_path = work_path(work, path)?;
+    let Some(seen) = seen_at(&local_path)? else {
+        return Ok(false);
+    };
+    if seen.size != remote.size {
+        return Ok(false);
+    }
+    let node = repo
+        .node_from_path(remote.tree, Path::new(&repo_path(path)))
+        .map_err(Error::repository)?;
+    let open = repo.open_file(&node).map_err(Error::repository)?;
+    let mut local = fs::File::open(&local_path).map_err(Error::repository)?;
+    let mut buffer = vec![0_u8; CHUNK];
+    let mut offset = 0_usize;
+    let size = usize::try_from(remote.size)
+        .map_err(|_| Error::repository(format!("`{path}` is too large")))?;
+    while offset < size {
+        let want = CHUNK.min(size - offset);
+        let theirs = repo
+            .read_file_at(&open, offset, want)
+            .map_err(Error::repository)?;
+        local
+            .read_exact(&mut buffer[..theirs.len()])
+            .map_err(Error::repository)?;
+        if buffer[..theirs.len()] != theirs[..] {
+            return Ok(false);
+        }
+        if theirs.is_empty() {
+            break;
+        }
+        offset += theirs.len();
+    }
+    Ok(true)
 }
 
 /// Publish every regular file in `folder` as Sincronizar sempre.
@@ -1174,15 +1313,40 @@ fn cursor_from(snap: &Snap) -> Cursor {
     }
 }
 
+/// Every satchel snapshot. Only the newest one of each device has its file list:
+/// older trees are read on demand, so a round does not grow with the history.
 fn load_snaps(repo: &Repository<IndexedFullStatus>) -> Result<Vec<Snap>, Error> {
     let snapshots = repo.get_all_snapshots().map_err(Error::repository)?;
+    let mut newest: BTreeMap<String, (i64, String)> = BTreeMap::new();
+    for snapshot in &snapshots {
+        if parse_state(snapshot)?.is_none() {
+            continue;
+        }
+        let key = (
+            snapshot.time.timestamp().as_second(),
+            snapshot.id.to_hex().as_str().to_string(),
+        );
+        let entry = newest
+            .entry(snapshot.hostname.clone())
+            .or_insert(key.clone());
+        if key > *entry {
+            *entry = key;
+        }
+    }
     let mut snaps = Vec::new();
     for snapshot in snapshots {
         let Some(state) = parse_state(&snapshot)? else {
             continue;
         };
         let id = snapshot.id.to_hex().as_str().to_string();
-        let files = list_tree(repo, snapshot.tree)?;
+        let is_newest = newest
+            .get(&snapshot.hostname)
+            .is_some_and(|(_, newest_id)| *newest_id == id);
+        let files = if is_newest {
+            list_tree(repo, snapshot.tree)?
+        } else {
+            BTreeMap::new()
+        };
         snaps.push(Snap {
             id,
             parent_id: snapshot
@@ -1243,6 +1407,8 @@ fn list_tree(
             FileMeta {
                 size: node.meta.size,
                 is_dir: node.is_dir(),
+                mtime: node.meta.mtime,
+                content: node.content.clone().unwrap_or_default(),
             },
         );
     }
@@ -1543,10 +1709,6 @@ fn stable_read(path: &Path) -> Result<Vec<u8>, Error> {
     bytes
 }
 
-fn write_work(work: &Path, rel: &str, bytes: &[u8]) -> Result<(), Error> {
-    write_under(work, rel, bytes)
-}
-
 pub(crate) fn write_under(root: &Path, rel: &str, bytes: &[u8]) -> Result<(), Error> {
     let path = work_path(root, rel)?;
     if let Some(parent) = path.parent() {
@@ -1635,7 +1797,7 @@ fn scan_followed(
     work: &Path,
     follows: &BTreeMap<String, Follow>,
     want: Follow,
-) -> Result<BTreeMap<String, Vec<u8>>, Error> {
+) -> Result<BTreeMap<String, Seen>, Error> {
     let mut found = BTreeMap::new();
     let mut pending = vec![(work.to_path_buf(), String::new())];
     while let Some((dir, prefix)) = pending.pop() {
@@ -1667,8 +1829,7 @@ fn scan_followed(
             if follow_for(follows, &rel) != Some(want) {
                 continue;
             }
-            let bytes = stable_read(&entry.path())?;
-            found.insert(rel, bytes);
+            found.insert(rel, seen_from(&metadata));
         }
     }
     Ok(found)
@@ -1678,16 +1839,101 @@ fn fill_stage(
     stage: &Path,
     work: &Path,
     follows: &BTreeMap<String, Follow>,
-    marks: &[(StoredConflict, Vec<u8>)],
+    marks: &[(StoredConflict, PathBuf)],
 ) -> Result<(), Error> {
     fs::create_dir_all(stage).map_err(Error::repository)?;
     let files = scan_followed(work, follows, Follow::Always)?;
-    for (rel, bytes) in files {
-        write_under(stage, &rel, &bytes)?;
+    for rel in files.keys() {
+        link_into(&work_path(work, rel)?, &work_path(stage, rel)?)?;
     }
-    for (conflict, bytes) in marks {
-        write_under(stage, &conflict.marked_path, bytes)?;
+    for (conflict, held) in marks {
+        link_into(held, &work_path(stage, &conflict.marked_path)?)?;
     }
+    Ok(())
+}
+
+/// Put `source` at `target` as a hard link, or a copy with the same mtime across filesystems.
+fn link_into(source: &Path, target: &Path) -> Result<(), Error> {
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(Error::repository)?;
+    }
+    if fs::hard_link(source, target).is_ok() {
+        return Ok(());
+    }
+    fs::copy(source, target).map_err(Error::repository)?;
+    let modified = fs::metadata(source)
+        .and_then(|metadata| metadata.modified())
+        .map_err(Error::repository)?;
+    fs::File::options()
+        .write(true)
+        .open(target)
+        .and_then(|file| file.set_modified(modified))
+        .map_err(Error::repository)
+}
+
+fn seen_from(metadata: &fs::Metadata) -> Seen {
+    Seen {
+        size: metadata.len(),
+        mtime: metadata
+            .modified()
+            .ok()
+            .and_then(|time| Timestamp::try_from(time).ok()),
+    }
+}
+
+/// The regular file at `path`, or `None` when there is none.
+fn seen_at(path: &Path) -> Result<Option<Seen>, Error> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_file() => Ok(Some(seen_from(&metadata))),
+        Ok(_) => Ok(None),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(Error::repository(err)),
+    }
+}
+
+/// Write `path` from `tree` into `root` in chunks, with the stored modification time.
+fn copy_out(
+    repo: &Repository<IndexedFullStatus>,
+    tree: TreeId,
+    path: &str,
+    root: &Path,
+) -> Result<(), Error> {
+    let node = repo
+        .node_from_path(tree, Path::new(&repo_path(path)))
+        .map_err(Error::repository)?;
+    if !node.is_file() {
+        return Err(Error::repository(format!("`{path}` is not a file")));
+    }
+    let open = repo.open_file(&node).map_err(Error::repository)?;
+    let size = usize::try_from(node.meta.size)
+        .map_err(|_| Error::repository(format!("`{path}` is too large")))?;
+    let target = work_path(root, path)?;
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(Error::repository)?;
+    }
+    let name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| Error::repository("file name is not valid unicode"))?;
+    let temp = target.with_file_name(format!(".{name}.satchel-write"));
+    let mut file = fs::File::create(&temp).map_err(Error::repository)?;
+    let mut offset = 0_usize;
+    while offset < size {
+        let bytes = repo
+            .read_file_at(&open, offset, CHUNK.min(size - offset))
+            .map_err(Error::repository)?;
+        if bytes.is_empty() {
+            break;
+        }
+        file.write_all(&bytes).map_err(Error::repository)?;
+        offset += bytes.len();
+    }
+    if let Some(mtime) = node.meta.mtime {
+        file.set_modified(std::time::SystemTime::from(mtime))
+            .map_err(Error::repository)?;
+    }
+    drop(file);
+    fs::rename(&temp, &target).map_err(Error::repository)?;
     Ok(())
 }
 

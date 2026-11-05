@@ -185,3 +185,67 @@ fn an_idle_sync_cycle_is_measured() {
     assert!(idle_totals.iter().all(|total| *total > 0));
     assert_eq!(quiet_lines.len(), 1, "the quiet check is one listing");
 }
+
+/// A round reads tree packs, not file contents. With 40 files, an idle full
+/// round and a round with one local change both stay at a handful of data
+/// reads; comparing bytes would read every file each time.
+#[test]
+fn a_round_reads_no_unchanged_file_content() {
+    let floci = LocalFloci::start();
+    let endpoint = floci.endpoint().to_string();
+    let bucket = format!("satchel-large-{}", std::process::id());
+    aws(
+        &endpoint,
+        &["s3api", "create-bucket", "--bucket", bucket.as_str()],
+    );
+    let log: Log = Arc::new(Mutex::new(Vec::new()));
+    let port = counting_proxy(
+        endpoint.trim_start_matches("http://").to_string(),
+        Arc::clone(&log),
+    );
+    let location = Location::S3(
+        S3Store::new(
+            &bucket,
+            format!("http://127.0.0.1:{port}"),
+            "us-east-1",
+            "repo",
+            ACCESS_KEY,
+            SECRET_KEY,
+        )
+        .expect("store"),
+    );
+    let device = DeviceId::generate();
+    let root = tempfile::tempdir().expect("temp");
+    let folder = root.path().join("folder");
+    std::fs::create_dir_all(&folder).expect("folder");
+    let mut seed = 0x2545_F491_4F6C_DD1D_u64;
+    for index in 0..40 {
+        let mut bytes = Vec::with_capacity(96 * 1024);
+        while bytes.len() < 96 * 1024 {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            bytes.extend_from_slice(&seed.to_le_bytes());
+        }
+        std::fs::write(folder.join(format!("file-{index:02}.bin")), bytes).expect("file");
+    }
+    cycle(&location, &device, &folder, &log);
+    let (idle, _) = cycle(&location, &device, &folder, &log);
+    std::fs::write(folder.join("file-07.bin"), b"now short").expect("change");
+    let (changed, _) = cycle(&location, &device, &folder, &log);
+    let data_reads = |counts: &BTreeMap<String, usize>| *counts.get("GET data").unwrap_or(&0);
+    emit_proof(&format!(
+        "40 files: idle round GET data {}, one-change round GET data {}",
+        data_reads(&idle),
+        data_reads(&changed)
+    ));
+    // Tree packs only: the listing of each newest snapshot and the backup parent.
+    assert!(
+        data_reads(&idle) <= 8,
+        "idle round read file contents: {idle:?}"
+    );
+    assert!(
+        data_reads(&changed) <= 8,
+        "one-change round read file contents: {changed:?}"
+    );
+}
