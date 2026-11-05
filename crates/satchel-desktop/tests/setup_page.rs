@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use satchel_desktop::{Account, Desktop, MemoryStore, Role, SecretStore, start_setup_page};
+use satchel_desktop::{
+    Account, Desktop, Language, MemoryStore, Role, SecretStore, start_setup_page,
+};
 use satchel_pair::ListenConfig;
 use tempfile::tempdir;
 
@@ -17,12 +19,24 @@ struct Reply {
 }
 
 fn http(host_port: &str, host_header: &str, method: &str, path: &str, body: &str) -> Reply {
+    http_with(host_port, host_header, method, path, body, "")
+}
+
+/// `extra` is more header lines, each ending in `\r\n`.
+fn http_with(
+    host_port: &str,
+    host_header: &str,
+    method: &str,
+    path: &str,
+    body: &str,
+    extra: &str,
+) -> Reply {
     let mut stream = TcpStream::connect(host_port).expect("connect");
     stream
         .set_read_timeout(Some(Duration::from_secs(90)))
         .expect("timeout");
     let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {host_header}\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: {host_header}\r\n{extra}Content-Type: application/x-www-form-urlencoded\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(request.as_bytes()).expect("write");
@@ -73,7 +87,9 @@ fn page_creates_and_joins_and_refuses_strangers() {
 
     let first_store = Arc::new(MemoryStore::default());
     let first = Arc::new(Mutex::new(
-        Desktop::open(root.path().join("config-first")).expect("open"),
+        Desktop::open(root.path().join("config-first"))
+            .expect("open")
+            .with_language(Language::En),
     ));
     let page = start_setup_page(Arc::clone(&first), Arc::clone(&first_store)).expect("page");
     let (host, base) = split_url(page.url());
@@ -148,7 +164,9 @@ fn page_creates_and_joins_and_refuses_strangers() {
     // A second desktop joins through its own page, typing only the code.
     let second_store = Arc::new(MemoryStore::default());
     let second = Arc::new(Mutex::new(
-        Desktop::open(root.path().join("config-second")).expect("open"),
+        Desktop::open(root.path().join("config-second"))
+            .expect("open")
+            .with_language(Language::En),
     ));
     let second_page =
         start_setup_page(Arc::clone(&second), Arc::clone(&second_store)).expect("page");
@@ -261,6 +279,50 @@ fn page_creates_and_joins_and_refuses_strangers() {
         .expect("lock")
         .publish(&*second_store)
         .expect("member publishes");
+}
+
+#[test]
+fn the_page_speaks_the_browser_language_and_falls_back_to_the_desktop() {
+    let root = tempdir().expect("temp");
+    let desktop = Arc::new(Mutex::new(
+        Desktop::open(root.path().join("config"))
+            .expect("open")
+            .with_language(Language::En),
+    ));
+    let page =
+        start_setup_page(Arc::clone(&desktop), Arc::new(MemoryStore::default())).expect("page");
+    let (host, base) = split_url(page.url());
+    let portuguese = "Accept-Language: pt-BR,pt;q=0.9,en-US;q=0.8\r\n";
+
+    let english = http(&host, &host, "GET", &base, "");
+    assert!(english.body.contains("<html lang=\"en\">"));
+    assert!(english.body.contains("Set up this device"));
+
+    let form_pt = http_with(&host, &host, "GET", &base, "", portuguese);
+    assert!(form_pt.body.contains("<html lang=\"pt-BR\">"));
+    assert!(form_pt.body.contains("Configurar este aparelho"));
+    assert!(form_pt.body.contains("Entrar com um código"));
+    assert!(!form_pt.body.contains("Set up this device"));
+
+    let refused = http_with(
+        &host,
+        &host,
+        "POST",
+        &format!("{base}create"),
+        &form(&[("kind", "folder"), ("folder", "relative/path")]),
+        portuguese,
+    );
+    assert!(
+        refused.body.contains("caminho absoluto"),
+        "{}",
+        refused.body
+    );
+    assert!(refused.body.contains("value=\"relative/path\""));
+
+    // A browser that asks for neither language gets the desktop's.
+    desktop.lock().expect("lock").set_language(Language::PtBr);
+    let fallback = http_with(&host, &host, "GET", &base, "", "Accept-Language: fr-FR\r\n");
+    assert!(fallback.body.contains("Configurar este aparelho"));
 }
 
 /// Serves the page for a person or a browser tool. `SATCHEL_URL_FILE` receives the address.

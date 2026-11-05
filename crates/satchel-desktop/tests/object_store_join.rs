@@ -11,7 +11,8 @@ use std::time::{Duration, Instant};
 use floci::{ACCESS_KEY, LocalFloci, SECRET_KEY, TempRoot, aws};
 use satchel_core::{StorageKind, StorageSetup};
 use satchel_desktop::{
-    AccessPair, Account, Desktop, JoinTarget, MemoryStore, Role, SecretStore, request_grant,
+    AccessPair, Account, Desktop, JoinTarget, Language, MemoryStore, Role, SecretStore,
+    request_grant,
 };
 use satchel_pair::ListenConfig;
 
@@ -52,7 +53,9 @@ fn second_desktop_joins_a_bucket_and_both_sync() {
     setup.secret_access_key = SECRET_KEY.to_string();
 
     let first_store = MemoryStore::default();
-    let mut first = Desktop::open(root.0.join("config-first")).expect("open");
+    let mut first = Desktop::open(root.0.join("config-first"))
+        .expect("open")
+        .with_language(Language::En);
     let created = first
         .create_repository(
             &first_store,
@@ -89,7 +92,9 @@ fn second_desktop_joins_a_bucket_and_both_sync() {
     let granted = grant.join().expect("thread").expect("grant");
 
     let second_store = MemoryStore::default();
-    let mut second = Desktop::open(root.0.join("config-second")).expect("open");
+    let mut second = Desktop::open(root.0.join("config-second"))
+        .expect("open")
+        .with_language(Language::En);
     second
         .join_with_grant(&second_store, second_folder.clone(), granted)
         .expect("join the bucket");

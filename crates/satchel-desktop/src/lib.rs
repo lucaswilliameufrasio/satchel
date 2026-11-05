@@ -8,6 +8,7 @@ mod error;
 mod profile;
 mod secrets;
 mod setup_ui;
+mod text;
 
 pub use app::{
     AccessPair, CreatedProfile, Desktop, Granted, JoinTarget, PublishReport, TrayCommand, TrayItem,
@@ -17,3 +18,4 @@ pub use error::Error;
 pub use profile::{ObjectStore, Profile, Role};
 pub use secrets::{Account, KeyringStore, MemoryStore, SecretStore};
 pub use setup_ui::{SetupPage, start as start_setup_page};
+pub use text::{Language, describe};

@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use satchel_core::{StorageKind, StorageSetup};
 use satchel_desktop::{
-    Account, Desktop, JoinTarget, MemoryStore, Role, SecretStore, request_grant,
+    Account, Desktop, JoinTarget, Language, MemoryStore, Role, SecretStore, request_grant,
 };
 use satchel_pair::ListenConfig;
 use tempfile::tempdir;
@@ -69,7 +69,9 @@ fn folder_repository_is_created_by_one_device_and_joined_by_the_other_without_th
     fs::write(first_folder.join("note.txt"), "from-first").expect("note");
 
     let first_store = MemoryStore::default();
-    let mut first = Desktop::open(root.path().join("config-first")).expect("open");
+    let mut first = Desktop::open(root.path().join("config-first"))
+        .expect("open")
+        .with_language(Language::En);
     let created = first
         .create_repository(
             &first_store,
@@ -97,7 +99,9 @@ fn folder_repository_is_created_by_one_device_and_joined_by_the_other_without_th
     first.publish(&first_store).expect("first publish");
 
     let second_store = MemoryStore::default();
-    let mut second = Desktop::open(root.path().join("config-second")).expect("open");
+    let mut second = Desktop::open(root.path().join("config-second"))
+        .expect("open")
+        .with_language(Language::En);
     pair(
         &mut first,
         &first_store,
@@ -192,7 +196,9 @@ fn denied_pairing_leaves_no_profile_and_no_key() {
     fs::create_dir_all(&first_folder).expect("first");
     fs::create_dir_all(&second_folder).expect("second");
     let first_store = MemoryStore::default();
-    let mut first = Desktop::open(root.path().join("config-first")).expect("open");
+    let mut first = Desktop::open(root.path().join("config-first"))
+        .expect("open")
+        .with_language(Language::En);
     first
         .create_repository(
             &first_store,
@@ -202,7 +208,9 @@ fn denied_pairing_leaves_no_profile_and_no_key() {
         )
         .expect("create");
     let second_store = MemoryStore::default();
-    let mut second = Desktop::open(root.path().join("config-second")).expect("open");
+    let mut second = Desktop::open(root.path().join("config-second"))
+        .expect("open")
+        .with_language(Language::En);
     let outcome = pair(
         &mut first,
         &first_store,
@@ -235,7 +243,9 @@ fn object_storage_needs_the_limited_credential_and_a_different_key() {
     setup.access_key_id = "maintenance".to_string();
     setup.secret_access_key = "maintenance-secret".to_string();
     let store = MemoryStore::default();
-    let mut desktop = Desktop::open(root.path().join("config")).expect("open");
+    let mut desktop = Desktop::open(root.path().join("config"))
+        .expect("open")
+        .with_language(Language::En);
     assert!(
         desktop
             .create_repository(&store, folder.clone(), setup.clone(), None)
@@ -265,7 +275,9 @@ fn a_sync_that_writes_wakes_the_other_desktop_and_an_idle_one_does_not() {
     fs::write(first_folder.join("note.txt"), "from-first").expect("note");
     let first_store = MemoryStore::default();
     let first_config = root.path().join("config-first");
-    let mut first = Desktop::open(&first_config).expect("open");
+    let mut first = Desktop::open(&first_config)
+        .expect("open")
+        .with_language(Language::En);
     first
         .create_repository(
             &first_store,
@@ -280,7 +292,9 @@ fn a_sync_that_writes_wakes_the_other_desktop_and_an_idle_one_does_not() {
     assert_eq!(announced.wakes_sent, 0, "nobody else listens yet");
 
     let second_store = MemoryStore::default();
-    let mut second = Desktop::open(root.path().join("config-second")).expect("open");
+    let mut second = Desktop::open(root.path().join("config-second"))
+        .expect("open")
+        .with_language(Language::En);
     pair(
         &mut first,
         &first_store,
@@ -360,7 +374,9 @@ fn a_sync_that_writes_wakes_the_other_desktop_and_an_idle_one_does_not() {
     // The listening port survives a restart, so older snapshots still point at it.
     let port = first_ear.local_addr().expect("addr").port();
     drop(first_ear);
-    let mut again = Desktop::open(&first_config).expect("reopen");
+    let mut again = Desktop::open(&first_config)
+        .expect("reopen")
+        .with_language(Language::En);
     let reopened = again.listen_for_wakes(loopback).expect("listen");
     assert_eq!(reopened.local_addr().expect("addr").port(), port);
     let saved = fs::read_to_string(first_config.join("wake.json")).expect("saved");

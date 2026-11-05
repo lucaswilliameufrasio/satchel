@@ -17,6 +17,7 @@ use serde::Deserialize;
 use crate::Error;
 use crate::profile::{self, ObjectStore, Profile, Role};
 use crate::secrets::{Account, SecretStore};
+use crate::text::Language;
 
 /// What one tray menu row does.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -185,6 +186,8 @@ pub struct Desktop {
     quiet: Option<(QuietMark, SetupCheck)>,
     /// Where this desktop listens for wake notices, while it does.
     wake: Option<WakeEndpoint>,
+    /// The language of the tray, from the system unless set.
+    language: Language,
 }
 
 /// How the last sync ended, for the tray. The error itself goes to the log, not the menu.
@@ -281,7 +284,24 @@ impl Desktop {
             last_sync: None,
             quiet: None,
             wake: None,
+            language: Language::detect(),
         })
+    }
+
+    /// The language of the tray and the setup page's fallback.
+    pub fn language(&self) -> Language {
+        self.language
+    }
+
+    /// Use `language` instead of the system's.
+    pub fn set_language(&mut self, language: Language) {
+        self.language = language;
+    }
+
+    /// The same desktop, speaking `language`.
+    pub fn with_language(mut self, language: Language) -> Self {
+        self.language = language;
+        self
     }
 
     /// The configured folder, when setup has been done.
@@ -717,121 +737,209 @@ impl Desktop {
 
     /// Rows for the tray. Labels include the approval fields and not the keystore values.
     pub fn tray_view(&self) -> TrayView {
+        let t = |en: &'static str, pt: &'static str| self.language.pick(en, pt);
         let info = |label: String| item(label, false, TrayCommand::None);
         let mut items = Vec::new();
         if let Some(profile) = &self.profile {
-            items.push(info(format!("Folder: {}", folder_label(&profile.folder))));
-            items.push(info(format!("Storage: {}", storage_label(profile))));
-            items.push(info(match profile.role {
-                Role::Maintainer => "Main device: adds and removes devices".to_string(),
-                Role::Member => "Added through another device".to_string(),
-            }));
+            items.push(info(format!(
+                "{} {}",
+                t("Folder:", "Pasta:"),
+                folder_label(&profile.folder)
+            )));
+            items.push(info(format!(
+                "{} {}",
+                t("Storage:", "Armazenamento:"),
+                storage_label(self.language, profile)
+            )));
+            items.push(info(
+                match profile.role {
+                    Role::Maintainer => t(
+                        "Main device: adds and removes devices",
+                        "Aparelho principal: adiciona e remove aparelhos",
+                    ),
+                    Role::Member => t(
+                        "Added through another device",
+                        "Adicionado por outro aparelho",
+                    ),
+                }
+                .to_string(),
+            ));
             match &self.last_sync {
-                None => items.push(info("Not synced yet".to_string())),
+                None => items.push(info(
+                    t("Not synced yet", "Ainda não sincronizado").to_string(),
+                )),
                 Some(SyncStatus::Done { unix, unprotected }) => {
-                    items.push(info(format!("Synced at {}", local_clock(*unix))));
+                    items.push(info(format!(
+                        "{} {}",
+                        t("Synced at", "Sincronizado às"),
+                        local_clock(*unix)
+                    )));
                     if *unprotected {
                         items.push(info(
-                            "This storage keeps no old versions: an overwritten file cannot come back"
-                                .to_string(),
+                            t(
+                                "This storage keeps no old versions: an overwritten file cannot come back",
+                                "Este armazenamento não guarda versões antigas: um arquivo sobrescrito não volta",
+                            )
+                            .to_string(),
                         ));
                     }
                 }
                 Some(SyncStatus::Failed { unix, hint }) => {
-                    items.push(info(format!("Sync failed at {}", local_clock(*unix))));
+                    items.push(info(format!(
+                        "{} {}",
+                        t("Sync failed at", "A sincronização falhou às"),
+                        local_clock(*unix)
+                    )));
                     items.push(info(
                         match hint {
-                            FailureHint::Keystore => "Unlock the keychain, then sync again",
-                            FailureHint::Storage => {
-                                "The storage did not answer. Check the network, then sync again"
-                            }
-                            FailureHint::Folder => {
-                                "The folder is missing or unreadable. Check it, then sync again"
-                            }
-                            FailureHint::Other => "Sync again. If it keeps failing, see the log",
+                            FailureHint::Keystore => t(
+                                "Unlock the keychain, then sync again",
+                                "Desbloqueie o chaveiro e sincronize de novo",
+                            ),
+                            FailureHint::Storage => t(
+                                "The storage did not answer. Check the network, then sync again",
+                                "O armazenamento não respondeu. Confira a rede e sincronize de novo",
+                            ),
+                            FailureHint::Folder => t(
+                                "The folder is missing or unreadable. Check it, then sync again",
+                                "A pasta sumiu ou não pode ser lida. Confira e sincronize de novo",
+                            ),
+                            FailureHint::Other => t(
+                                "Sync again. If it keeps failing, see the log",
+                                "Sincronize de novo. Se continuar falhando, veja o log",
+                            ),
                         }
                         .to_string(),
                     ));
                 }
             }
         } else {
-            items.push(info("No folder set up".to_string()));
+            items.push(info(
+                t("No folder set up", "Nenhuma pasta configurada").to_string(),
+            ));
             items.push(item(
-                "Create or join…".to_string(),
+                t("Create or join…", "Criar ou entrar…").to_string(),
                 true,
                 TrayCommand::OpenSetup,
             ));
         }
         let mut invite = None;
         if let Some(pending) = &self.pending {
-            items.push(info(format!("“{}” wants to join", pending.device_name)));
-            items.push(info(format!("System: {}", pending.os)));
+            items.push(info(match self.language {
+                Language::En => format!("“{}” wants to join", pending.device_name),
+                Language::PtBr => format!("“{}” quer entrar", pending.device_name),
+            }));
+            items.push(info(format!("{} {}", t("System:", "Sistema:"), pending.os)));
+            items.push(info(match self.language {
+                Language::En => format!(
+                    "From {} on {}",
+                    pending.peer_address.ip(),
+                    pending.local_interface
+                ),
+                Language::PtBr => format!(
+                    "De {} pela {}",
+                    pending.peer_address.ip(),
+                    pending.local_interface
+                ),
+            }));
             items.push(info(format!(
-                "From {} on {}",
-                pending.peer_address.ip(),
-                pending.local_interface
+                "{} {}",
+                t("Code typed:", "Código digitado:"),
+                pending.code
             )));
-            items.push(info(format!("Code typed: {}", pending.code)));
             items.push(item(
-                format!("Approve “{}”", pending.device_name),
+                format!("{} “{}”", t("Approve", "Aprovar"), pending.device_name),
                 true,
                 TrayCommand::Approve,
             ));
-            items.push(item("Deny".to_string(), true, TrayCommand::Deny));
+            items.push(item(
+                t("Deny", "Recusar").to_string(),
+                true,
+                TrayCommand::Deny,
+            ));
         } else if let Some(session) = &self.session {
             let offer = session.offer();
             invite = Some(offer.invite.clone());
-            items.push(info(format!("Type on the other device: {}", offer.code)));
+            items.push(info(format!(
+                "{} {}",
+                t("Type on the other device:", "Digite no outro aparelho:"),
+                offer.code
+            )));
             if let Ok(invite) = Invite::decode(&offer.invite)
                 && let Ok(png) = satchel_pair::invite_qr_png(&invite)
             {
-                let mut qr = info("Or scan this code with the phone".to_string());
+                let mut qr = info(
+                    t(
+                        "Or scan this code with the phone",
+                        "Ou leia este código com o celular",
+                    )
+                    .to_string(),
+                );
                 qr.icon_png = Some(png);
                 items.push(qr);
             }
-            items.push(info(format!("Address: {}", offer.address)));
             items.push(info(format!(
-                "Fingerprint: {}",
+                "{} {}",
+                t("Address:", "Endereço:"),
+                offer.address
+            )));
+            items.push(info(format!(
+                "{} {}",
+                t("Fingerprint:", "Impressão digital:"),
                 grouped(&offer.fingerprint, 4)
             )));
             items.push(item(
-                "Stop adding".to_string(),
+                t("Stop adding", "Parar de adicionar").to_string(),
                 true,
                 TrayCommand::CloseAddDevice,
             ));
         } else if let Some(profile) = &self.profile {
-            items.push(item("Sync now".to_string(), true, TrayCommand::Publish));
+            items.push(item(
+                t("Sync now", "Sincronizar agora").to_string(),
+                true,
+                TrayCommand::Publish,
+            ));
             if profile.role == Role::Maintainer {
                 items.push(item(
-                    "Add device…".to_string(),
+                    t("Add device…", "Adicionar aparelho…").to_string(),
                     true,
                     TrayCommand::OpenAddDevice,
                 ));
                 items.push(item(
-                    "Show devices".to_string(),
+                    t("Show devices", "Mostrar aparelhos").to_string(),
                     true,
                     TrayCommand::LoadDevices,
                 ));
                 items.push(item(
-                    "Recovery password…".to_string(),
+                    t("Recovery password…", "Senha de recuperação…").to_string(),
                     true,
                     TrayCommand::OpenSetup,
                 ));
             }
             if let Some(keys) = &self.device_keys {
                 if keys.is_empty() {
-                    items.push(info("No other device yet".to_string()));
+                    items.push(info(
+                        t("No other device yet", "Nenhum outro aparelho ainda").to_string(),
+                    ));
                 }
                 for key in keys {
                     items.push(item(
-                        format!("Remove device {}", grouped(key.device_id.as_str(), 4)),
+                        format!(
+                            "{} {}",
+                            t("Remove device", "Remover aparelho"),
+                            grouped(key.device_id.as_str(), 4)
+                        ),
                         true,
                         TrayCommand::Revoke(key.key_id.clone()),
                     ));
                 }
             }
         }
-        items.push(item("Quit Satchel".to_string(), true, TrayCommand::Quit));
+        items.push(item(
+            t("Quit Satchel", "Sair do Satchel").to_string(),
+            true,
+            TrayCommand::Quit,
+        ));
         TrayView {
             title: "Satchel".to_string(),
             items,
@@ -885,9 +993,9 @@ fn grouped(text: &str, size: usize) -> String {
         .join(" ")
 }
 
-fn storage_label(profile: &Profile) -> String {
+fn storage_label(language: Language, profile: &Profile) -> String {
     let name = match profile.kind {
-        StorageKind::Directory => "Folder",
+        StorageKind::Directory => language.pick("Folder", "Pasta"),
         StorageKind::S3 => "S3",
         StorageKind::R2 => "Cloudflare R2",
         StorageKind::B2 => "Backblaze B2",

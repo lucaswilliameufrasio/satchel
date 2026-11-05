@@ -18,6 +18,7 @@ use satchel_core::{SetupCheck, StorageKind, StorageSetup};
 
 use crate::Role;
 use crate::secrets::SecretStore;
+use crate::text::{Language, describe};
 use crate::{AccessPair, Desktop, Error, JoinTarget, request_grant};
 
 const BODY_LIMIT: usize = 16 * 1024;
@@ -76,6 +77,7 @@ struct Request {
     method: String,
     path: String,
     host: String,
+    accept_language: String,
     body: String,
 }
 
@@ -94,60 +96,92 @@ fn serve<S: SecretStore>(mut stream: TcpStream, shared: &Shared<S>) -> std::io::
     if request.method == "GET" && route == "mark.png" {
         return respond_bytes(&mut stream, "image/png", MARK_PNG);
     }
+    let language = Language::from_accept_language(&request.accept_language)
+        .unwrap_or_else(|| lock(&shared.desktop).language());
     let page = match (request.method.as_str(), route) {
-        ("GET", "") => form_page(shared, None, &BTreeMap::new()),
-        ("POST", "create") => create(shared, &parse_form(&request.body)),
-        ("POST", "recovery") => change_recovery(shared),
-        ("POST", "join") => join(shared, &parse_form(&request.body)),
+        ("GET", "") => form_page(shared, language, None, &BTreeMap::new()),
+        ("POST", "create") => create(shared, language, &parse_form(&request.body)),
+        ("POST", "recovery") => change_recovery(shared, language),
+        ("POST", "join") => join(shared, language, &parse_form(&request.body)),
         _ => return respond(&mut stream, 404, "text/plain", "not found"),
     };
     respond(&mut stream, 200, "text/html; charset=utf-8", &page)
 }
 
-fn change_recovery<S: SecretStore>(shared: &Shared<S>) -> String {
+fn change_recovery<S: SecretStore>(shared: &Shared<S>, language: Language) -> String {
+    let t = |en: &'static str, pt: &'static str| language.pick(en, pt);
     let mut desktop = lock(&shared.desktop);
     match desktop.change_recovery_password(&*shared.secrets) {
-        Ok(password) => page(&format!(
-            "<h1>Recovery password changed</h1>\
-             <p>Save the new password in a password manager that opens without this \
-             repository. It is shown once. The old one no longer opens the repository, \
-             and every device keeps working with its own key.</p>{}\
-             <p class=\"hint\">Anyone who kept a copy of the old key file, or can read \
-             an older version of it from a versioned bucket, can still use the old \
-             password. This does not rotate the data key.</p>",
-            secret_block(&password)
-        )),
-        Err(err) => page(&format!(
-            "<h1>Not changed</h1><p class=\"error\" role=\"alert\">{}</p>",
-            escape(&describe(&err))
-        )),
+        Ok(password) => page(
+            language,
+            &format!(
+                "<h1>{}</h1><p>{}</p>{}<p class=\"hint\">{}</p>",
+                t("Recovery password changed", "Senha de recuperação trocada"),
+                t(
+                    "Save the new password in a password manager that opens without this \
+                     repository. It is shown once. The old one no longer opens the repository, \
+                     and every device keeps working with its own key.",
+                    "Guarde a senha nova num gerenciador de senhas que abra sem este repositório. \
+                     Ela aparece uma vez só. A antiga não abre mais o repositório, e cada aparelho \
+                     continua funcionando com a própria chave.",
+                ),
+                secret_block(language, &password),
+                t(
+                    "Anyone who kept a copy of the old key file, or can read an older version of \
+                     it from a versioned bucket, can still use the old password. This does not \
+                     rotate the data key.",
+                    "Quem guardou uma cópia do arquivo de chave antigo, ou consegue ler uma versão \
+                     antiga dele num bucket versionado, ainda pode usar a senha antiga. Isto não \
+                     troca a chave dos dados.",
+                ),
+            ),
+        ),
+        Err(err) => page(
+            language,
+            &format!(
+                "<h1>{}</h1><p class=\"error\" role=\"alert\">{}</p>",
+                t("Not changed", "Não foi trocada"),
+                escape(&describe(language, &err))
+            ),
+        ),
     }
 }
 
-fn create<S: SecretStore>(shared: &Shared<S>, form: &BTreeMap<String, String>) -> String {
-    let result = create_from_form(shared, form);
-    match result {
+fn create<S: SecretStore>(
+    shared: &Shared<S>,
+    language: Language,
+    form: &BTreeMap<String, String>,
+) -> String {
+    match create_from_form(shared, language, form) {
         Ok(text) => text,
-        Err(message) => form_page(shared, Some(&message), form),
+        Err(message) => form_page(shared, language, Some(&message), form),
     }
 }
 
 fn create_from_form<S: SecretStore>(
     shared: &Shared<S>,
+    language: Language,
     form: &BTreeMap<String, String>,
 ) -> Result<String, String> {
+    let t = |en: &'static str, pt: &'static str| language.pick(en, pt);
     let kind = match field(form, "kind") {
         "folder" => StorageKind::Directory,
         "s3" => StorageKind::S3,
         "r2" => StorageKind::R2,
         "b2" => StorageKind::B2,
-        _ => return Err("Choose where the repository lives.".to_string()),
+        _ => {
+            return Err(t(
+                "Choose where the repository lives.",
+                "Escolha onde o repositório fica.",
+            )
+            .to_string());
+        }
     };
-    let folder = required_path(form, "folder")?;
+    let folder = required_path(language, form, "folder")?;
     let mut setup = StorageSetup::directory(PathBuf::new());
     setup.kind = kind;
     let device_access = if kind == StorageKind::Directory {
-        setup.directory = required_path(form, "repository")?;
+        setup.directory = required_path(language, form, "repository")?;
         None
     } else {
         setup.endpoint = field(form, "endpoint").to_string();
@@ -164,41 +198,63 @@ fn create_from_form<S: SecretStore>(
     let mut desktop = lock(&shared.desktop);
     let created = desktop
         .create_repository(&*shared.secrets, folder, setup, device_access)
-        .map_err(|err| describe(&err))?;
+        .map_err(|err| describe(language, &err))?;
     let warning = match created.protection {
-        SetupCheck::Ready => "Versioning is on and no lifecycle rule deletes objects.",
-        SetupCheck::Unprotected => {
-            "This storage has no object versioning. An overwritten file cannot be brought back."
-        }
+        SetupCheck::Ready => format!(
+            "<p>{}</p>",
+            t(
+                "Versioning is on and no lifecycle rule deletes objects.",
+                "O versionamento está ligado e nenhuma regra de ciclo de vida apaga objetos.",
+            )
+        ),
+        SetupCheck::Unprotected => format!(
+            "<p class=\"warn\">{}</p>",
+            t(
+                "This storage has no object versioning. An overwritten file cannot be brought back.",
+                "Este armazenamento não tem versionamento de objetos. Um arquivo sobrescrito não volta.",
+            )
+        ),
     };
-    let warning = match created.protection {
-        SetupCheck::Ready => format!("<p>{}</p>", escape(warning)),
-        SetupCheck::Unprotected => format!("<p class=\"warn\">{}</p>", escape(warning)),
-    };
-    Ok(page(&format!(
-        "<h1>Repository created</h1>{}\
-         <p>Save this recovery password in a password manager that opens without this \
-         repository. It is shown once and the official <code>restic</code> uses it.</p>\
-         {}\
-         <p class=\"hint\">Next: choose Add device in the tray menu to bring in your phone \
-         or another computer. This folder syncs on its own.</p>",
-        warning,
-        secret_block(&created.recovery_password)
-    )))
+    Ok(page(
+        language,
+        &format!(
+            "<h1>{}</h1>{warning}<p>{}</p>{}<p class=\"hint\">{}</p>",
+            t("Repository created", "Repositório criado"),
+            t(
+                "Save this recovery password in a password manager that opens without this \
+                 repository. It is shown once and the official <code>restic</code> uses it.",
+                "Guarde esta senha de recuperação num gerenciador de senhas que abra sem este \
+                 repositório. Ela aparece uma vez só, e o <code>restic</code> oficial usa a mesma.",
+            ),
+            secret_block(language, &created.recovery_password),
+            t(
+                "Next: choose Add device in the tray menu to bring in your phone or another \
+                 computer. This folder syncs on its own.",
+                "Próximo passo: escolha Adicionar aparelho no menu da bandeja para trazer o \
+                 celular ou outro computador. Esta pasta sincroniza sozinha.",
+            ),
+        ),
+    ))
 }
 
-fn join<S: SecretStore>(shared: &Shared<S>, form: &BTreeMap<String, String>) -> String {
-    match join_from_form(shared, form) {
+fn join<S: SecretStore>(
+    shared: &Shared<S>,
+    language: Language,
+    form: &BTreeMap<String, String>,
+) -> String {
+    match join_from_form(shared, language, form) {
         Ok(text) => text,
-        Err(message) => form_page(shared, Some(&message), form),
+        Err(message) => form_page(shared, language, Some(&message), form),
     }
 }
 
 fn join_from_form<S: SecretStore>(
     shared: &Shared<S>,
+    language: Language,
     form: &BTreeMap<String, String>,
 ) -> Result<String, String> {
-    let folder = required_path(form, "join_folder")?;
+    let t = |en: &'static str, pt: &'static str| language.pick(en, pt);
+    let folder = required_path(language, form, "join_folder")?;
     let name = match field(form, "device_name") {
         "" => "Desktop",
         other => other,
@@ -206,9 +262,13 @@ fn join_from_form<S: SecretStore>(
     let os = std::env::consts::OS;
     let invite = field(form, "invite");
     let target = if invite.is_empty() {
-        let address = field(form, "address")
-            .parse()
-            .map_err(|_| "The address must look like 100.64.0.2:4000.".to_string())?;
+        let address = field(form, "address").parse().map_err(|_| {
+            t(
+                "The address must look like 100.64.0.2:4000.",
+                "O endereço deve ter a forma 100.64.0.2:4000.",
+            )
+            .to_string()
+        })?;
         JoinTarget {
             address,
             code: field(form, "code").to_string(),
@@ -217,38 +277,52 @@ fn join_from_form<S: SecretStore>(
             os: os.to_string(),
         }
     } else {
-        JoinTarget::from_invite(invite, name, os).map_err(|err| describe(&err))?
+        JoinTarget::from_invite(invite, name, os).map_err(|err| describe(language, &err))?
     };
     {
         let desktop = lock(&shared.desktop);
         if desktop.profile().is_some() {
-            return Err(describe(&Error::ProfileExists));
+            return Err(describe(language, &Error::ProfileExists));
         }
     }
     // Waiting for approval must not hold the lock the tray menu needs.
-    let granted = request_grant(target, JOIN_TIMEOUT).map_err(|err| describe(&err))?;
+    let granted = request_grant(target, JOIN_TIMEOUT).map_err(|err| describe(language, &err))?;
     let mut desktop = lock(&shared.desktop);
     desktop
         .join_with_grant(&*shared.secrets, folder, granted)
-        .map_err(|err| describe(&err))?;
+        .map_err(|err| describe(language, &err))?;
     Ok(page(
-        "<h1>Joined</h1><p>This device has its own key. It syncs on its own now. \
-         The recovery password stays with the device that created the repository.</p>",
+        language,
+        &format!(
+            "<h1>{}</h1><p>{}</p>",
+            t("Joined", "Pronto, este aparelho entrou"),
+            t(
+                "This device has its own key. It syncs on its own now. The recovery password \
+                 stays with the device that created the repository.",
+                "Este aparelho tem a própria chave e já sincroniza sozinho. A senha de \
+                 recuperação fica com o aparelho que criou o repositório.",
+            ),
+        ),
     ))
-}
-
-fn describe(err: &Error) -> String {
-    err.to_string()
 }
 
 fn field<'a>(form: &'a BTreeMap<String, String>, name: &str) -> &'a str {
     form.get(name).map(String::as_str).unwrap_or("").trim()
 }
 
-fn required_path(form: &BTreeMap<String, String>, name: &str) -> Result<PathBuf, String> {
+fn required_path(
+    language: Language,
+    form: &BTreeMap<String, String>,
+    name: &str,
+) -> Result<PathBuf, String> {
     let value = field(form, name);
     if value.is_empty() || !value.starts_with('/') {
-        return Err("Folders must be absolute paths, like /Users/you/Satchel.".to_string());
+        return Err(language
+            .pick(
+                "Folders must be absolute paths, like /Users/you/Satchel.",
+                "As pastas precisam de caminho absoluto, como /Users/voce/Satchel.",
+            )
+            .to_string());
     }
     Ok(PathBuf::from(value))
 }
@@ -256,9 +330,11 @@ fn required_path(form: &BTreeMap<String, String>, name: &str) -> Result<PathBuf,
 /// The create and join forms. After a refusal, `typed` refills every field but the two secrets.
 fn form_page<S: SecretStore>(
     shared: &Shared<S>,
+    language: Language,
     error: Option<&str>,
     typed: &BTreeMap<String, String>,
 ) -> String {
+    let t = |en: &'static str, pt: &'static str| language.pick(en, pt);
     let value = |name: &str| match typed.get(name) {
         Some(text) if !text.is_empty() => format!(" value=\"{}\"", escape(text)),
         _ => String::new(),
@@ -278,19 +354,35 @@ fn form_page<S: SecretStore>(
         let base = format!("/{}/", shared.token);
         let change = if profile.role == Role::Maintainer {
             format!(
-                "<section class=\"card\"><h2>Recovery password</h2><p class=\"hint\">Replace it if \
-                 it leaked or you lost track of it. Devices keep working. You get the new one once.</p>\
+                "<section class=\"card\"><h2>{}</h2><p class=\"hint\">{}</p>\
                  <form method=\"post\" action=\"{base}recovery\" \
-                 onsubmit=\"busy(this,'Changing…')\"><button>Change recovery password</button></form></section>"
+                 onsubmit=\"busy(this,'{}')\"><button>{}</button></form></section>",
+                t("Recovery password", "Senha de recuperação"),
+                t(
+                    "Replace it if it leaked or you lost track of it. Devices keep working. \
+                     You get the new one once.",
+                    "Troque se ela vazou ou se você perdeu o controle dela. Os aparelhos continuam \
+                     funcionando. Você vê a nova uma vez só.",
+                ),
+                t("Changing…", "Trocando…"),
+                t("Change recovery password", "Trocar senha de recuperação"),
             )
         } else {
             String::new()
         };
-        return page(&format!(
-            "<h1>This device</h1><section class=\"card\"><p>A folder is already set up on this \
-             device. It syncs on its own; use the tray menu to sync now or add a device.</p>\
-             </section>{change}"
-        ));
+        return page(
+            language,
+            &format!(
+                "<h1>{}</h1><section class=\"card\"><p>{}</p></section>{change}",
+                t("This device", "Este aparelho"),
+                t(
+                    "A folder is already set up on this device. It syncs on its own; use the \
+                     tray menu to sync now or add a device.",
+                    "Este aparelho já tem uma pasta configurada. Ela sincroniza sozinha; use o \
+                     menu da bandeja para sincronizar agora ou adicionar um aparelho.",
+                ),
+            ),
+        );
     }
     let notice = match error {
         Some(message) => format!("<p class=\"error\" role=\"alert\">{}</p>", escape(message)),
@@ -311,65 +403,126 @@ fn form_page<S: SecretStore>(
     let v_fingerprint = value("fingerprint");
     let (k_s3, k_r2, k_b2) = (chosen("s3"), chosen("r2"), chosen("b2"));
     let base = format!("/{}/", shared.token);
-    page(&format!(
-        "<h1>Set up this device</h1>
-<p class=\"lead\">Create a repository here, or join one another device already holds.</p>{notice}
-<section class=\"card\"><h2>Create a repository</h2>
-<p class=\"hint\">This device keeps the recovery password and the maintenance credential. \
-Other devices join with a code and never type the account.</p>
-<form method=\"post\" action=\"{base}create\" onsubmit=\"busy(this,'Checking the storage…')\">
-<label>Synced folder <input name=\"folder\"{v_folder} placeholder=\"/Users/you/Satchel\"></label>
-<label>Storage <select name=\"kind\">
-<option value=\"folder\">Local folder</option><option value=\"s3\"{k_s3}>S3</option>
+    let folder_example = t("/Users/you/Satchel", "/Users/voce/Satchel");
+    page(
+        language,
+        &format!(
+            "<h1>{title}</h1>
+<p class=\"lead\">{lead}</p>{notice}
+<section class=\"card\"><h2>{create_title}</h2>
+<p class=\"hint\">{create_hint}</p>
+<form method=\"post\" action=\"{base}create\" onsubmit=\"busy(this,'{checking}')\">
+<label>{synced} <input name=\"folder\"{v_folder} placeholder=\"{folder_example}\"></label>
+<label>{storage} <select name=\"kind\">
+<option value=\"folder\">{local}</option><option value=\"s3\"{k_s3}>S3</option>
 <option value=\"r2\"{k_r2}>Cloudflare R2</option><option value=\"b2\"{k_b2}>Backblaze B2</option></select></label>
-<div id=\"fol\"><label>Repository folder <input name=\"repository\"{v_repository}></label>
-<p class=\"hint\">A local folder has no object versioning: an overwritten file cannot be brought back.</p></div>
-<div id=\"obj\" hidden><p class=\"hint\">The bucket needs versioning on and no lifecycle rule that deletes objects. \
-The device key must differ from the maintenance key. It is limited to deleting its own locks only when the store applies per-key policy (AWS S3, MinIO, RustFS); on R2 and B2 it can delete everything.</p>
+<div id=\"fol\"><label>{repo_folder} <input name=\"repository\"{v_repository}></label>
+<p class=\"hint\">{local_hint}</p></div>
+<div id=\"obj\" hidden><p class=\"hint\">{bucket_hint}</p>
 <label>Endpoint <input name=\"endpoint\"{v_endpoint} placeholder=\"https://s3.us-east-1.amazonaws.com\"></label>
 <label>Bucket <input name=\"bucket\"{v_bucket}></label>
-<label>Region <input name=\"region\"{v_region} placeholder=\"us-east-1\"></label>
-<label>Prefix (may be empty) <input name=\"prefix\"{v_prefix}></label>
-<label>Maintenance access key <input name=\"access_key_id\"{v_access_key_id} autocomplete=\"off\"></label>
-<label>Maintenance secret <input name=\"secret_access_key\" type=\"password\" autocomplete=\"off\"></label>
-<label>Device access key (list, read, write, own locks) <input name=\"device_access_key_id\"{v_device_access_key_id} autocomplete=\"off\"></label>
-<label>Device secret <input name=\"device_secret_access_key\" type=\"password\" autocomplete=\"off\"></label></div>
-<button>Create</button></form></section>
-<section class=\"card\"><h2>Join with a code</h2>
-<p class=\"hint\">Open Add device on the device that holds the repository, then copy its \
-address, code and fingerprint, or paste the whole invite.</p>
-<form method=\"post\" action=\"{base}join\" onsubmit=\"busy(this,'Waiting for the other device to approve…')\">
-<label>Synced folder <input name=\"join_folder\"{v_join_folder} placeholder=\"/Users/you/Satchel\"></label>
-<label>Device name <input name=\"device_name\"{v_device_name} placeholder=\"Desktop\"></label>
-<label>Address <input name=\"address\"{v_address} placeholder=\"100.64.0.2:4000\"></label>
-<label>Code <input name=\"code\"{v_code} inputmode=\"numeric\"></label>
-<label>Fingerprint <input name=\"fingerprint\"{v_fingerprint}></label>
-<label>Or paste the invite <textarea name=\"invite\" rows=\"3\">{invite}</textarea></label>
-<button>Join</button></form></section>
+<label>{region} <input name=\"region\"{v_region} placeholder=\"us-east-1\"></label>
+<label>{prefix} <input name=\"prefix\"{v_prefix}></label>
+<label>{maint_key} <input name=\"access_key_id\"{v_access_key_id} autocomplete=\"off\"></label>
+<label>{maint_secret} <input name=\"secret_access_key\" type=\"password\" autocomplete=\"off\"></label>
+<label>{device_key} <input name=\"device_access_key_id\"{v_device_access_key_id} autocomplete=\"off\"></label>
+<label>{device_secret} <input name=\"device_secret_access_key\" type=\"password\" autocomplete=\"off\"></label></div>
+<button>{create}</button></form></section>
+<section class=\"card\"><h2>{join_title}</h2>
+<p class=\"hint\">{join_hint}</p>
+<form method=\"post\" action=\"{base}join\" onsubmit=\"busy(this,'{waiting}')\">
+<label>{synced} <input name=\"join_folder\"{v_join_folder} placeholder=\"{folder_example}\"></label>
+<label>{device_name} <input name=\"device_name\"{v_device_name} placeholder=\"Desktop\"></label>
+<label>{address} <input name=\"address\"{v_address} placeholder=\"100.64.0.2:4000\"></label>
+<label>{code} <input name=\"code\"{v_code} inputmode=\"numeric\"></label>
+<label>{fingerprint} <input name=\"fingerprint\"{v_fingerprint}></label>
+<label>{paste} <textarea name=\"invite\" rows=\"3\">{invite}</textarea></label>
+<button>{join}</button></form></section>
 <script>
 const kind=document.querySelector('select[name=kind]');
 function show(){{const o=kind.value!=='folder';document.getElementById('obj').hidden=!o;document.getElementById('fol').hidden=o;}}
 kind.addEventListener('change',show);show();
 function busy(f,t){{const b=f.querySelector('button');b.disabled=true;b.textContent=t;b.setAttribute('aria-busy','true');}}
-</script>"
-    ))
+</script>",
+            title = t("Set up this device", "Configurar este aparelho"),
+            lead = t(
+                "Create a repository here, or join one another device already holds.",
+                "Crie um repositório aqui ou entre num que outro aparelho já mantém.",
+            ),
+            create_title = t("Create a repository", "Criar um repositório"),
+            create_hint = t(
+                "This device keeps the recovery password and the maintenance credential. \
+                 Other devices join with a code and never type the account.",
+                "Este aparelho guarda a senha de recuperação e a credencial de manutenção. \
+                 Os outros entram com um código e nunca digitam a conta.",
+            ),
+            checking = t("Checking the storage…", "Conferindo o armazenamento…"),
+            synced = t("Synced folder", "Pasta sincronizada"),
+            storage = t("Storage", "Armazenamento"),
+            local = t("Local folder", "Pasta local"),
+            repo_folder = t("Repository folder", "Pasta do repositório"),
+            local_hint = t(
+                "A local folder has no object versioning: an overwritten file cannot be brought back.",
+                "Uma pasta local não tem versionamento de objetos: um arquivo sobrescrito não volta.",
+            ),
+            bucket_hint = t(
+                "The bucket needs versioning on and no lifecycle rule that deletes objects. The \
+                 device key must differ from the maintenance key. It is limited to deleting its \
+                 own locks only when the store applies per-key policy (AWS S3, MinIO, RustFS); \
+                 on R2 and B2 it can delete everything.",
+                "O bucket precisa de versionamento ligado e de nenhuma regra de ciclo de vida que \
+                 apague objetos. A chave dos aparelhos tem de ser diferente da de manutenção. Ela \
+                 só fica limitada a apagar os próprios locks quando o armazenamento aplica política \
+                 por chave (AWS S3, MinIO, RustFS); no R2 e no B2 ela pode apagar tudo.",
+            ),
+            region = t("Region", "Região"),
+            prefix = t("Prefix (may be empty)", "Prefixo (pode ficar vazio)"),
+            maint_key = t("Maintenance access key", "Chave de acesso de manutenção"),
+            maint_secret = t("Maintenance secret", "Segredo de manutenção"),
+            device_key = t(
+                "Device access key (list, read, write, own locks)",
+                "Chave de acesso dos aparelhos (listar, ler, gravar, próprios locks)",
+            ),
+            device_secret = t("Device secret", "Segredo dos aparelhos"),
+            create = t("Create", "Criar"),
+            join_title = t("Join with a code", "Entrar com um código"),
+            join_hint = t(
+                "Open Add device on the device that holds the repository, then copy its \
+                 address, code and fingerprint, or paste the whole invite.",
+                "Abra Adicionar aparelho no aparelho que mantém o repositório e copie o \
+                 endereço, o código e a impressão digital, ou cole o convite inteiro.",
+            ),
+            waiting = t(
+                "Waiting for the other device to approve…",
+                "Esperando o outro aparelho aprovar…",
+            ),
+            device_name = t("Device name", "Nome do aparelho"),
+            address = t("Address", "Endereço"),
+            code = t("Code", "Código"),
+            fingerprint = t("Fingerprint", "Impressão digital"),
+            paste = t("Or paste the invite", "Ou cole o convite"),
+            join = t("Join", "Entrar"),
+        ),
+    )
 }
 
 /// The recovery password, once, with a copy button. Monospace and wrapping.
-fn secret_block(secret: &str) -> String {
+fn secret_block(language: Language, secret: &str) -> String {
     format!(
         "<div class=\"secret\"><code id=\"secret\">{}</code>\
          <button type=\"button\" class=\"quiet\" onclick=\"navigator.clipboard.writeText(\
-         document.getElementById('secret').textContent).then(()=>{{this.textContent='Copied'}})\">\
-         Copy</button></div>",
-        escape(secret)
+         document.getElementById('secret').textContent).then(()=>{{this.textContent='{}'}})\">\
+         {}</button></div>",
+        escape(secret),
+        language.pick("Copied", "Copiada"),
+        language.pick("Copy", "Copiar"),
     )
 }
 
 /// The page frame: the palette in docs/identidade-visual.md, light or dark as the system is.
-fn page(body: &str) -> String {
+fn page(language: Language, body: &str) -> String {
     format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+        "<!doctype html><html lang=\"{}\"><head><meta charset=\"utf-8\">\
 <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
 <meta name=\"color-scheme\" content=\"light dark\"><title>Satchel</title><style>\
 :root{{--canvas:#F3EEE4;--card:#FFFCF7;--ink:#241C16;--secondary:#6B5E52;--accent:#8C4A24;\
@@ -398,7 +551,8 @@ button.quiet{{display:inline;width:auto;min-height:0;margin:0;padding:.25rem 0;b
 .secret code{{display:block;font:1.05rem/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}}\
 code{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}}\
 </style></head><body><main><div class=\"brand\"><img src=\"mark.png\" alt=\"\">Satchel</div>\
-{body}</main></body></html>"
+{body}</main></body></html>",
+        language.html_tag()
     )
 }
 
@@ -430,6 +584,7 @@ fn read_request(stream: &mut TcpStream) -> std::io::Result<Option<Request>> {
         return Ok(None);
     };
     let mut host = String::new();
+    let mut accept_language = String::new();
     let mut length = 0_usize;
     for line in lines {
         let Some((name, value)) = line.split_once(':') else {
@@ -439,6 +594,9 @@ fn read_request(stream: &mut TcpStream) -> std::io::Result<Option<Request>> {
         let value = value.trim();
         if name == "host" {
             host = value.to_string();
+        }
+        if name == "accept-language" {
+            accept_language = value.to_string();
         }
         if name == "content-length" {
             length = value.parse().unwrap_or(usize::MAX);
@@ -463,6 +621,7 @@ fn read_request(stream: &mut TcpStream) -> std::io::Result<Option<Request>> {
         method: method.to_string(),
         path: path.to_string(),
         host,
+        accept_language,
         body: String::from_utf8_lossy(&body).to_string(),
     }))
 }
