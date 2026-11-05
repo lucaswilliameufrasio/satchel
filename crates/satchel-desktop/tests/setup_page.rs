@@ -94,6 +94,27 @@ fn page_creates_and_joins_and_refuses_strangers() {
     assert_eq!(refused.status, 200);
     assert!(refused.body.contains("absolute"));
     assert!(first.lock().expect("lock").profile().is_none());
+    assert!(
+        refused.body.contains("value=\"relative/path\""),
+        "what was typed comes back"
+    );
+    let secret_refused = http(
+        &host,
+        &host,
+        "POST",
+        &format!("{base}create"),
+        &form(&[
+            ("kind", "s3"),
+            ("folder", "relative/path"),
+            ("bucket", "my-bucket"),
+            ("secret_access_key", "typed-maintenance-secret"),
+            ("device_secret_access_key", "typed-device-secret"),
+        ]),
+    );
+    assert!(secret_refused.body.contains("value=\"my-bucket\""));
+    assert!(secret_refused.body.contains("value=\"s3\" selected"));
+    assert!(!secret_refused.body.contains("typed-maintenance-secret"));
+    assert!(!secret_refused.body.contains("typed-device-secret"));
 
     // Create a folder repository.
     let repository = root.path().join("repo");

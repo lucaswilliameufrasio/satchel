@@ -1,5 +1,13 @@
 package io.github.lucaswilliameufrasio.satchel
 
+import io.github.lucaswilliameufrasio.satchel.ui.satchel
+import io.github.lucaswilliameufrasio.satchel.ui.ProductCard
+import io.github.lucaswilliameufrasio.satchel.ui.PrimaryButton
+import io.github.lucaswilliameufrasio.satchel.ui.FailureText
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.layout.Arrangement
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -60,26 +68,33 @@ internal fun CreateScreen(
     val enabled = !form.busy
     PhoneScaffold(title = CREATE_TITLE, onBack = onBack, backEnabled = enabled) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Text(CREATE_NOTE)
-            Row(modifier = Modifier.padding(top = 12.dp)) {
+            Text(CREATE_NOTE, color = satchel.secondary)
+            Row(
+                modifier = Modifier.padding(top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 for (choice in StorageChoice.entries) {
-                    TextButton(
+                    val chosen = form.storage == choice
+                    FilterChip(
+                        selected = chosen,
                         onClick = { onForm(form.copy(storage = choice, failed = false)) },
                         enabled = enabled,
-                        modifier = Modifier.semantics { selected = form.storage == choice },
-                    ) {
-                        val mark = if (form.storage == choice) "● " else ""
-                        Text(mark + choice.label)
-                    }
+                        label = { Text((if (chosen) "● " else "") + choice.label) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = satchel.selected,
+                            selectedLabelColor = satchel.ink,
+                        ),
+                        modifier = Modifier.semantics { selected = chosen },
+                    )
                 }
             }
             if (form.storage == StorageChoice.Folder) {
-                Text(CREATE_FOLDER_NOTE, modifier = Modifier.padding(top = 8.dp))
+                Text(CREATE_FOLDER_NOTE, color = satchel.secondary, modifier = Modifier.padding(top = 8.dp))
             } else {
-                Text(CREATE_OBJECT_NOTE, modifier = Modifier.padding(top = 8.dp))
+                Text(CREATE_OBJECT_NOTE, color = satchel.secondary, modifier = Modifier.padding(top = 8.dp))
                 Field("Endpoint", form.endpoint, enabled, plain) { onForm(form.copy(endpoint = it, failed = false)) }
                 Field("Bucket", form.bucket, enabled, plain) { onForm(form.copy(bucket = it, failed = false)) }
                 Field("Região", form.region, enabled, plain) { onForm(form.copy(region = it, failed = false)) }
@@ -90,15 +105,14 @@ internal fun CreateScreen(
                 Field("Segredo dos aparelhos", form.deviceSecretAccessKey, enabled, plain, secret = true) { onForm(form.copy(deviceSecretAccessKey = it, failed = false)) }
             }
             if (form.failed) {
-                Text(createFailureCopy(form.reason), modifier = Modifier.padding(top = 12.dp))
+                FailureText(createFailureCopy(form.reason), modifier = Modifier.padding(top = 12.dp))
             }
-            TextButton(
+            PrimaryButton(
+                if (form.busy) "Criando…" else "Criar",
                 onClick = onSubmit,
                 enabled = enabled && createFormComplete(form),
-                modifier = Modifier.padding(top = 16.dp),
-            ) {
-                Text("Criar")
-            }
+                modifier = Modifier.padding(top = 16.dp, bottom = 32.dp),
+            )
         }
     }
 }
@@ -129,25 +143,26 @@ internal fun RecoveryScreen(password: String, warning: String?, onDone: () -> Un
     BackHandler(enabled = true) {}
     val context = LocalContext.current
     PhoneScaffold(title = RECOVERY_TITLE, onBack = null) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
-            Text(RECOVERY_NOTE)
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(RECOVERY_NOTE, color = satchel.secondary)
             if (warning != null) {
-                Text(warning, modifier = Modifier.padding(top = 12.dp))
+                FailureText(warning)
             }
-            Text(
-                password,
-                fontFamily = FontFamily.Monospace,
-                modifier = Modifier.padding(top = 16.dp),
-            )
-            TextButton(
-                onClick = { copySensitive(context, password) },
-                modifier = Modifier.padding(top = 8.dp),
-            ) {
+            ProductCard {
+                Text(
+                    password,
+                    fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+            TextButton(onClick = { copySensitive(context, password) }) {
                 Text("Copiar")
             }
-            TextButton(onClick = onDone, modifier = Modifier.padding(top = 8.dp)) {
-                Text("Guardei")
-            }
+            PrimaryButton("Guardei", onClick = onDone, modifier = Modifier.padding(bottom = 32.dp))
         }
     }
 }
@@ -165,11 +180,11 @@ internal fun HoldScreen(
 ) {
     PhoneScaffold(title = INVITE_TITLE, onBack = onBack, backEnabled = !busy) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
             if (approval == null) {
-                Text(INVITE_WAITING_COPY)
+                Text(INVITE_WAITING_COPY, color = satchel.secondary)
                 Text("Código ${offer.code}", modifier = Modifier.padding(top = 12.dp))
                 Text("Endereço ${offer.address}")
                 Text("Impressão digital ${offer.fingerprint}")
@@ -188,11 +203,9 @@ internal fun HoldScreen(
                 Text("Endereço ${approval.peerAddress}")
                 Text("Código ${approval.code}")
                 if (failed) {
-                    Text("Não foi possível aprovar.", modifier = Modifier.padding(top = 12.dp))
+                    FailureText("Não foi possível aprovar. Feche o convite e abra de novo.", modifier = Modifier.padding(top = 12.dp))
                 }
-                TextButton(onClick = onApprove, enabled = !busy, modifier = Modifier.padding(top = 16.dp)) {
-                    Text("Aprovar")
-                }
+                PrimaryButton("Aprovar", onClick = onApprove, enabled = !busy, modifier = Modifier.padding(top = 16.dp))
                 TextButton(onClick = onDeny, enabled = !busy) {
                     Text("Negar")
                 }
@@ -214,14 +227,17 @@ private fun copySensitive(context: Context, text: String) {
 @Composable
 internal fun RecoveryChangeScreen(busy: Boolean, failed: Boolean, onChange: () -> Unit, onBack: () -> Unit) {
     PhoneScaffold(title = RECOVERY_CHANGE_TITLE, onBack = onBack, backEnabled = !busy) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
-            Text(RECOVERY_CHANGE_NOTE)
+        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)) {
+            Text(RECOVERY_CHANGE_NOTE, color = satchel.secondary)
             if (failed) {
-                Text(RECOVERY_CHANGE_FAILED, modifier = Modifier.padding(top = 12.dp))
+                FailureText(RECOVERY_CHANGE_FAILED, modifier = Modifier.padding(top = 12.dp))
             }
-            TextButton(onClick = onChange, enabled = !busy, modifier = Modifier.padding(top = 16.dp)) {
-                Text(if (busy) "Trocando…" else "Trocar agora")
-            }
+            PrimaryButton(
+                if (busy) "Trocando…" else "Trocar agora",
+                onClick = onChange,
+                enabled = !busy,
+                modifier = Modifier.padding(top = 16.dp),
+            )
         }
     }
 }

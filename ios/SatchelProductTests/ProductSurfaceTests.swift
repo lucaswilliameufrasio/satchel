@@ -75,15 +75,17 @@ final class ProductSurfaceTests: XCTestCase {
             CatalogList(rows: [], canPair: false, zone: minus3, onPair: {}, onOpen: { _ in })
         )
         assertProductSurface(empty)
-        XCTAssertTrue(empty.labels.joined(separator: "\n").contains("Nenhum arquivo no catálogo."))
+        XCTAssertTrue(empty.labels.joined(separator: "\n").contains("Nenhum arquivo ainda. O que este ou outro aparelho enviar aparece aqui."))
         XCTAssertTrue(empty.identifiers.contains(ProductSurface.mark))
 
         let loading = render(StatusPage(title: "Catálogo", message: "Lendo o catálogo…"))
         assertProductSurface(loading)
         XCTAssertTrue(loading.labels.joined(separator: "\n").contains("Lendo o catálogo…"))
-        let failed = render(StatusPage(title: "Catálogo", message: "Não foi possível abrir o catálogo."))
+        let failed = render(StatusPage(title: "Catálogo", message: "Não foi possível abrir o catálogo. Confira a rede e tente de novo.", retry: {}))
         assertProductSurface(failed)
-        XCTAssertTrue(failed.labels.joined(separator: "\n").contains("Não foi possível abrir o catálogo."))
+        XCTAssertTrue(failed.labels.joined(separator: "\n").contains("Não foi possível abrir o catálogo. Confira a rede e tente de novo."))
+        XCTAssertTrue(failed.labels.contains("Tentar de novo"), "a failure offers Tentar de novo")
+        XCTAssertFalse(loading.labels.contains("Tentar de novo"), "a wait does not")
 
         let openFile = render(filePage(file, busy: false, zone: minus3))
         assertProductSurface(openFile)
@@ -175,7 +177,7 @@ final class ProductSurfaceTests: XCTestCase {
         XCTAssertTrue(
             entryText.contains("O desktop mostra o QR. A senha de recuperação não faz parte do convite.")
         )
-        XCTAssertTrue(entryText.contains("Não foi possível entrar."))
+        XCTAssertTrue(entryText.contains("Não foi possível entrar. Confira o código e se o outro aparelho ainda mostra o convite."))
         XCTAssertTrue(entryText.contains("Ler QR"))
         XCTAssertTrue(entryText.contains("Entrar"))
         XCTAssertEqual(
@@ -473,6 +475,10 @@ final class ProductSurfaceTests: XCTestCase {
         if name.contains("->") || name.contains("Binding<") || lastTypeName(name) == "Binding" {
             return
         }
+        if isSatchelView(name), let view = value as? any View {
+            walk(view, context: context, depth: depth + 1, dump: &dump)
+            return
+        }
         let mirror = Mirror(reflecting: value)
         if mirror.displayStyle == .optional {
             if let child = mirror.children.first {
@@ -699,7 +705,7 @@ final class ProductSurfaceTests: XCTestCase {
     private func isSatchelView(_ name: String) -> Bool {
         switch lastTypeName(name) {
         case "CatalogList", "CatalogRowLabel", "FilePage", "DeviceFacts", "StatusPage", "PairForm",
-            "ProductScreen", "ProductCard", "ProductField", "ScannerPage", "PhoneView":
+            "ProductScreen", "ProductCard", "ProductField", "ScannerPage", "PhoneView", "WideButton":
             return true
         default:
             return false

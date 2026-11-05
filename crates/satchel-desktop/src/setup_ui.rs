@@ -91,8 +91,11 @@ fn serve<S: SecretStore>(mut stream: TcpStream, shared: &Shared<S>) -> std::io::
     let Some(route) = request.path.strip_prefix(&prefix) else {
         return respond(&mut stream, 404, "text/plain", "not found");
     };
+    if request.method == "GET" && route == "mark.png" {
+        return respond_bytes(&mut stream, "image/png", MARK_PNG);
+    }
     let page = match (request.method.as_str(), route) {
-        ("GET", "") => form_page(shared, None),
+        ("GET", "") => form_page(shared, None, &BTreeMap::new()),
         ("POST", "create") => create(shared, &parse_form(&request.body)),
         ("POST", "recovery") => change_recovery(shared),
         ("POST", "join") => join(shared, &parse_form(&request.body)),
@@ -108,14 +111,14 @@ fn change_recovery<S: SecretStore>(shared: &Shared<S>) -> String {
             "<h1>Recovery password changed</h1>\
              <p>Save the new password in a password manager that opens without this \
              repository. It is shown once. The old one no longer opens the repository, \
-             and every device keeps working with its own key.</p><pre>{}</pre>\
+             and every device keeps working with its own key.</p>{}\
              <p class=\"hint\">Anyone who kept a copy of the old key file, or can read \
              an older version of it from a versioned bucket, can still use the old \
              password. This does not rotate the data key.</p>",
-            escape(&password)
+            secret_block(&password)
         )),
         Err(err) => page(&format!(
-            "<h1>Not changed</h1><p class=\"error\">{}</p>",
+            "<h1>Not changed</h1><p class=\"error\" role=\"alert\">{}</p>",
             escape(&describe(&err))
         )),
     }
@@ -125,7 +128,7 @@ fn create<S: SecretStore>(shared: &Shared<S>, form: &BTreeMap<String, String>) -
     let result = create_from_form(shared, form);
     match result {
         Ok(text) => text,
-        Err(message) => form_page(shared, Some(&message)),
+        Err(message) => form_page(shared, Some(&message), form),
     }
 }
 
@@ -168,20 +171,26 @@ fn create_from_form<S: SecretStore>(
             "This storage has no object versioning. An overwritten file cannot be brought back."
         }
     };
+    let warning = match created.protection {
+        SetupCheck::Ready => format!("<p>{}</p>", escape(warning)),
+        SetupCheck::Unprotected => format!("<p class=\"warn\">{}</p>", escape(warning)),
+    };
     Ok(page(&format!(
-        "<h1>Repository created</h1><p>{}</p>\
+        "<h1>Repository created</h1>{}\
          <p>Save this recovery password in a password manager that opens without this \
          repository. It is shown once and the official <code>restic</code> uses it.</p>\
-         <pre>{}</pre>",
-        escape(warning),
-        escape(&created.recovery_password)
+         {}\
+         <p class=\"hint\">Next: choose Add device in the tray menu to bring in your phone \
+         or another computer. This folder syncs on its own.</p>",
+        warning,
+        secret_block(&created.recovery_password)
     )))
 }
 
 fn join<S: SecretStore>(shared: &Shared<S>, form: &BTreeMap<String, String>) -> String {
     match join_from_form(shared, form) {
         Ok(text) => text,
-        Err(message) => form_page(shared, Some(&message)),
+        Err(message) => form_page(shared, Some(&message), form),
     }
 }
 
@@ -239,12 +248,29 @@ fn field<'a>(form: &'a BTreeMap<String, String>, name: &str) -> &'a str {
 fn required_path(form: &BTreeMap<String, String>, name: &str) -> Result<PathBuf, String> {
     let value = field(form, name);
     if value.is_empty() || !value.starts_with('/') {
-        return Err("Folders must be absolute paths.".to_string());
+        return Err("Folders must be absolute paths, like /Users/you/Satchel.".to_string());
     }
     Ok(PathBuf::from(value))
 }
 
-fn form_page<S: SecretStore>(shared: &Shared<S>, error: Option<&str>) -> String {
+/// The create and join forms. After a refusal, `typed` refills every field but the two secrets.
+fn form_page<S: SecretStore>(
+    shared: &Shared<S>,
+    error: Option<&str>,
+    typed: &BTreeMap<String, String>,
+) -> String {
+    let value = |name: &str| match typed.get(name) {
+        Some(text) if !text.is_empty() => format!(" value=\"{}\"", escape(text)),
+        _ => String::new(),
+    };
+    let chosen = |kind: &str| {
+        if typed.get("kind").map(String::as_str) == Some(kind) {
+            " selected"
+        } else {
+            ""
+        }
+    };
+    let invite = escape(typed.get("invite").map(String::as_str).unwrap_or(""));
     let desktop = lock(&shared.desktop);
     if let Some(profile) = desktop.profile()
         && error.is_none()
@@ -252,69 +278,127 @@ fn form_page<S: SecretStore>(shared: &Shared<S>, error: Option<&str>) -> String 
         let base = format!("/{}/", shared.token);
         let change = if profile.role == Role::Maintainer {
             format!(
-                "<h2>Recovery password</h2><p>Replace it if it leaked or you lost track of \
-                 it. Devices keep working. You get the new one once.</p>\
+                "<section class=\"card\"><h2>Recovery password</h2><p class=\"hint\">Replace it if \
+                 it leaked or you lost track of it. Devices keep working. You get the new one once.</p>\
                  <form method=\"post\" action=\"{base}recovery\" \
-                 onsubmit=\"busy(this,'Changing…')\"><button>Change recovery password</button></form>"
+                 onsubmit=\"busy(this,'Changing…')\"><button>Change recovery password</button></form></section>"
             )
         } else {
             String::new()
         };
         return page(&format!(
-            "<h1>Satchel</h1><p>A folder is already set up on this device.</p>{change}"
+            "<h1>This device</h1><section class=\"card\"><p>A folder is already set up on this \
+             device. It syncs on its own; use the tray menu to sync now or add a device.</p>\
+             </section>{change}"
         ));
     }
     let notice = match error {
-        Some(message) => format!("<p class=\"error\">{}</p>", escape(message)),
+        Some(message) => format!("<p class=\"error\" role=\"alert\">{}</p>", escape(message)),
         None => String::new(),
     };
+    let v_folder = value("folder");
+    let v_repository = value("repository");
+    let v_endpoint = value("endpoint");
+    let v_bucket = value("bucket");
+    let v_region = value("region");
+    let v_prefix = value("prefix");
+    let v_access_key_id = value("access_key_id");
+    let v_device_access_key_id = value("device_access_key_id");
+    let v_join_folder = value("join_folder");
+    let v_device_name = value("device_name");
+    let v_address = value("address");
+    let v_code = value("code");
+    let v_fingerprint = value("fingerprint");
+    let (k_s3, k_r2, k_b2) = (chosen("s3"), chosen("r2"), chosen("b2"));
     let base = format!("/{}/", shared.token);
     page(&format!(
-        "<h1>Satchel</h1>{notice}
-<h2>Create a repository</h2>
+        "<h1>Set up this device</h1>
+<p class=\"lead\">Create a repository here, or join one another device already holds.</p>{notice}
+<section class=\"card\"><h2>Create a repository</h2>
+<p class=\"hint\">This device keeps the recovery password and the maintenance credential. \
+Other devices join with a code and never type the account.</p>
 <form method=\"post\" action=\"{base}create\" onsubmit=\"busy(this,'Checking the storage…')\">
-<label>Synced folder <input name=\"folder\" placeholder=\"/Users/you/Satchel\"></label>
+<label>Synced folder <input name=\"folder\"{v_folder} placeholder=\"/Users/you/Satchel\"></label>
 <label>Storage <select name=\"kind\">
-<option value=\"folder\">Local folder</option><option value=\"s3\">S3</option>
-<option value=\"r2\">Cloudflare R2</option><option value=\"b2\">Backblaze B2</option></select></label>
-<div id=\"fol\"><label>Repository folder <input name=\"repository\"></label>
+<option value=\"folder\">Local folder</option><option value=\"s3\"{k_s3}>S3</option>
+<option value=\"r2\"{k_r2}>Cloudflare R2</option><option value=\"b2\"{k_b2}>Backblaze B2</option></select></label>
+<div id=\"fol\"><label>Repository folder <input name=\"repository\"{v_repository}></label>
 <p class=\"hint\">A local folder has no object versioning: an overwritten file cannot be brought back.</p></div>
 <div id=\"obj\" hidden><p class=\"hint\">The bucket needs versioning on and no lifecycle rule that deletes objects. \
 The device key must differ from the maintenance key. It is limited to deleting its own locks only when the store applies per-key policy (AWS S3, MinIO, RustFS); on R2 and B2 it can delete everything.</p>
-<label>Endpoint <input name=\"endpoint\" placeholder=\"https://s3.us-east-1.amazonaws.com\"></label>
-<label>Bucket <input name=\"bucket\"></label>
-<label>Region <input name=\"region\" placeholder=\"us-east-1\"></label>
-<label>Prefix (may be empty) <input name=\"prefix\"></label>
-<label>Maintenance access key <input name=\"access_key_id\" autocomplete=\"off\"></label>
+<label>Endpoint <input name=\"endpoint\"{v_endpoint} placeholder=\"https://s3.us-east-1.amazonaws.com\"></label>
+<label>Bucket <input name=\"bucket\"{v_bucket}></label>
+<label>Region <input name=\"region\"{v_region} placeholder=\"us-east-1\"></label>
+<label>Prefix (may be empty) <input name=\"prefix\"{v_prefix}></label>
+<label>Maintenance access key <input name=\"access_key_id\"{v_access_key_id} autocomplete=\"off\"></label>
 <label>Maintenance secret <input name=\"secret_access_key\" type=\"password\" autocomplete=\"off\"></label>
-<label>Device access key (list, read, write, own locks) <input name=\"device_access_key_id\" autocomplete=\"off\"></label>
+<label>Device access key (list, read, write, own locks) <input name=\"device_access_key_id\"{v_device_access_key_id} autocomplete=\"off\"></label>
 <label>Device secret <input name=\"device_secret_access_key\" type=\"password\" autocomplete=\"off\"></label></div>
-<button>Create</button></form>
-<h2>Join with a code</h2>
+<button>Create</button></form></section>
+<section class=\"card\"><h2>Join with a code</h2>
+<p class=\"hint\">Open Add device on the device that holds the repository, then copy its \
+address, code and fingerprint, or paste the whole invite.</p>
 <form method=\"post\" action=\"{base}join\" onsubmit=\"busy(this,'Waiting for the other device to approve…')\">
-<label>Synced folder <input name=\"join_folder\" placeholder=\"/Users/you/Satchel\"></label>
-<label>Device name <input name=\"device_name\" placeholder=\"Desktop\"></label>
-<label>Address <input name=\"address\" placeholder=\"100.64.0.2:4000\"></label>
-<label>Code <input name=\"code\" inputmode=\"numeric\"></label>
-<label>Fingerprint <input name=\"fingerprint\"></label>
-<label>Or paste the invite <textarea name=\"invite\" rows=\"3\"></textarea></label>
-<button>Join</button></form>
+<label>Synced folder <input name=\"join_folder\"{v_join_folder} placeholder=\"/Users/you/Satchel\"></label>
+<label>Device name <input name=\"device_name\"{v_device_name} placeholder=\"Desktop\"></label>
+<label>Address <input name=\"address\"{v_address} placeholder=\"100.64.0.2:4000\"></label>
+<label>Code <input name=\"code\"{v_code} inputmode=\"numeric\"></label>
+<label>Fingerprint <input name=\"fingerprint\"{v_fingerprint}></label>
+<label>Or paste the invite <textarea name=\"invite\" rows=\"3\">{invite}</textarea></label>
+<button>Join</button></form></section>
 <script>
 const kind=document.querySelector('select[name=kind]');
 function show(){{const o=kind.value!=='folder';document.getElementById('obj').hidden=!o;document.getElementById('fol').hidden=o;}}
 kind.addEventListener('change',show);show();
-function busy(f,t){{const b=f.querySelector('button');b.disabled=true;b.textContent=t;}}
+function busy(f,t){{const b=f.querySelector('button');b.disabled=true;b.textContent=t;b.setAttribute('aria-busy','true');}}
 </script>"
     ))
 }
 
+/// The recovery password, once, with a copy button. Monospace and wrapping.
+fn secret_block(secret: &str) -> String {
+    format!(
+        "<div class=\"secret\"><code id=\"secret\">{}</code>\
+         <button type=\"button\" class=\"quiet\" onclick=\"navigator.clipboard.writeText(\
+         document.getElementById('secret').textContent).then(()=>{{this.textContent='Copied'}})\">\
+         Copy</button></div>",
+        escape(secret)
+    )
+}
+
+/// The page frame: the palette in docs/identidade-visual.md, light or dark as the system is.
 fn page(body: &str) -> String {
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Satchel</title>\
-<style>body{{font:16px system-ui;max-width:34rem;margin:2rem auto;padding:0 1rem}}\
-label{{display:block;margin:.6rem 0}}input,select,textarea{{display:block;width:100%;padding:.4rem;box-sizing:border-box}}\
-button{{margin-top:.8rem;padding:.5rem 1rem}}pre{{padding:.8rem;background:#eee;overflow-wrap:anywhere;white-space:pre-wrap}}\
-.error{{color:#a00}}.hint{{color:#555;font-size:.9rem}}</style></head><body>{body}</body></html>"
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
+<meta name=\"color-scheme\" content=\"light dark\"><title>Satchel</title><style>\
+:root{{--canvas:#F3EEE4;--card:#FFFCF7;--ink:#241C16;--secondary:#6B5E52;--accent:#8C4A24;\
+--field:#EBE4D8;--line:rgba(36,28,22,.14);--danger:#A3261B}}\
+@media (prefers-color-scheme:dark){{:root{{--canvas:#17130F;--card:#221C17;--ink:#F2ECE3;\
+--secondary:#B8AB9C;--accent:#E0A070;--field:#2D261F;--line:rgba(242,236,227,.14);--danger:#F08A7E}}}}\
+*{{box-sizing:border-box}}\
+body{{margin:0;background:var(--canvas);color:var(--ink);font:1rem/1.5 system-ui,-apple-system,sans-serif}}\
+main{{max-width:34rem;margin:0 auto;padding:1.5rem 1.25rem 3rem}}\
+.brand{{display:flex;align-items:center;gap:.75rem;font-weight:600}}\
+.brand img{{width:36px;height:36px;border-radius:8px}}\
+h1{{font-size:2rem;font-weight:600;margin:1rem 0 .5rem;letter-spacing:-.01em}}\
+h2{{font-size:1.06rem;font-weight:600;margin:0 0 .25rem}}\
+p{{margin:.5rem 0}}.lead,.hint{{color:var(--secondary)}}.hint{{font-size:.94rem}}\
+.card{{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:1rem;margin:.75rem 0}}\
+label{{display:block;margin:.75rem 0 0;font-size:.82rem;font-weight:600;color:var(--secondary)}}\
+input,select,textarea{{display:block;width:100%;margin-top:.3rem;padding:.7rem .75rem;border:0;\
+border-radius:12px;background:var(--field);color:var(--ink);font:400 1rem/1.4 system-ui,-apple-system,sans-serif}}\
+input:focus,select:focus,textarea:focus,button:focus-visible{{outline:2px solid var(--accent);outline-offset:2px}}\
+button{{display:block;width:100%;min-height:48px;margin-top:1rem;border:0;border-radius:14px;\
+background:var(--accent);color:var(--card);font:inherit;font-weight:600;cursor:pointer}}\
+button:disabled{{opacity:.6;cursor:progress}}\
+button.quiet{{display:inline;width:auto;min-height:0;margin:0;padding:.25rem 0;background:none;color:var(--accent)}}\
+.error,.warn{{color:var(--danger);font-weight:600}}\
+.secret{{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:1rem;margin:.75rem 0}}\
+.secret code{{display:block;font:1.05rem/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}}\
+code{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}}\
+</style></head><body><main><div class=\"brand\"><img src=\"mark.png\" alt=\"\">Satchel</div>\
+{body}</main></body></html>"
     )
 }
 
@@ -387,6 +471,20 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+/// The bag on dark green, the same mark as the phones.
+const MARK_PNG: &[u8] = include_bytes!("../assets/satchel-mark.png");
+
+fn respond_bytes(stream: &mut TcpStream, kind: &str, body: &[u8]) -> std::io::Result<()> {
+    let head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\n\
+Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    stream.write_all(head.as_bytes())?;
+    stream.write_all(body)?;
+    stream.flush()
 }
 
 fn respond(stream: &mut TcpStream, status: u16, kind: &str, body: &str) -> std::io::Result<()> {

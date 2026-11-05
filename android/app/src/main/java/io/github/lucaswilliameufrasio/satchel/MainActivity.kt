@@ -32,6 +32,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import io.github.lucaswilliameufrasio.satchel.catalog.holderFor
+import io.github.lucaswilliameufrasio.satchel.catalog.deviceCardLines
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.background
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.Alignment
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -40,6 +57,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.lucaswilliameufrasio.satchel.catalog.CatalogRow
+import io.github.lucaswilliameufrasio.satchel.ui.BrandMark
+import io.github.lucaswilliameufrasio.satchel.ui.CardText
+import io.github.lucaswilliameufrasio.satchel.ui.FailureText
+import io.github.lucaswilliameufrasio.satchel.ui.PrimaryButton
+import io.github.lucaswilliameufrasio.satchel.ui.ProductCard
+import io.github.lucaswilliameufrasio.satchel.ui.SatchelTheme
+import io.github.lucaswilliameufrasio.satchel.ui.ScreenTitle
+import io.github.lucaswilliameufrasio.satchel.ui.satchel
 import io.github.lucaswilliameufrasio.satchel.catalog.CatalogSession
 import io.github.lucaswilliameufrasio.satchel.catalog.CatalogSource
 import io.github.lucaswilliameufrasio.satchel.catalog.CoreCatalog
@@ -101,7 +126,7 @@ class MainActivity : ComponentActivity() {
             CatalogSession(sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido, openFolder))
         }
         setContent {
-            MaterialTheme {
+            SatchelTheme {
                 var phoneId by remember { mutableStateOf(initialPhoneId) }
                 var screen by remember {
                     mutableStateOf<CatalogScreenState>(
@@ -211,7 +236,15 @@ class MainActivity : ComponentActivity() {
                 }
                 when (val current = screen) {
                     CatalogScreenState.Loading -> StatusText(LOADING_COPY)
-                    CatalogScreenState.Failed -> StatusText(OPEN_FAILURE_COPY)
+                    CatalogScreenState.Failed -> StatusText(OPEN_FAILURE_COPY) {
+                        val opened = session
+                        if (opened != null) {
+                            screen = CatalogScreenState.Loading
+                            scope.launch {
+                                screen = withContext(Dispatchers.IO) { openCatalog(opened) }
+                            }
+                        }
+                    }
                     is CatalogScreenState.Ready -> CatalogScreen(
                         current.rows,
                         canPair && !hasGrant,
@@ -797,27 +830,43 @@ private fun chooseCatalog(session: CatalogSession, path: String, follow: Follow)
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The screen frame: canvas background, an optional back link, the mark on the
+ * catalog only, and the title as a heading. The same layout as `ProductScreen` on iOS.
+ */
 @androidx.compose.runtime.Composable
 internal fun PhoneScaffold(
     title: String,
     onBack: (() -> Unit)?,
     backLabel: String = "Voltar",
     backEnabled: Boolean = true,
+    showMark: Boolean = false,
     content: @androidx.compose.runtime.Composable (PaddingValues) -> Unit,
 ) {
     Scaffold(
+        containerColor = satchel.canvas,
         topBar = {
-            TopAppBar(
-                title = { Text(title) },
-                navigationIcon = {
-                    if (onBack != null) {
-                        TextButton(onClick = onBack, enabled = backEnabled) {
-                            Text(backLabel)
-                        }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (onBack != null) {
+                    TextButton(
+                        onClick = onBack,
+                        enabled = backEnabled,
+                        contentPadding = PaddingValues(0.dp),
+                    ) {
+                        Text(backLabel, color = if (backEnabled) satchel.accent else satchel.secondary)
                     }
-                },
-            )
+                }
+                if (showMark) {
+                    BrandMark()
+                }
+                ScreenTitle(title)
+            }
         },
         content = content,
     )
@@ -839,91 +888,79 @@ private fun CatalogScreen(
     onOpen: (String) -> Unit,
 ) {
     val zone = ZoneId.systemDefault()
-    PhoneScaffold(title = "Catálogo", onBack = null) { padding ->
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
+    PhoneScaffold(title = "Catálogo", onBack = null, showMark = true) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             if (canCreate) {
                 item {
-                    ListItem(
-                        headlineContent = { Text(CREATE_TITLE) },
-                        supportingContent = { Text(CREATE_NOTE) },
-                        modifier = Modifier.clickable(onClick = onCreate),
-                    )
+                    ProductCard(onClick = onCreate) { CardText(CREATE_TITLE, CREATE_NOTE) }
                 }
             }
             if (canInvite) {
                 item {
-                    ListItem(
-                        headlineContent = { Text("Mostrar convite") },
-                        supportingContent = { Text(INVITE_NOTE) },
-                        modifier = Modifier.clickable(onClick = onInvite),
-                    )
+                    ProductCard(onClick = onInvite) { CardText("Mostrar convite", INVITE_NOTE) }
                 }
                 item {
-                    ListItem(
-                        headlineContent = { Text(RECOVERY_CHANGE_TITLE) },
-                        supportingContent = { Text("Só este aparelho, que criou o repositório, pode trocar.") },
-                        modifier = Modifier.clickable(onClick = onChangeRecovery),
-                    )
+                    ProductCard(onClick = onChangeRecovery) {
+                        CardText(RECOVERY_CHANGE_TITLE, "Só este aparelho, que criou o repositório, pode trocar.")
+                    }
                 }
             }
             if (folder != null) {
                 item {
                     if (folder.name == null) {
-                        ListItem(
-                            headlineContent = { Text(FOLDER_TITLE) },
-                            supportingContent = { Text(FOLDER_CHOOSE_NOTE) },
-                            trailingContent = { Text("Escolher") },
-                            modifier = Modifier.clickable(onClick = onChooseFolder),
-                        )
+                        ProductCard(onClick = onChooseFolder) {
+                            CardText(FOLDER_TITLE, FOLDER_CHOOSE_NOTE)
+                            Text("Escolher", color = satchel.accent, fontWeight = FontWeight.SemiBold)
+                        }
                     } else {
-                        ListItem(
-                            headlineContent = { Text("$FOLDER_TITLE: ${folder.name}") },
-                            supportingContent = { Text(folder.status ?: FOLDER_READY_NOTE) },
-                            trailingContent = {
-                                Text(if (folder.busy) "Sincronizando" else "Sincronizar")
-                            },
-                            modifier = Modifier.clickable(enabled = !folder.busy, onClick = onSyncFolder),
-                        )
+                        ProductCard(onClick = onSyncFolder, enabled = !folder.busy) {
+                            CardText("$FOLDER_TITLE: ${folder.name}", folder.status ?: FOLDER_READY_NOTE)
+                            Text(
+                                if (folder.busy) "Sincronizando" else "Sincronizar",
+                                color = if (folder.busy) satchel.secondary else satchel.accent,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
                 }
                 if (folder.name != null) {
                     item {
-                        ListItem(
-                            headlineContent = { Text("Escolher outra pasta") },
-                            supportingContent = { Text(FOLDER_SWITCH_NOTE) },
-                            modifier = Modifier.clickable(enabled = !folder.busy, onClick = onChooseFolder),
-                        )
+                        ProductCard(onClick = onChooseFolder, enabled = !folder.busy) {
+                            CardText("Escolher outra pasta", FOLDER_SWITCH_NOTE)
+                        }
                     }
                 }
             }
             if (canPair) {
                 item {
-                    ListItem(
-                        headlineContent = { Text(ENTRY_TITLE) },
-                        supportingContent = { Text(PAIR_SUPPORT) },
-                        modifier = Modifier.clickable(onClick = onPair),
-                    )
+                    ProductCard(onClick = onPair) { CardText(ENTRY_TITLE, PAIR_SUPPORT) }
                 }
             }
             if (rows.isEmpty()) {
                 item {
-                    Text(
-                        EMPTY_CATALOG,
-                        modifier = Modifier.padding(16.dp),
-                    )
+                    ProductCard { Text(EMPTY_CATALOG, color = satchel.secondary) }
                 }
             }
             items(rows, key = { row -> row.path }) { row ->
-                ListItem(
-                    headlineContent = { Text(rowTitle(row), style = MaterialTheme.typography.titleMedium) },
-                    supportingContent = {
-                        Text("${catalogMeta(row, zone)}\n${deviceCountLabel(row.devices)}")
-                    },
-                    trailingContent = {
-                        Text(followLabel(row.follow), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    },
-                    modifier = Modifier.clickable { onOpen(row.path) },
-                )
+                ProductCard(onClick = { onOpen(row.path) }) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(rowTitle(row), style = MaterialTheme.typography.titleMedium)
+                            Text(catalogMeta(row, zone), style = MaterialTheme.typography.bodyMedium, color = satchel.secondary)
+                            Text(deviceCountLabel(row.devices), style = MaterialTheme.typography.bodyMedium, color = satchel.secondary)
+                        }
+                        Text(
+                            followLabel(row.follow),
+                            color = satchel.accent,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 12.dp),
+                        )
+                    }
+                }
             }
         }
     }
@@ -943,75 +980,110 @@ private fun FileScreen(
         backLabel = "Catálogo",
         backEnabled = !state.busy,
     ) { padding ->
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             if (row == null) {
                 item {
-                    Text(EMPTY_CATALOG, modifier = Modifier.padding(16.dp))
+                    ProductCard { Text(EMPTY_CATALOG, color = satchel.secondary) }
                 }
                 return@LazyColumn
             }
             val header = fileHeaderLines(row, zone)
             item {
-                ListItem(
-                    overlineContent = { Text(header[0]) },
-                    headlineContent = { Text(header[1]) },
-                )
+                ProductCard {
+                    Text(header[0], style = MaterialTheme.typography.labelMedium, color = satchel.secondary)
+                    Text(header[1])
+                    Text(
+                        header[2],
+                        style = MaterialTheme.typography.labelMedium,
+                        color = satchel.secondary,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    Text(header[3])
+                }
             }
             item {
-                ListItem(
-                    overlineContent = { Text(header[2]) },
-                    headlineContent = { Text(header[3]) },
-                )
-            }
-            item {
-                Text(
-                    "Neste aparelho",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
-                )
+                SectionLabel("Neste aparelho")
             }
             if (state.busy) {
                 item {
-                    Text(SAVING_COPY, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    Text(SAVING_COPY, color = satchel.secondary)
                 }
             }
-            items(Follow.entries, key = { follow -> follow.name }) { follow ->
-                val chosen = row.follow == follow
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics { selected = chosen }
-                        .clickable(enabled = !state.busy) { onChoose(follow) }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(followLabel(follow))
-                        Text(
-                            followDetail(follow, row.isDirectory),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (chosen) {
-                        Text("✓")
+            item {
+                ProductCard {
+                    for (follow in Follow.entries) {
+                        val chosen = row.follow == follow
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (chosen) satchel.selected else Color.Transparent)
+                                .semantics { selected = chosen }
+                                .clickable(enabled = !state.busy) { onChoose(follow) }
+                                .heightIn(min = 48.dp)
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(followLabel(follow), fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    followDetail(follow, row.isDirectory),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = satchel.secondary,
+                                )
+                            }
+                            if (chosen) {
+                                Text("✓", color = satchel.accent, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                     }
                 }
             }
             item {
-                Text(
-                    "Aparelhos",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
-                )
+                SectionLabel("Aparelhos")
             }
-            val cards = deviceSectionLines(row, state.localDeviceId, zone)
-            items(cards.size) { index ->
-                Text(
-                    cards[index],
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                )
+            if (row.devices.isEmpty()) {
+                item {
+                    ProductCard { Text(deviceSectionLines(row, state.localDeviceId, zone)[0], color = satchel.secondary) }
+                }
+            }
+            items(row.devices, key = { device -> device }) { device ->
+                val local = device == state.localDeviceId && state.localDeviceId.isNotEmpty()
+                val lines = deviceCardLines(device, holderFor(device, row.holders), local, zone)
+                ProductCard {
+                    lines.forEachIndexed { index, line ->
+                        when {
+                            index == 0 -> Text(line, style = MaterialTheme.typography.titleMedium)
+                            GROUPED_ID.matches(line) -> Text(
+                                line,
+                                fontFamily = FontFamily.Monospace,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = satchel.secondary,
+                            )
+                            else -> Text(line, style = MaterialTheme.typography.bodyMedium, color = satchel.secondary)
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+/** A device id shown in groups of four hex characters. */
+private val GROUPED_ID = Regex("^([0-9a-f]{4} ){7}[0-9a-f]{4}$")
+
+@androidx.compose.runtime.Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = satchel.secondary,
+        modifier = Modifier.padding(top = 8.dp).semantics { heading() },
+    )
 }
 
 private fun listedRow(path: String, rows: List<CatalogRow>): CatalogRow? {
@@ -1039,8 +1111,11 @@ private fun PairScreen(
         autoCorrectEnabled = false,
     )
     PhoneScaffold(title = ENTRY_TITLE, onBack = onBack, backEnabled = !state.busy) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
-        Text(ENTRY_NOTE)
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+        Text(ENTRY_NOTE, color = satchel.secondary)
         OutlinedTextField(
             value = state.address,
             onValueChange = onAddress,
@@ -1072,8 +1147,8 @@ private fun PairScreen(
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
         if (state.failed) {
-            Text(
-                "Não foi possível entrar.",
+            FailureText(
+                "Não foi possível entrar. Confira o código e se o outro aparelho ainda mostra o convite.",
                 modifier = Modifier.padding(top = 12.dp),
             )
         }
@@ -1084,21 +1159,36 @@ private fun PairScreen(
         ) {
             Text("Ler QR")
         }
-        TextButton(
+        PrimaryButton(
+            "Entrar",
             onClick = onSubmit,
             enabled = !state.busy,
-            modifier = Modifier.padding(top = 8.dp),
-        ) {
-            Text("Entrar")
-        }
+            modifier = Modifier.padding(top = 8.dp, bottom = 32.dp),
+        )
         }
     }
 }
 
 @androidx.compose.runtime.Composable
-private fun StatusText(message: String) {
-    PhoneScaffold(title = "Catálogo", onBack = null) { padding ->
-        Text(message, modifier = Modifier.padding(padding).padding(16.dp))
+private fun StatusText(message: String, onRetry: (() -> Unit)? = null) {
+    PhoneScaffold(title = "Catálogo", onBack = null, showMark = true) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp, vertical = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            if (onRetry == null) {
+                CircularProgressIndicator(color = satchel.secondary)
+            }
+            Text(
+                message,
+                color = if (onRetry == null) satchel.secondary else satchel.ink,
+                textAlign = TextAlign.Center,
+            )
+            if (onRetry != null) {
+                PrimaryButton("Tentar de novo", onClick = onRetry)
+            }
+        }
     }
 }
 

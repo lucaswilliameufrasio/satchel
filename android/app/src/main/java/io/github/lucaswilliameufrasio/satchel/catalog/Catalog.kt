@@ -20,9 +20,9 @@ const val SAMPLE_READER_ID = "fedcba9876543210fedcba9876543210"
 
 const val LOADING_COPY = "Lendo o catálogo…"
 
-const val OPEN_FAILURE_COPY = "Não foi possível abrir o catálogo."
+const val OPEN_FAILURE_COPY = "Não foi possível abrir o catálogo. Confira a rede e tente de novo."
 
-const val EMPTY_CATALOG = "Nenhum arquivo no catálogo."
+const val EMPTY_CATALOG = "Nenhum arquivo ainda. O que este ou outro aparelho enviar aparece aqui."
 
 const val SAVING_COPY = "Salvando a escolha…"
 
@@ -459,7 +459,7 @@ private fun deviceTitle(deviceId: String, card: DeviceHolder?, local: Boolean): 
     return groupedDeviceId(deviceId)
 }
 
-private fun holderFor(deviceId: String, cards: List<DeviceHolder>): DeviceHolder? {
+internal fun holderFor(deviceId: String, cards: List<DeviceHolder>): DeviceHolder? {
     for (card in cards) {
         if (card.id == deviceId) {
             return card

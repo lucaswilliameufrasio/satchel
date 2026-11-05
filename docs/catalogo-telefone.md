@@ -29,7 +29,7 @@ Se ainda não há concessão, a primeira linha é um botão:
 
 O toque abre a entrada. Não dispara o pareamento.
 
-Sem arquivos: Nenhum arquivo no catálogo.
+Sem arquivos: Nenhum arquivo ainda. O que este ou outro aparelho enviar aparece aqui.
 
 Cada arquivo ou pasta é uma linha. O toque abre a tela daquele caminho. A linha inteira é o botão. O estado à direita não é um segundo botão.
 
@@ -88,7 +88,7 @@ Texto acima dos campos: O desktop mostra o QR. A senha de recuperação não faz
 
 Campos, nesta ordem: Endereço, Código, Impressão digital, Apelido. Endereço e impressão digital sem correção automática nem maiúsculas. O apelido começa em iPhone, ou no apelido já gravado. Ele tem de 1 a 64 caracteres e não aceita caractere de controle. Entrar grava esse apelido neste aparelho e o manda na aprovação. O próximo snapshot deste aparelho publica apelido, sistema iOS e a data de registro.
 
-Falha: Não foi possível entrar. O texto do QR rejeitado não aparece.
+Falha: Não foi possível entrar. Confira o código e se o outro aparelho ainda mostra o convite. O texto do QR rejeitado não aparece.
 
 Ações: Ler QR e Entrar. Ler o QR preenche os campos e volta para esta tela. A pessoa ainda toca Entrar. Nada entra sozinho depois do scan.
 
@@ -98,7 +98,7 @@ Câmera, título Ler QR: Aponte a câmera para o QR do desktop.
 
 Carregando, centralizado: Lendo o catálogo…
 
-Falha ao abrir, centralizado: Não foi possível abrir o catálogo.
+Falha ao abrir, centralizado: Não foi possível abrir o catálogo. Confira a rede e tente de novo. Abaixo, o botão Tentar de novo.
 
 ## Logo
 

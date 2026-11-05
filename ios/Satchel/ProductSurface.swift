@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// How a test tells this screen from a system grouped list.
 enum ProductSurface {
@@ -7,15 +8,41 @@ enum ProductSurface {
     static let mark = "satchel-mark"
 }
 
+/// The palette in docs/identidade-visual.md. Every color follows the system's light or dark mode.
 enum SatchelInk {
-    static let canvas = Color(red: 0.953, green: 0.933, blue: 0.894)
-    static let card = Color(red: 1.0, green: 0.988, blue: 0.969)
-    static let ink = Color(red: 0.141, green: 0.110, blue: 0.086)
-    static let secondary = Color(red: 0.420, green: 0.369, blue: 0.322)
-    static let accent = Color(red: 0.549, green: 0.290, blue: 0.141)
-    static let line = Color(red: 0.141, green: 0.110, blue: 0.086).opacity(0.14)
-    static let field = Color(red: 0.922, green: 0.894, blue: 0.847)
-    static let selected = Color(red: 0.549, green: 0.290, blue: 0.141).opacity(0.14)
+    static let canvas = adaptive(0xF3EEE4, 0x17130F)
+    static let card = adaptive(0xFFFCF7, 0x221C17)
+    static let ink = adaptive(0x241C16, 0xF2ECE3)
+    static let secondary = adaptive(0x6B5E52, 0xB8AB9C)
+    static let accent = adaptive(0x8C4A24, 0xE0A070)
+    /// Text on an `accent` fill.
+    static let onAccent = card
+    static let line = adaptive(0x241C16, 0xF2ECE3, alpha: 0.14)
+    static let field = adaptive(0xEBE4D8, 0x2D261F)
+    static let danger = adaptive(0xA3261B, 0xF08A7E)
+    static let selected = adaptive(0x8C4A24, 0xE0A070, alpha: 0.14, darkAlpha: 0.18)
+
+    private static func adaptive(
+        _ light: UInt32,
+        _ dark: UInt32,
+        alpha: CGFloat = 1,
+        darkAlpha: CGFloat? = nil
+    ) -> Color {
+        Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? rgb(dark, alpha: darkAlpha ?? alpha)
+                : rgb(light, alpha: alpha)
+        })
+    }
+
+    private static func rgb(_ value: UInt32, alpha: CGFloat) -> UIColor {
+        UIColor(
+            red: CGFloat((value >> 16) & 0xFF) / 255,
+            green: CGFloat((value >> 8) & 0xFF) / 255,
+            blue: CGFloat(value & 0xFF) / 255,
+            alpha: alpha
+        )
+    }
 }
 
 /// Custom screen container. A vertical stack and a scroll view, never a grouped `List`.
@@ -54,7 +81,7 @@ struct ProductScreen<Content: View>: View {
                     .disabled(backDisabled)
                 }
                 Text(title)
-                    .font(.system(size: 32, weight: .semibold))
+                    .font(.largeTitle.weight(.semibold))
                     .foregroundStyle(SatchelInk.ink)
                     .accessibilityAddTraits(.isHeader)
             }

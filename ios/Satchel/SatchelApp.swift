@@ -41,7 +41,11 @@ struct PhoneView: View {
         case .loading:
             StatusPage(title: "Catálogo", message: "Lendo o catálogo…")
         case .failed:
-            StatusPage(title: "Catálogo", message: "Não foi possível abrir o catálogo.")
+            StatusPage(
+                title: "Catálogo",
+                message: "Não foi possível abrir o catálogo. Confira a rede e tente de novo.",
+                retry: { model.openCatalog() }
+            )
         case .ready(let rows, _):
             CatalogList(
                 rows: rows,
@@ -162,14 +166,25 @@ struct FolderCardState {
 struct StatusPage: View {
     let title: String
     let message: String
+    /// Shown as Tentar de novo under a failure. A wait has none.
+    var retry: (() -> Void)?
 
     var body: some View {
         ProductScreen(title: title) {
-            Text(message)
-                .font(.body)
-                .foregroundStyle(SatchelInk.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity, minHeight: 280)
+            VStack(spacing: 20) {
+                if retry == nil {
+                    ProgressView()
+                        .tint(SatchelInk.secondary)
+                }
+                Text(message)
+                    .font(.body)
+                    .foregroundStyle(retry == nil ? SatchelInk.secondary : SatchelInk.ink)
+                    .multilineTextAlignment(.center)
+                if let retry {
+                    WideButton(title: "Tentar de novo", id: "status-retry", action: retry)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 280)
         }
     }
 }
@@ -256,7 +271,7 @@ struct CatalogList: View {
             }
             if rows.isEmpty {
                 ProductCard {
-                    Text("Nenhum arquivo no catálogo.")
+                    Text("Nenhum arquivo ainda. O que este ou outro aparelho enviar aparece aqui.")
                         .foregroundStyle(SatchelInk.secondary)
                 }
             }
@@ -388,7 +403,7 @@ struct FilePage: View {
                 }
             } else {
                 ProductCard {
-                    Text("Nenhum arquivo no catálogo.")
+                    Text("Nenhum arquivo ainda. O que este ou outro aparelho enviar aparece aqui.")
                         .foregroundStyle(SatchelInk.secondary)
                 }
             }
@@ -543,9 +558,9 @@ struct PairForm: View {
                 ProductField(title: "Apelido", text: $name)
             }
             if failed {
-                Text("Não foi possível entrar.")
+                Text("Não foi possível entrar. Confira o código e se o outro aparelho ainda mostra o convite.")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(SatchelInk.accent)
+                    .foregroundStyle(SatchelInk.danger)
             }
             Button(action: onScan) {
                 Text("Ler QR")
@@ -567,7 +582,7 @@ struct PairForm: View {
             } label: {
                 Text("Entrar")
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(SatchelInk.onAccent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(SatchelInk.accent)
@@ -606,7 +621,7 @@ private struct WideButton: View {
         Button(action: action) {
             Text(title)
                 .font(.body.weight(.semibold))
-                .foregroundStyle(primary ? Color.white : SatchelInk.ink)
+                .foregroundStyle(primary ? SatchelInk.onAccent : SatchelInk.ink)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
                 .background(primary ? SatchelInk.accent : SatchelInk.card)
@@ -698,7 +713,7 @@ struct CreatePage: View {
             if draft.failed {
                 Text(createFailureCopy(draft.reason))
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(SatchelInk.accent)
+                    .foregroundStyle(SatchelInk.danger)
             }
             WideButton(
                 title: "Criar",
@@ -725,8 +740,8 @@ struct RecoveryChangePage: View {
             .foregroundStyle(SatchelInk.secondary)
             if failed {
                 Text("Não foi possível trocar. A senha antiga continua valendo. Confira a conexão com o armazenamento.")
-                    .font(.subheadline)
-                    .foregroundStyle(SatchelInk.ink)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SatchelInk.danger)
                     .accessibilityIdentifier("recovery-change-failed")
             }
             WideButton(title: busy ? "Trocando…" : "Trocar agora", id: "recovery-change-now", action: onChange)
@@ -788,9 +803,9 @@ struct HoldPage: View {
                 }
                 .foregroundStyle(SatchelInk.ink)
                 if state.failed {
-                    Text("Não foi possível aprovar.")
+                    Text("Não foi possível aprovar. Feche o convite e abra de novo.")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(SatchelInk.accent)
+                        .foregroundStyle(SatchelInk.danger)
                 }
                 WideButton(title: "Aprovar", disabled: state.busy, id: "hold-approve", action: onApprove)
                 WideButton(title: "Negar", primary: false, disabled: state.busy, id: "hold-deny", action: onDeny)
