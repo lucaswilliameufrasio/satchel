@@ -240,11 +240,11 @@ impl FolderTree for EditsDuringTheRound {
         }
         self.inner.list()
     }
-    fn read(&mut self, path: &str) -> Result<Vec<u8>, Error> {
-        self.inner.read(path)
+    fn copy_in(&mut self, path: &str, dest: &std::path::Path) -> Result<(), Error> {
+        self.inner.copy_in(path, dest)
     }
-    fn write(&mut self, path: &str, bytes: &[u8]) -> Result<(), Error> {
-        self.inner.write(path, bytes)
+    fn copy_out(&mut self, source: &std::path::Path, path: &str) -> Result<(), Error> {
+        self.inner.copy_out(source, path)
     }
     fn remove(&mut self, path: &str) -> Result<(), Error> {
         self.inner.remove(path)

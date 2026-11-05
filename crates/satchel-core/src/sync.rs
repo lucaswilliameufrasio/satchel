@@ -237,6 +237,8 @@ enum Plan {
     Upload { present: bool },
     /// Write back a version this device already holds.
     Restore(Stored),
+    /// The work file already is the remote version: only the base moves.
+    Settle(Stored),
 }
 
 /// One headless device. The work directory is the local copy.
@@ -258,6 +260,8 @@ pub struct Client {
     wake: Option<Option<WakeEndpoint>>,
     /// True after a snapshot was written in this session: see `remember_published_tree`.
     rebase: bool,
+    /// Work files the sync wrote or deleted since the last `take_touched`.
+    touched: BTreeSet<String>,
 }
 
 impl Client {
@@ -295,6 +299,7 @@ impl Client {
             intro: None,
             wake: None,
             rebase: false,
+            touched: BTreeSet::new(),
         })
     }
 
@@ -340,6 +345,11 @@ impl Client {
     /// True when a caller set a follow or a wake endpoint on this client since it was opened.
     pub(crate) fn has_marks(&self) -> bool {
         !self.follows.is_empty() || self.wake.is_some()
+    }
+
+    /// Work files the sync wrote or deleted since the last call.
+    pub(crate) fn take_touched(&mut self) -> BTreeSet<String> {
+        std::mem::take(&mut self.touched)
     }
 
     /// Local copy this client syncs.
@@ -455,6 +465,16 @@ impl Client {
                 }
                 Plan::Restore(stored) => {
                     copy_out(&repo, stored.tree, &path, &self.work)?;
+                    self.touched.insert(path);
+                }
+                Plan::Settle(stored) => {
+                    self.tombstones.remove(&path);
+                    self.bases.insert(
+                        path,
+                        Base {
+                            presence: Presence::Content(stored),
+                        },
+                    );
                 }
             }
         }
@@ -589,6 +609,19 @@ impl Client {
             let base = self.bases.get(&path);
             let remote = found.get(&path);
             let remote_stored = remote_version(latest, remote, &path)?;
+            // Bytes taken from a peer keep its modification time, so a work file with
+            // the remote size and time is that version even when this device's own
+            // newest snapshot still holds an older one.
+            if let (Some(seen), Some(stored)) = (seen, remote_stored.as_ref())
+                && stored.mtime.is_some()
+                && seen.size == stored.size
+                && seen.mtime == stored.mtime
+            {
+                if remote_content_changed(base, remote, Some(stored)) {
+                    plans.push((path, Plan::Settle(stored.clone())));
+                }
+                continue;
+            }
             let local_changed = local_change(base, seen, materialize);
             let remote_changed = remote_content_changed(base, remote, remote_stored.as_ref());
             if !local_changed && !remote_changed {
@@ -642,6 +675,7 @@ impl Client {
         path: &str,
         remote: Option<Stored>,
     ) -> Result<(), Error> {
+        self.touched.insert(path.to_string());
         if let Some(mut stored) = remote {
             copy_out(repo, stored.tree, path, &self.work)?;
             // The base is the file as written here, whatever time the disk kept.
@@ -716,6 +750,7 @@ impl Client {
                 snapshot: snapshot_id.clone(),
                 path: path.clone(),
             })?;
+            self.touched.insert(path.clone());
             self.once_done.entry(path).or_insert(snapshot_id);
         }
         Ok(())
@@ -1683,32 +1718,6 @@ pub(crate) fn work_path(work: &Path, rel: &str) -> Result<PathBuf, Error> {
     Ok(path)
 }
 
-pub(crate) fn read_work(work: &Path, rel: &str) -> Result<Option<Vec<u8>>, Error> {
-    let path = work_path(work, rel)?;
-    let metadata = match fs::symlink_metadata(&path) {
-        Ok(metadata) => metadata,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(err) => return Err(Error::repository(err)),
-    };
-    if !metadata.file_type().is_file() {
-        return Ok(None);
-    }
-    let bytes = stable_read(&path)?;
-    Ok(Some(bytes))
-}
-
-fn stable_read(path: &Path) -> Result<Vec<u8>, Error> {
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| Error::repository("file name is not valid unicode"))?;
-    let temp = path.with_file_name(format!(".{name}.satchel-read"));
-    fs::copy(path, &temp).map_err(Error::repository)?;
-    let bytes = fs::read(&temp).map_err(Error::repository);
-    fs::remove_file(&temp).map_err(Error::repository)?;
-    bytes
-}
-
 pub(crate) fn write_under(root: &Path, rel: &str, bytes: &[u8]) -> Result<(), Error> {
     let path = work_path(root, rel)?;
     if let Some(parent) = path.parent() {
@@ -1850,6 +1859,26 @@ fn fill_stage(
         link_into(held, &work_path(stage, &conflict.marked_path)?)?;
     }
     Ok(())
+}
+
+/// The temporary name a file is written under before it replaces `target`.
+pub(crate) fn temp_beside(target: &Path) -> Result<PathBuf, Error> {
+    let name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| Error::repository("file name is not valid unicode"))?;
+    Ok(target.with_file_name(format!(".{name}.satchel-write")))
+}
+
+/// Copy `source` to `rel` under `root`, replacing it in one rename.
+pub(crate) fn copy_file_into(source: &Path, root: &Path, rel: &str) -> Result<(), Error> {
+    let target = work_path(root, rel)?;
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(Error::repository)?;
+    }
+    let temp = temp_beside(&target)?;
+    fs::copy(source, &temp).map_err(Error::repository)?;
+    fs::rename(&temp, &target).map_err(Error::repository)
 }
 
 /// Put `source` at `target` as a hard link, or a copy with the same mtime across filesystems.

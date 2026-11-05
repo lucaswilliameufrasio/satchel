@@ -8,14 +8,18 @@
 //! large_folder gen   <folder> <files> <kib-each> <big-mib>
 //! large_folder sync  <repository-dir> <folder> <device-hex>
 //! large_folder touch <folder>
+//! large_folder mirror <repository-dir> <folder> <work> <manifest> <device-hex>
 //! ```
+//!
+//! `mirror` is the phone's round: the folder the person picked, a private work
+//! copy beside it, and the manifest of the last round.
 
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use satchel_core::{DeviceId, Location, sync_folder};
+use satchel_core::{Client, DeviceId, DirectoryTree, Location, init, sync_folder, sync_mirrored};
 
 const PASSWORD: &str = "large-folder-measurement";
 
@@ -37,6 +41,25 @@ fn main() {
             println!(
                 "sync wrote={} seconds={:.2}",
                 outcome.wrote,
+                started.elapsed().as_secs_f64()
+            );
+        }
+        Some("mirror") => {
+            let location = Location::Directory(PathBuf::from(&args[1]));
+            let device = DeviceId::parse(&args[5]).expect("device id");
+            if !location.config_present().expect("config") {
+                init(&location, PASSWORD, &device).expect("init");
+            }
+            let mut client = Client::open(device, &args[3], PASSWORD).expect("client");
+            let mut tree = DirectoryTree::new(&args[2]);
+            let started = Instant::now();
+            let report = sync_mirrored(&mut client, &location, &mut tree, Path::new(&args[4]))
+                .expect("round");
+            println!(
+                "mirror quiet={} imported={} exported={} seconds={:.2}",
+                report.quiet,
+                report.imported.len(),
+                report.exported.len(),
                 started.elapsed().as_secs_f64()
             );
         }

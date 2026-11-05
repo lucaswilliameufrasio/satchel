@@ -56,8 +56,8 @@ class PhoneFolderDeviceTest {
         // A Kotlin exception in the folder is a refusal, not a crash.
         val broken = object : FolderTree {
             override fun list(): String = throw IOException("permission revoked")
-            override fun read(path: String): ByteArray = throw IOException("no")
-            override fun write(path: String, bytes: ByteArray) = throw IOException("no")
+            override fun copyIn(path: String, dest: String) = throw IOException("no")
+            override fun copyOut(source: String, path: String) = throw IOException("no")
             override fun remove(path: String) = throw IOException("no")
         }
         assertEquals(unavailable, folderRoundOn(grant, broken, manifest, "Pixel", pt))

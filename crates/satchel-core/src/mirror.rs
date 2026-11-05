@@ -11,19 +11,23 @@
 //! deleted by the person and is deleted in the work copy. A work file that the
 //! sync changed or added is copied out, unless the person changed that same
 //! folder file during the round; then it waits for the next round.
+//!
+//! Files move between the folder and the work copy file to file, by the
+//! platform's own streams, so a round never holds a whole file in memory. The
+//! client says which work files the sync wrote, so the round does not read
+//! the work copy to find out.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::Error;
 use crate::format::{Location, snapshot_ids};
 use crate::sync::{
-    Client, Follow, SyncOutcome, is_marked, normalize_path, read_work, regular_files, remove_work,
-    work_path, write_under,
+    Client, Follow, SyncOutcome, copy_file_into, is_marked, normalize_path, regular_files,
+    remove_work, temp_beside, work_path,
 };
 
 /// One file in the folder. `path` is relative and uses `/`.
@@ -44,10 +48,10 @@ pub struct TreeFile {
 pub trait FolderTree {
     /// Every regular file under the folder.
     fn list(&mut self) -> Result<Vec<TreeFile>, Error>;
-    /// The bytes of one file.
-    fn read(&mut self, path: &str) -> Result<Vec<u8>, Error>;
-    /// Create or replace one file, creating parent folders.
-    fn write(&mut self, path: &str, bytes: &[u8]) -> Result<(), Error>;
+    /// Copy one folder file to `dest`, a new file the round owns.
+    fn copy_in(&mut self, path: &str, dest: &Path) -> Result<(), Error>;
+    /// Create or replace one folder file with the bytes of `source`, creating parent folders.
+    fn copy_out(&mut self, source: &Path, path: &str) -> Result<(), Error>;
     /// Delete one file. A missing file is not an error.
     fn remove(&mut self, path: &str) -> Result<(), Error>;
 }
@@ -88,12 +92,13 @@ impl FolderTree for DirectoryTree {
         Ok(files)
     }
 
-    fn read(&mut self, path: &str) -> Result<Vec<u8>, Error> {
-        read_work(&self.root, path)?.ok_or_else(|| Error::repository("folder file is gone"))
+    fn copy_in(&mut self, path: &str, dest: &Path) -> Result<(), Error> {
+        fs::copy(work_path(&self.root, path)?, dest).map_err(Error::repository)?;
+        Ok(())
     }
 
-    fn write(&mut self, path: &str, bytes: &[u8]) -> Result<(), Error> {
-        write_under(&self.root, path, bytes)
+    fn copy_out(&mut self, source: &Path, path: &str) -> Result<(), Error> {
+        copy_file_into(source, &self.root, path)
     }
 
     fn remove(&mut self, path: &str) -> Result<(), Error> {
@@ -168,16 +173,6 @@ fn listing(files: Vec<TreeFile>) -> BTreeMap<String, (u64, i64)> {
     map
 }
 
-fn digests(work: &Path) -> Result<BTreeMap<String, [u8; 32]>, Error> {
-    let mut map = BTreeMap::new();
-    for path in regular_files(work)? {
-        if let Some(bytes) = read_work(work, &path)? {
-            map.insert(path, Sha256::digest(&bytes).into());
-        }
-    }
-    Ok(map)
-}
-
 /// Run one round: folder into the work copy, sync, work copy back to the folder.
 ///
 /// Every folder file is followed as [`Follow::Always`]. Catalog marks the client
@@ -220,8 +215,16 @@ pub fn sync_mirrored(
         if manifest.files.get(path) == Some(seen) {
             continue;
         }
-        let bytes = tree.read(path)?;
-        write_under(&work, path, &bytes)?;
+        let target = work_path(&work, path)?;
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(Error::repository)?;
+        }
+        let temp = temp_beside(&target)?;
+        if let Err(err) = tree.copy_in(path, &temp) {
+            let _ = fs::remove_file(&temp);
+            return Err(err);
+        }
+        fs::rename(&temp, &target).map_err(Error::repository)?;
         imported.push(path.clone());
     }
     let mut deleted_here = Vec::new();
@@ -236,19 +239,21 @@ pub fn sync_mirrored(
         client.follow(path, Follow::Always)?;
     }
 
-    let pre = digests(&work)?;
+    client.take_touched();
     let outcome = client.sync(location)?;
-    let post = digests(&work)?;
+    let touched = client.take_touched();
+    let post: BTreeSet<String> = regular_files(&work)?.into_iter().collect();
 
+    // What the sync wrote, and any work file the folder does not have yet.
     let mut copy_out = Vec::new();
-    for (path, digest) in &post {
-        if pre.get(path) != Some(digest) || !before.contains_key(path) {
+    for path in &post {
+        if touched.contains(path) || !before.contains_key(path) {
             copy_out.push(path.clone());
         }
     }
     let mut gone = Vec::new();
-    for path in pre.keys() {
-        if !post.contains_key(path) && before.contains_key(path) {
+    for path in &touched {
+        if !post.contains(path) && before.contains_key(path) {
             gone.push(path.clone());
         }
     }
@@ -261,10 +266,7 @@ pub fn sync_mirrored(
             deferred.insert(path);
             continue;
         }
-        let Some(bytes) = read_work(&work, &path)? else {
-            continue;
-        };
-        tree.write(&path, &bytes)?;
+        tree.copy_out(&work_path(&work, &path)?, &path)?;
         exported.push(path);
     }
     let mut deleted_there = Vec::new();

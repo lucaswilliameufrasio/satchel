@@ -22,14 +22,18 @@ interface FolderTree {
     /** JSON array of `{"path","size","modified"}` for every regular file. */
     fun list(): String
 
-    fun read(path: String): ByteArray
+    /** Copy the folder file at [path] to the file [dest], by streams: it is never held whole. */
+    fun copyIn(path: String, dest: String)
 
-    /** Create or replace the file, creating parent folders. */
-    fun write(path: String, bytes: ByteArray)
+    /** Create or replace the folder file at [path] from the file [source], creating parent folders. */
+    fun copyOut(source: String, path: String)
 
     /** Delete the file. A missing file is not an error. */
     fun remove(path: String)
 }
+
+/** Bytes per read when a file moves between the folder and the work copy. */
+private const val COPY_BUFFER = 1 shl 20
 
 internal fun listingJson(files: List<Triple<String, Long, Long>>): String {
     val array = JSONArray()
@@ -73,14 +77,18 @@ class FileTree(private val root: File) : FolderTree {
         return listingJson(files)
     }
 
-    override fun read(path: String): ByteArray {
-        return resolve(path).readBytes()
+    override fun copyIn(path: String, dest: String) {
+        resolve(path).inputStream().use { input ->
+            File(dest).outputStream().use { output -> input.copyTo(output) }
+        }
     }
 
-    override fun write(path: String, bytes: ByteArray) {
+    override fun copyOut(source: String, path: String) {
         val file = resolve(path)
         file.parentFile?.mkdirs()
-        file.writeBytes(bytes)
+        File(source).inputStream().use { input ->
+            file.outputStream().use { output -> input.copyTo(output) }
+        }
     }
 
     override fun remove(path: String) {
@@ -122,14 +130,16 @@ class SafTree(private val resolver: ContentResolver, private val tree: Uri) : Fo
         return listingJson(files)
     }
 
-    override fun read(path: String): ByteArray {
+    override fun copyIn(path: String, dest: String) {
         val id = find(parts(path)) ?: throw IOException("file is gone")
         val uri = DocumentsContract.buildDocumentUriUsingTree(tree, id)
         val stream = resolver.openInputStream(uri) ?: throw IOException("file is not readable")
-        return stream.use { it.readBytes() }
+        stream.use { input ->
+            File(dest).outputStream().use { output -> input.copyTo(output, COPY_BUFFER) }
+        }
     }
 
-    override fun write(path: String, bytes: ByteArray) {
+    override fun copyOut(source: String, path: String) {
         val pieces = parts(path)
         var parent = rootId
         for (piece in pieces.dropLast(1)) {
@@ -149,7 +159,9 @@ class SafTree(private val resolver: ContentResolver, private val tree: Uri) : Fo
         }
         val uri = DocumentsContract.buildDocumentUriUsingTree(tree, id)
         val stream = resolver.openOutputStream(uri, "wt") ?: throw IOException("file is not writable")
-        stream.use { it.write(bytes) }
+        stream.use { output ->
+            File(source).inputStream().use { input -> input.copyTo(output, COPY_BUFFER) }
+        }
     }
 
     override fun remove(path: String) {

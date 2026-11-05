@@ -1158,31 +1158,34 @@ impl satchel_core::FolderTree for JniTree<'_, '_, '_> {
             .collect())
     }
 
-    fn read(&mut self, path: &str) -> Result<Vec<u8>, satchel_core::Error> {
-        let bytes = (|| -> Result<Vec<u8>, jni::errors::Error> {
-            let name = self.env.new_string(path)?;
-            let value = self.env.call_method(
-                self.tree,
-                jni::jni_str!("read"),
-                jni::jni_sig!("(Ljava/lang/String;)[B"),
-                &[(&name).into()],
-            )?;
-            let object = value.l()?;
-            let array = self.env.cast_local::<jni::objects::JByteArray>(object)?;
-            self.env.convert_byte_array(&array)
-        })();
-        bytes.map_err(|_| self.failed())
-    }
-
-    fn write(&mut self, path: &str, bytes: &[u8]) -> Result<(), satchel_core::Error> {
+    fn copy_in(&mut self, path: &str, dest: &std::path::Path) -> Result<(), satchel_core::Error> {
         let done = (|| -> Result<(), jni::errors::Error> {
             let name = self.env.new_string(path)?;
-            let array = self.env.byte_array_from_slice(bytes)?;
+            let target = self.env.new_string(dest.to_string_lossy())?;
             self.env.call_method(
                 self.tree,
-                jni::jni_str!("write"),
-                jni::jni_sig!("(Ljava/lang/String;[B)V"),
-                &[(&name).into(), (&array).into()],
+                jni::jni_str!("copyIn"),
+                jni::jni_sig!("(Ljava/lang/String;Ljava/lang/String;)V"),
+                &[(&name).into(), (&target).into()],
+            )?;
+            Ok(())
+        })();
+        done.map_err(|_| self.failed())
+    }
+
+    fn copy_out(
+        &mut self,
+        source: &std::path::Path,
+        path: &str,
+    ) -> Result<(), satchel_core::Error> {
+        let done = (|| -> Result<(), jni::errors::Error> {
+            let from = self.env.new_string(source.to_string_lossy())?;
+            let name = self.env.new_string(path)?;
+            self.env.call_method(
+                self.tree,
+                jni::jni_str!("copyOut"),
+                jni::jni_sig!("(Ljava/lang/String;Ljava/lang/String;)V"),
+                &[(&from).into(), (&name).into()],
             )?;
             Ok(())
         })();
