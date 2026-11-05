@@ -11,34 +11,119 @@
 		0000000000000000000000A2 /* PhoneModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000012 /* PhoneModel.swift */; };
 		0000000000000000000000A3 /* SatchelCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000013 /* SatchelCore.swift */; };
 		0000000000000000000000A4 /* QrScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000014 /* QrScannerView.swift */; };
-		0000000000000000000000A6 /* BackupExclusion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000018 /* BackupExclusion.swift */; };
 		0000000000000000000000A5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000017 /* Assets.xcassets */; };
+		0000000000000000000000A6 /* BackupExclusion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000018 /* BackupExclusion.swift */; };
 		0000000000000000000000A7 /* ProductSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000001A /* ProductSurface.swift */; };
 		0000000000000000000000A8 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000001F /* Localization.swift */; };
 		0000000000000000000000A9 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000019 /* Localizable.xcstrings */; };
 		0000000000000000000000AA /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000010 /* InfoPlist.xcstrings */; };
 		0000000000000000000000B1 /* ProductSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000001B /* ProductSurfaceTests.swift */; };
 		0000000000000000000000B2 /* CatalogLaunchUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000001C /* CatalogLaunchUITests.swift */; };
+		1C62C144DA0081F92965329F /* ProviderCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 450F87D7F3F1ABF5F534DFFE /* ProviderCatalog.swift */; };
+		2F27A1D3FDBE7362FE23C420 /* FilesDomain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46C82D62485C4FCA10A8367A /* FilesDomain.swift */; };
+		4A6F39059DF5B9E4638BA2CB /* FilesProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADCA5A1DB927AD83E5A803A3 /* FilesProviderTests.swift */; };
+		5260ADC127691FB91EEE8F80 /* FileProviderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BD52DC1DEB0D3AC14F09BB5 /* FileProviderExtension.swift */; };
+		5CA2834C3C690551EBC651AE /* FileProviderExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BD52DC1DEB0D3AC14F09BB5 /* FileProviderExtension.swift */; };
+		7CE134B9E538D5866F73E359 /* SatchelCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000013 /* SatchelCore.swift */; };
+		953F99E2D21AFE55CE244BB9 /* SatchelFiles.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 018114B84753E6AADF3E2C87 /* SatchelFiles.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B77471C6D67DEEBFDE8E7AED /* ProviderCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 450F87D7F3F1ABF5F534DFFE /* ProviderCatalog.swift */; };
+		B8B3927983044CB94FAFC46E /* GrantVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BAAE93985E4C3405EEAEDC7 /* GrantVault.swift */; };
+		D6AB5E2DF6DEDD36BF6C3B7F /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000001F /* Localization.swift */; };
+		E445F66E64C8C4A4FC58AA5E /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 12EC4F84984E2DA5C92E8448 /* Foundation.framework */; };
+		F9929B2585A52B71902F0DC4 /* GrantVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BAAE93985E4C3405EEAEDC7 /* GrantVault.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		000000000000000000000081 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000032 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000000000031;
+			remoteInfo = Satchel;
+		};
+		000000000000000000000083 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000032 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000000000031;
+			remoteInfo = Satchel;
+		};
+		4B6DF2B4F84F68527ABB6F87 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000032 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 98059F9042804B5D8D80D4C3;
+			remoteInfo = SatchelFiles;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		5362BD6B3E8526F803B4D8D7 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				953F99E2D21AFE55CE244BB9 /* SatchelFiles.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		000000000000000000000010 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		000000000000000000000011 /* SatchelApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SatchelApp.swift; sourceTree = "<group>"; };
 		000000000000000000000012 /* PhoneModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneModel.swift; sourceTree = "<group>"; };
 		000000000000000000000013 /* SatchelCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SatchelCore.swift; sourceTree = "<group>"; };
 		000000000000000000000014 /* QrScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QrScannerView.swift; sourceTree = "<group>"; };
-		000000000000000000000018 /* BackupExclusion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupExclusion.swift; sourceTree = "<group>"; };
 		000000000000000000000015 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		000000000000000000000016 /* Satchel.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Satchel.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		000000000000000000000017 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		00000000000000000000001A /* ProductSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSurface.swift; sourceTree = "<group>"; };
-		00000000000000000000001F /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
+		000000000000000000000018 /* BackupExclusion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupExclusion.swift; sourceTree = "<group>"; };
 		000000000000000000000019 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
-		000000000000000000000010 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
+		00000000000000000000001A /* ProductSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSurface.swift; sourceTree = "<group>"; };
 		00000000000000000000001B /* ProductSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSurfaceTests.swift; sourceTree = "<group>"; };
 		00000000000000000000001C /* CatalogLaunchUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogLaunchUITests.swift; sourceTree = "<group>"; };
 		00000000000000000000001D /* SatchelProductTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SatchelProductTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		00000000000000000000001E /* SatchelUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SatchelUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		00000000000000000000001F /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
+		018114B84753E6AADF3E2C87 /* SatchelFiles.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SatchelFiles.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		09D3F6DD91E3EA0910268B2B /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		12EC4F84984E2DA5C92E8448 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		1BD52DC1DEB0D3AC14F09BB5 /* FileProviderExtension.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileProviderExtension.swift; sourceTree = "<group>"; };
+		450F87D7F3F1ABF5F534DFFE /* ProviderCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProviderCatalog.swift; sourceTree = "<group>"; };
+		46C82D62485C4FCA10A8367A /* FilesDomain.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FilesDomain.swift; sourceTree = "<group>"; };
+		4BAAE93985E4C3405EEAEDC7 /* GrantVault.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = GrantVault.swift; sourceTree = "<group>"; };
+		ADCA5A1DB927AD83E5A803A3 /* FilesProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FilesProviderTests.swift; sourceTree = "<group>"; };
+		F3A3481155A64E03927D0BE5 /* SatchelFiles.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = SatchelFiles.entitlements; sourceTree = "<group>"; };
+		F8B456AAF0FD0982C64E6B75 /* Satchel.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = Satchel.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		000000000000000000000048 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		000000000000000000000049 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E2B924808EA381581A82A9D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E445F66E64C8C4A4FC58AA5E /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		000000000000000000000021 /* Satchel */ = {
@@ -55,14 +140,42 @@
 				000000000000000000000019 /* Localizable.xcstrings */,
 				000000000000000000000010 /* InfoPlist.xcstrings */,
 				000000000000000000000017 /* Assets.xcassets */,
+				4BAAE93985E4C3405EEAEDC7 /* GrantVault.swift */,
+				450F87D7F3F1ABF5F534DFFE /* ProviderCatalog.swift */,
+				F8B456AAF0FD0982C64E6B75 /* Satchel.entitlements */,
+				46C82D62485C4FCA10A8367A /* FilesDomain.swift */,
 			);
 			path = Satchel;
+			sourceTree = "<group>";
+		};
+		000000000000000000000022 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000016 /* Satchel.app */,
+				00000000000000000000001D /* SatchelProductTests.xctest */,
+				00000000000000000000001E /* SatchelUITests.xctest */,
+				018114B84753E6AADF3E2C87 /* SatchelFiles.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		000000000000000000000023 = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000021 /* Satchel */,
+				000000000000000000000024 /* SatchelProductTests */,
+				000000000000000000000025 /* SatchelUITests */,
+				000000000000000000000022 /* Products */,
+				69FEFD781DE7413986E2AF9B /* SatchelFiles */,
+				93D4661B570CE8FE9440E026 /* Frameworks */,
+			);
 			sourceTree = "<group>";
 		};
 		000000000000000000000024 /* SatchelProductTests */ = {
 			isa = PBXGroup;
 			children = (
 				00000000000000000000001B /* ProductSurfaceTests.swift */,
+				ADCA5A1DB927AD83E5A803A3 /* FilesProviderTests.swift */,
 			);
 			path = SatchelProductTests;
 			sourceTree = "<group>";
@@ -75,24 +188,31 @@
 			path = SatchelUITests;
 			sourceTree = "<group>";
 		};
-		000000000000000000000022 /* Products */ = {
+		69FEFD781DE7413986E2AF9B /* SatchelFiles */ = {
 			isa = PBXGroup;
 			children = (
-				000000000000000000000016 /* Satchel.app */,
-				00000000000000000000001D /* SatchelProductTests.xctest */,
-				00000000000000000000001E /* SatchelUITests.xctest */,
+				1BD52DC1DEB0D3AC14F09BB5 /* FileProviderExtension.swift */,
+				09D3F6DD91E3EA0910268B2B /* Info.plist */,
+				F3A3481155A64E03927D0BE5 /* SatchelFiles.entitlements */,
 			);
-			name = Products;
+			name = SatchelFiles;
+			path = SatchelFiles;
 			sourceTree = "<group>";
 		};
-		000000000000000000000023 = {
+		93D4661B570CE8FE9440E026 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				000000000000000000000021 /* Satchel */,
-				000000000000000000000024 /* SatchelProductTests */,
-				000000000000000000000025 /* SatchelUITests */,
-				000000000000000000000022 /* Products */,
+				CD4900F6EA9F76840594CE27 /* iOS */,
 			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		CD4900F6EA9F76840594CE27 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				12EC4F84984E2DA5C92E8448 /* Foundation.framework */,
+			);
+			name = iOS;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -102,13 +222,14 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 000000000000000000000071 /* Build configuration list for PBXNativeTarget "Satchel" */;
 			buildPhases = (
-				000000000000000000000041 /* Build Rust */,
 				000000000000000000000042 /* Sources */,
 				000000000000000000000043 /* Resources */,
+				5362BD6B3E8526F803B4D8D7 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				6BDEB29AEA1C5745E120C337 /* PBXTargetDependency */,
 			);
 			name = Satchel;
 			productName = Satchel;
@@ -149,6 +270,24 @@
 			productReference = 00000000000000000000001E /* SatchelUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		98059F9042804B5D8D80D4C3 /* SatchelFiles */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 524131EDAE0B2CBD5B313C24 /* Build configuration list for PBXNativeTarget "SatchelFiles" */;
+			buildPhases = (
+				802724000E9DF6A57DF280A3 /* Build Rust */,
+				4B54613F8654B14E77AEDBE9 /* Sources */,
+				5E2B924808EA381581A82A9D /* Frameworks */,
+				101DC98AF8E2FF511D27AA5C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SatchelFiles;
+			productName = SatchelFiles;
+			productReference = 018114B84753E6AADF3E2C87 /* SatchelFiles.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -175,20 +314,45 @@
 				000000000000000000000031 /* Satchel */,
 				000000000000000000000033 /* SatchelProductTests */,
 				000000000000000000000034 /* SatchelUITests */,
+				98059F9042804B5D8D80D4C3 /* SatchelFiles */,
 			);
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		000000000000000000000043 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0000000000000000000000A5 /* Assets.xcassets in Resources */,
+				0000000000000000000000A9 /* Localizable.xcstrings in Resources */,
+				0000000000000000000000AA /* InfoPlist.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		101DC98AF8E2FF511D27AA5C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXShellScriptBuildPhase section */
-		000000000000000000000041 /* Build Rust */ = {
+		802724000E9DF6A57DF280A3 /* Build Rust */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
+			inputFileListPaths = (
+			);
 			inputPaths = (
 			);
 			name = "Build Rust";
+			outputFileListPaths = (
+			);
 			outputPaths = (
 				"$(BUILT_PRODUCTS_DIR)/libsatchel_ffi.a",
 			);
@@ -210,64 +374,19 @@
 				0000000000000000000000A6 /* BackupExclusion.swift in Sources */,
 				0000000000000000000000A7 /* ProductSurface.swift in Sources */,
 				0000000000000000000000A8 /* Localization.swift in Sources */,
+				F9929B2585A52B71902F0DC4 /* GrantVault.swift in Sources */,
+				1C62C144DA0081F92965329F /* ProviderCatalog.swift in Sources */,
+				5CA2834C3C690551EBC651AE /* FileProviderExtension.swift in Sources */,
+				2F27A1D3FDBE7362FE23C420 /* FilesDomain.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-/* End PBXSourcesBuildPhase section */
-
-/* Begin PBXResourcesBuildPhase section */
-		000000000000000000000043 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				0000000000000000000000A5 /* Assets.xcassets in Resources */,
-				0000000000000000000000A9 /* Localizable.xcstrings in Resources */,
-				0000000000000000000000AA /* InfoPlist.xcstrings in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXResourcesBuildPhase section */
-
-/* Begin PBXContainerItemProxy section */
-		000000000000000000000081 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 000000000000000000000032 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 000000000000000000000031;
-			remoteInfo = Satchel;
-		};
-		000000000000000000000083 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 000000000000000000000032 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 000000000000000000000031;
-			remoteInfo = Satchel;
-		};
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXFrameworksBuildPhase section */
-		000000000000000000000048 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		000000000000000000000049 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXFrameworksBuildPhase section */
-
-/* Begin PBXSourcesBuildPhase section */
 		000000000000000000000046 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				0000000000000000000000B1 /* ProductSurfaceTests.swift in Sources */,
+				4A6F39059DF5B9E4638BA2CB /* FilesProviderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -276,6 +395,18 @@
 			buildActionMask = 2147483647;
 			files = (
 				0000000000000000000000B2 /* CatalogLaunchUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4B54613F8654B14E77AEDBE9 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5260ADC127691FB91EEE8F80 /* FileProviderExtension.swift in Sources */,
+				B77471C6D67DEEBFDE8E7AED /* ProviderCatalog.swift in Sources */,
+				B8B3927983044CB94FAFC46E /* GrantVault.swift in Sources */,
+				7CE134B9E538D5866F73E359 /* SatchelCore.swift in Sources */,
+				D6AB5E2DF6DEDD36BF6C3B7F /* Localization.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -291,6 +422,12 @@
 			isa = PBXTargetDependency;
 			target = 000000000000000000000031 /* Satchel */;
 			targetProxy = 000000000000000000000083 /* PBXContainerItemProxy */;
+		};
+		6BDEB29AEA1C5745E120C337 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = SatchelFiles;
+			target = 98059F9042804B5D8D80D4C3 /* SatchelFiles */;
+			targetProxy = 4B6DF2B4F84F68527ABB6F87 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -330,6 +467,7 @@
 			buildSettings = {
 				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Satchel/Satchel.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -354,13 +492,13 @@
 					"-lc++",
 					"-lz",
 					"-framework",
-					"Security",
+					Security,
 					"-framework",
-					"CoreFoundation",
+					CoreFoundation,
 					"-framework",
-					"SystemConfiguration",
+					SystemConfiguration,
 					"-framework",
-					"Foundation",
+					Foundation,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.lucaswilliameufrasio.satchel;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -375,6 +513,7 @@
 			buildSettings = {
 				ARCHS = arm64;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Satchel/Satchel.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -398,13 +537,13 @@
 					"-lc++",
 					"-lz",
 					"-framework",
-					"Security",
+					Security,
 					"-framework",
-					"CoreFoundation",
+					CoreFoundation,
 					"-framework",
-					"SystemConfiguration",
+					SystemConfiguration,
 					"-framework",
-					"Foundation",
+					Foundation,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.lucaswilliameufrasio.satchel;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -498,6 +637,103 @@
 			};
 			name = Release;
 		};
+		423DD54A83D62C3F0EADAA2C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ARCHS = arm64;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = SatchelFiles/SatchelFiles.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4LH3F22NH6;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SatchelFiles/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Satchel;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-force_load",
+					"$(BUILT_PRODUCTS_DIR)/libsatchel_ffi.a",
+					"-lc++",
+					"-lz",
+					"-framework",
+					Security,
+					"-framework",
+					CoreFoundation,
+					"-framework",
+					SystemConfiguration,
+					"-framework",
+					Foundation,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.lucaswilliameufrasio.satchel.files;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		A97F1FA5B829A0C41B3905DC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				ARCHS = arm64;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = SatchelFiles/SatchelFiles.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4LH3F22NH6;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SatchelFiles/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Satchel;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-force_load",
+					"$(BUILT_PRODUCTS_DIR)/libsatchel_ffi.a",
+					"-lc++",
+					"-lz",
+					"-framework",
+					Security,
+					"-framework",
+					CoreFoundation,
+					"-framework",
+					SystemConfiguration,
+					"-framework",
+					Foundation,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.lucaswilliameufrasio.satchel.files;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -533,6 +769,15 @@
 			buildConfigurations = (
 				000000000000000000000067 /* Debug */,
 				000000000000000000000068 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		524131EDAE0B2CBD5B313C24 /* Build configuration list for PBXNativeTarget "SatchelFiles" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				423DD54A83D62C3F0EADAA2C /* Release */,
+				A97F1FA5B829A0C41B3905DC /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

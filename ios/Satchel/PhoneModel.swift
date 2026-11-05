@@ -2,51 +2,6 @@ import Combine
 import Foundation
 import Security
 
-/// The grant holds the device key password and, on the phone that created the
-/// repository, the recovery password. It lives in the Keychain, readable only while
-/// the phone is unlocked and never copied to another device or to iCloud. The
-/// library receives the JSON as text, so no plaintext file is written.
-enum GrantVault {
-    private static let service = "io.github.lucaswilliameufrasio.satchel"
-    static let main = "grant"
-    /// The new grant while the recovery password changes. See `PhoneModel.changeRecovery`.
-    static let pending = "grant-pending"
-
-    private static func match(_ account: String) -> [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-    }
-
-    static func read(_ account: String = main) -> String? {
-        var query = match(account)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var found: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess,
-              let data = found as? Data
-        else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
-    }
-
-    @discardableResult
-    static func write(_ text: String, _ account: String = main) -> Bool {
-        SecItemDelete(match(account) as CFDictionary)
-        var item = match(account)
-        item[kSecValueData as String] = Data(text.utf8)
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
-    }
-
-    static func clear(_ account: String = main) {
-        SecItemDelete(match(account) as CFDictionary)
-    }
-}
-
 @MainActor
 final class PhoneModel: ObservableObject {
     enum Screen {
@@ -77,7 +32,11 @@ final class PhoneModel: ObservableObject {
         var failed: Bool
     }
 
-    @Published var screen: Screen = .loading
+    @Published var screen: Screen = .loading {
+        didSet { tellFilesIfTheCatalogMoved() }
+    }
+    /// Rows Files was last told about. See `FilesDomain`.
+    private var filesRows: [CatalogRow]?
     /// Name of the picked folder, nil until one is picked.
     @Published var folderName: String?
     @Published var folderStatus: String?
@@ -144,6 +103,10 @@ final class PhoneModel: ObservableObject {
         if CommandLine.arguments.contains("-satchel-reset") {
             GrantVault.clear()
             GrantVault.clear(GrantVault.pending)
+            FilesDomain.update(hasGrant: false)
+            if let shared = PhoneModel.sharedContainer {
+                try? FileManager.default.removeItem(at: shared.appendingPathComponent("repository"))
+            }
             try? FileManager.default.removeItem(at: supportURL)
             try? FileManager.default.removeItem(
                 at: FileManager.default.temporaryDirectory
@@ -179,6 +142,31 @@ final class PhoneModel: ObservableObject {
         folderName = folder.resolve()?.lastPathComponent
     }
 
+    /// A catalog with new rows on screen means Files shows stale ones: ask it to look again.
+    private func tellFilesIfTheCatalogMoved() {
+        let rows: [CatalogRow]
+        switch screen {
+        case .ready(let listed, _):
+            rows = listed
+        case .file(_, let listed, _):
+            rows = listed
+        default:
+            return
+        }
+        if filesRows == rows || canPair {
+            return
+        }
+        filesRows = rows
+        FilesDomain.catalogChanged()
+    }
+
+    /// The app group the app shares with its Files extension.
+    nonisolated static var sharedContainer: URL? {
+        FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: "group.io.github.lucaswilliameufrasio.satchel"
+        )
+    }
+
     private static func migrateLegacyGrant(_ file: URL) {
         guard let text = try? String(contentsOf: file, encoding: .utf8) else {
             return
@@ -210,6 +198,7 @@ final class PhoneModel: ObservableObject {
             }
             let grant = GrantVault.read() ?? ""
             let paired = !grant.isEmpty
+            FilesDomain.update(hasGrant: paired)
             let rows = await Task.detached {
                 if paired {
                     return SatchelCore.catalogGrant(specPath: grant)
@@ -404,7 +393,9 @@ final class PhoneModel: ObservableObject {
         screen = .creating(working)
         let deviceFile = deviceURL
         let work = workURL.path
-        let directory = supportURL.appendingPathComponent("repository", isDirectory: true).path
+        // A folder repository goes where the Files extension can read it too.
+        let directory = (PhoneModel.sharedContainer ?? supportURL)
+            .appendingPathComponent("repository", isDirectory: true).path
         Task {
             let made = await Task.detached { () -> (password: String, stored: Bool)? in
                 guard let id = deviceId(at: deviceFile) else {

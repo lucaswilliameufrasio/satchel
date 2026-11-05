@@ -293,6 +293,51 @@ final class CatalogLaunchUITests: XCTestCase {
         capture(name: "folder-\(lang.name)", text: card.label)
     }
 
+    /// The Files app shows the catalog under Satchel and opens a file from it.
+    func testFilesShowsTheCatalogAndOpensAFile() throws {
+        let lang = Lang.english
+        let app = XCUIApplication()
+        launch(app, lang, ["-satchel-reset", "-satchel-folder-fixture"])
+        let create = app.descendants(matching: .any)["create-repository"]
+        XCTAssertTrue(create.waitForExistence(timeout: 60))
+        create.tap()
+        let submit = app.descendants(matching: .any)["create-submit"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 10))
+        submit.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["recovery-password"].waitForExistence(timeout: 60))
+        app.descendants(matching: .any)["recovery-done"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["catalog-row-hello.txt"].waitForExistence(timeout: 90))
+
+        // Files follows the simulator's language, not the app's launch arguments.
+        let files = XCUIApplication(bundleIdentifier: "com.apple.DocumentsApp")
+        files.launch()
+        let browse = files.buttons.matching(NSPredicate(format: "label IN %@", ["Browse", "Explorar"])).firstMatch
+        XCTAssertTrue(browse.waitForExistence(timeout: 30))
+        browse.tap()
+        browse.tap()
+        let location = files.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Satchel")).firstMatch
+        XCTAssertTrue(location.waitForExistence(timeout: 60), "Satchel is not among the locations")
+        capture(name: "files-locations", text: files.debugDescription)
+        location.tap()
+        // The first visit asks to turn the new location on, as it does for any provider.
+        let enable = files.buttons.matching(NSPredicate(format: "label IN %@", ["Enable", "Ativar"])).firstMatch
+        if enable.waitForExistence(timeout: 10) {
+            enable.tap()
+        }
+        let hello = files.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "hello")).firstMatch
+        XCTAssertTrue(hello.waitForExistence(timeout: 60), "hello.txt is not listed")
+        capture(name: "files-satchel", text: files.debugDescription)
+        hello.tap()
+        let text = files.descendants(matching: .any)
+            .matching(NSPredicate(format: "value CONTAINS %@ OR label CONTAINS %@",
+                                  "from the picked folder", "from the picked folder")).firstMatch
+        let shown = text.waitForExistence(timeout: 60)
+        capture(name: "files-opened", text: files.debugDescription)
+        XCTAssertTrue(shown, "the opened file does not show its text")
+    }
+
     /// Needs a local S3 emulator. Start one on 127.0.0.1:4566 with the buckets `ios-unprotected`
     /// (versioning never on) and `ios-protected` (versioning on), then run xcodebuild with
     /// `TEST_RUNNER_SATCHEL_FLOCI=http://127.0.0.1:4566`. Skipped when the variable is absent.

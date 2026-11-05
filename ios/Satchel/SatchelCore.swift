@@ -125,6 +125,13 @@ private func satchelWakeWait(_ timeoutMs: UInt32) -> Int32
 @_silgen_name("satchel_wake_stop")
 private func satchelWakeStop()
 
+@_silgen_name("satchel_fetch_grant")
+private func satchelFetchGrant(
+    _ specPath: UnsafePointer<CChar>,
+    _ path: UnsafePointer<CChar>,
+    _ dest: UnsafePointer<CChar>
+) -> Int32
+
 @_silgen_name("satchel_read_grant")
 private func satchelReadGrant(
     _ specPath: UnsafePointer<CChar>,
@@ -442,6 +449,17 @@ enum SatchelCore {
             }
         }
         return status == 0
+    }
+
+    /// Write the newest version of `path` to the file `dest`, in chunks. The Files extension reads this way.
+    static func fetchGrant(specPath: String, path: String, dest: String) -> Bool {
+        specPath.withCString { spec in
+            path.withCString { file in
+                dest.withCString { target in
+                    satchelFetchGrant(spec, file, target) == 0
+                }
+            }
+        }
     }
 
     static func readGrant(specPath: String, path: String) -> Bool {

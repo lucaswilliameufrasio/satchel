@@ -1307,6 +1307,35 @@ pub fn read_followed(
     read_tree_at(&repo, &snaps, snapshot_id, &path)
 }
 
+/// Write the newest version of `path`, the one the catalog shows, to the file `dest`.
+///
+/// The bytes go in chunks, so a large file is never held whole. `dest` is
+/// replaced in one rename and keeps the modification time of the version.
+/// Nothing is written to the repository: a document provider reads this way.
+pub fn write_latest(
+    location: &Location,
+    password: &str,
+    path: &str,
+    dest: &Path,
+) -> Result<(), Error> {
+    let path = normalize_path(path)?;
+    let repo = open_indexed(location, password)?;
+    let snaps = load_snaps(&repo)?;
+    let latest = latest_by_device(&snaps);
+    let found = winners(&latest);
+    let Some(Winner::Present { snapshot_id, .. }) = found.get(&path) else {
+        return Err(Error::MissingFile {
+            snapshot: String::new(),
+            path,
+        });
+    };
+    let snap = latest
+        .values()
+        .find(|snap| snap.id == *snapshot_id)
+        .ok_or_else(|| Error::repository(format!("missing snapshot {snapshot_id}")))?;
+    copy_node_to(&repo, snap.tree, &path, dest)
+}
+
 /// Read one file from a snapshot. This is the history path, not the sync queue.
 pub fn read_version(
     location: &Location,
@@ -1927,6 +1956,16 @@ fn copy_out(
     path: &str,
     root: &Path,
 ) -> Result<(), Error> {
+    copy_node_to(repo, tree, path, &work_path(root, path)?)
+}
+
+/// Write `path` from `tree` to the file `target` in chunks, with the stored modification time.
+fn copy_node_to(
+    repo: &Repository<IndexedFullStatus>,
+    tree: TreeId,
+    path: &str,
+    target: &Path,
+) -> Result<(), Error> {
     let node = repo
         .node_from_path(tree, Path::new(&repo_path(path)))
         .map_err(Error::repository)?;
@@ -1936,15 +1975,10 @@ fn copy_out(
     let open = repo.open_file(&node).map_err(Error::repository)?;
     let size = usize::try_from(node.meta.size)
         .map_err(|_| Error::repository(format!("`{path}` is too large")))?;
-    let target = work_path(root, path)?;
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(Error::repository)?;
     }
-    let name = target
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| Error::repository("file name is not valid unicode"))?;
-    let temp = target.with_file_name(format!(".{name}.satchel-write"));
+    let temp = temp_beside(target)?;
     let mut file = fs::File::create(&temp).map_err(Error::repository)?;
     let mut offset = 0_usize;
     while offset < size {
@@ -1962,7 +1996,7 @@ fn copy_out(
             .map_err(Error::repository)?;
     }
     drop(file);
-    fs::rename(&temp, &target).map_err(Error::repository)?;
+    fs::rename(&temp, target).map_err(Error::repository)?;
     Ok(())
 }
 

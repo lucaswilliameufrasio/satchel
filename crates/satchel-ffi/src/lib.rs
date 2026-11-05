@@ -462,6 +462,18 @@ struct FolderReportJson {
     woken: usize,
 }
 
+/// Write the newest version of `path` to `dest` through a grant, in chunks.
+///
+/// This is what the iOS document provider calls when Files opens a file. It
+/// writes nothing to the repository and nothing to the grant's work copy.
+#[cfg(any(test, target_os = "ios"))]
+fn fetch_grant(spec_path: &Path, path: &str, dest: &Path) -> Result<(), CatalogFailure> {
+    let spec = read_grant(spec_path)?;
+    let location = open_grant(&spec)?;
+    satchel_core::write_latest(&location, &spec.device_key_password, path, dest)
+        .map_err(|_| CatalogFailure)
+}
+
 fn read_grant_bytes(spec_path: &Path, path: &str) -> Result<Vec<u8>, CatalogFailure> {
     let spec = read_grant(spec_path)?;
     let location = open_grant(&spec)?;
@@ -1536,6 +1548,28 @@ mod tests {
         );
         let bytes = super::read_grant_bytes(&grant_path, "notes/kept.txt").expect("read");
         assert_eq!(bytes, PAYLOAD.as_bytes());
+        // The document provider's read: straight to a file, nothing in the work copy.
+        let fetched = root.0.join("provider").join("kept.txt");
+        let elsewhere = root.0.join("provider-work");
+        let mut inline: serde_json::Value = body.clone();
+        inline["work"] = serde_json::json!(elsewhere);
+        let inline_grant = inline.to_string();
+        super::fetch_grant(
+            std::path::Path::new(&inline_grant),
+            "notes/kept.txt",
+            &fetched,
+        )
+        .expect("fetch");
+        assert_eq!(fs::read(&fetched).expect("fetched"), PAYLOAD.as_bytes());
+        assert!(!elsewhere.exists(), "fetch does not open a work copy");
+        assert!(
+            super::fetch_grant(
+                std::path::Path::new(&inline_grant),
+                "notes/absent.txt",
+                &fetched
+            )
+            .is_err()
+        );
         let rejected = root.0.join("rejected.json");
         fs::write(
             &rejected,

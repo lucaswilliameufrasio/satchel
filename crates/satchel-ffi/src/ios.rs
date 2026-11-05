@@ -6,8 +6,8 @@ use std::path::Path;
 use std::ptr;
 
 use crate::{
-    CatalogFailure, assemble_grant_json, catalog_grant, join_pairing, maker, mark_grant,
-    mark_sample, parse_invite, read_grant_bytes, read_sample, sample_catalog,
+    CatalogFailure, assemble_grant_json, catalog_grant, fetch_grant, join_pairing, maker,
+    mark_grant, mark_sample, parse_invite, read_grant_bytes, read_sample, sample_catalog,
 };
 use satchel_core::DeviceId;
 
@@ -238,6 +238,26 @@ pub extern "C" fn satchel_catalog_grant(spec_path: *const c_char) -> *mut c_char
     match catalog_grant(Path::new(&spec_text)) {
         Ok(json) => leak_string(json),
         Err(_) => ptr::null_mut(),
+    }
+}
+
+/// Write the newest version of `path` to the file `dest` through a grant. Returns 0 on success.
+///
+/// The document provider calls this when Files opens a file. Bytes go in chunks.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_fetch_grant(
+    spec_path: *const c_char,
+    path: *const c_char,
+    dest: *const c_char,
+) -> i32 {
+    let (Ok(spec_text), Ok(path_text), Ok(dest_text)) =
+        (text_from(spec_path), text_from(path), text_from(dest))
+    else {
+        return 1;
+    };
+    match fetch_grant(Path::new(&spec_text), &path_text, Path::new(&dest_text)) {
+        Ok(()) => 0,
+        Err(_) => 1,
     }
 }
 
