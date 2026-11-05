@@ -3,6 +3,7 @@ package io.github.lucaswilliameufrasio.satchel
 import io.github.lucaswilliameufrasio.satchel.ui.satchel
 import io.github.lucaswilliameufrasio.satchel.ui.ProductCard
 import io.github.lucaswilliameufrasio.satchel.ui.PrimaryButton
+import io.github.lucaswilliameufrasio.satchel.ui.ProductTextField
 import io.github.lucaswilliameufrasio.satchel.ui.FailureText
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.FilterChipDefaults
@@ -24,7 +25,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -128,11 +128,11 @@ private fun Field(
     secret: Boolean = false,
     onValue: (String) -> Unit,
 ) {
-    OutlinedTextField(
+    ProductTextField(
         value = value,
         onValueChange = onValue,
         enabled = enabled,
-        label = { Text(stringResource(label)) },
+        label = stringResource(label),
         keyboardOptions = keyboard,
         visualTransformation = if (secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),

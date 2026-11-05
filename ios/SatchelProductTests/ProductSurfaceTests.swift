@@ -416,6 +416,29 @@ final class ProductSurfaceTests: XCTestCase {
         proof("qr-fills-without-submit")
     }
 
+    func testTheScannerSaysWhatToDoWithoutACameraOrPermission() {
+        let missing = render(ScannerPage(onCode: { _ in }, onBack: {}, access: .missing))
+        assertProductSurface(missing)
+        let missingText = missing.labels.joined(separator: "\n")
+        XCTAssertTrue(missingText.contains("Sem câmera"), missingText)
+        XCTAssertTrue(missingText.contains("Digitar o código"), missingText)
+        let refused = render(ScannerPage(onCode: { _ in }, onBack: {}, access: .refused))
+        let refusedText = refused.labels.joined(separator: "\n")
+        XCTAssertTrue(refusedText.contains("Ligue nos Ajustes"), refusedText)
+        XCTAssertTrue(refusedText.contains("Abrir Ajustes"), refusedText)
+        let ask = render(ScannerPage(onCode: { _ in }, onBack: {}, access: .ask))
+        let askText = ask.labels.joined(separator: "\n")
+        XCTAssertTrue(askText.contains("Permitir câmera"), askText)
+        XCTAssertTrue(askText.contains("Nada é gravado."), askText)
+
+        Copy.use("en")
+        let english = render(ScannerPage(onCode: { _ in }, onBack: {}, access: .refused))
+        let englishText = english.labels.joined(separator: "\n")
+        XCTAssertTrue(englishText.contains("Turn it on in Settings"), englishText)
+        XCTAssertTrue(englishText.contains("Open Settings"), englishText)
+        XCTAssertTrue(englishText.contains("Type the code instead"), englishText)
+    }
+
     func testFolderSummaryMatchesTheAndroidCopy() {
         XCTAssertEqual(folderSummary(nil), folderSyncFailed)
         XCTAssertEqual(folderSummary(#"{"status":"unavailable"}"#), folderUnavailable)

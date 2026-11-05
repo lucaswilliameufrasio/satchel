@@ -58,6 +58,7 @@ Toda tela que espera, falha ou está vazia diz o que está acontecendo e o próx
 ## Acessibilidade
 
 - Modo escuro segue o sistema.
-- Tamanho de fonte do sistema: nenhum texto com tamanho fixo, a não ser o título da tela, que escala no iOS com `relativeTo: .largeTitle`.
+- Tamanho de fonte do sistema: nenhum texto com tamanho fixo, a não ser o título da tela, que escala no iOS com `relativeTo: .largeTitle`. Nos tamanhos de acessibilidade a seta dos cartões some, e a marca de opção escolhida fica na linha do título, para o texto manter a largura.
+- Voltar: o gesto de voltar do sistema faz o mesmo que o Voltar da tela; enquanto a tela espera, não faz nada. A tela da senha de recuperação não volta.
 - Leitor de tela: a linha inteira do catálogo é um botão com rótulo que junta nome, tamanho e estado. Ícones decorativos ficam fora da leitura. Títulos de tela são cabeçalhos.
 - Idioma: inglês e português do Brasil, com os termos em [idiomas.md](idiomas.md).

@@ -18,6 +18,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -216,5 +220,41 @@ fun FailureText(text: String, modifier: Modifier = Modifier) {
         fontWeight = FontWeight.SemiBold,
         color = satchel.danger,
         modifier = modifier,
+    )
+}
+
+/** A text field: `field` fill, radius 12, no underline. The label stays inside for TalkBack. */
+@Composable
+fun ProductTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+) {
+    TextField(
+        value = value,
+        onValueChange = onValueChange,
+        enabled = enabled,
+        label = { Text(label) },
+        keyboardOptions = keyboardOptions,
+        visualTransformation = visualTransformation,
+        shape = RoundedCornerShape(12.dp),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = satchel.field,
+            unfocusedContainerColor = satchel.field,
+            disabledContainerColor = satchel.field,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+            disabledIndicatorColor = Color.Transparent,
+            focusedLabelColor = satchel.accent,
+            unfocusedLabelColor = satchel.secondary,
+            cursorColor = satchel.accent,
+            focusedTextColor = satchel.ink,
+            unfocusedTextColor = satchel.ink,
+        ),
+        modifier = modifier.fillMaxWidth(),
     )
 }

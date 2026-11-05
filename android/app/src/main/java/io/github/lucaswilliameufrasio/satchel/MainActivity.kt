@@ -20,7 +20,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -62,6 +61,7 @@ import io.github.lucaswilliameufrasio.satchel.ui.BrandMark
 import io.github.lucaswilliameufrasio.satchel.ui.CardText
 import io.github.lucaswilliameufrasio.satchel.ui.FailureText
 import io.github.lucaswilliameufrasio.satchel.ui.PrimaryButton
+import io.github.lucaswilliameufrasio.satchel.ui.ProductTextField
 import io.github.lucaswilliameufrasio.satchel.ui.ProductCard
 import io.github.lucaswilliameufrasio.satchel.ui.SatchelTheme
 import io.github.lucaswilliameufrasio.satchel.ui.ScreenTitle
@@ -127,7 +127,7 @@ class MainActivity : ComponentActivity() {
                                 "",
                                 "",
                                 "",
-                                openingApelido(apelido()),
+                                openingApelido(apelido(), android.os.Build.MODEL),
                                 false,
                                 false,
                             )
@@ -268,7 +268,7 @@ class MainActivity : ComponentActivity() {
                                 "",
                                 "",
                                 "",
-                                openingApelido(apelido()),
+                                openingApelido(apelido(), android.os.Build.MODEL),
                                 false,
                                 false,
                             )
@@ -828,6 +828,15 @@ internal fun PhoneScaffold(
     showMark: Boolean = false,
     content: @androidx.compose.runtime.Composable (PaddingValues) -> Unit,
 ) {
+    // The system back gesture does what the Back button on screen does, instead of closing the
+    // app. While the screen is busy it does nothing, like the disabled button.
+    if (onBack != null) {
+        androidx.activity.compose.BackHandler(enabled = true) {
+            if (backEnabled) {
+                onBack()
+            }
+        }
+    }
     Scaffold(
         containerColor = satchel.canvas,
         topBar = {
@@ -1021,16 +1030,23 @@ private fun FileScreen(
                                 .heightIn(min = 48.dp)
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                         ) {
+                            // The mark sits on the title line so the detail keeps the full width at large text.
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(followLabel(follow, words), fontWeight = FontWeight.SemiBold)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        followLabel(follow, words),
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    if (chosen) {
+                                        Text("✓", color = satchel.accent, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
                                 Text(
                                     followDetail(follow, row.isDirectory, words),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = satchel.secondary,
                                 )
-                            }
-                            if (chosen) {
-                                Text("✓", color = satchel.accent, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -1109,34 +1125,34 @@ private fun PairScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
         Text(stringResource(R.string.entry_note), color = satchel.secondary)
-        OutlinedTextField(
+        ProductTextField(
             value = state.address,
             onValueChange = onAddress,
             enabled = !state.busy,
-            label = { Text(stringResource(ENTRY_FIELDS[0])) },
+            label = stringResource(ENTRY_FIELDS[0]),
             keyboardOptions = plain,
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
         )
-        OutlinedTextField(
+        ProductTextField(
             value = state.code,
             onValueChange = onCode,
             enabled = !state.busy,
-            label = { Text(stringResource(ENTRY_FIELDS[1])) },
+            label = stringResource(ENTRY_FIELDS[1]),
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
-        OutlinedTextField(
+        ProductTextField(
             value = state.fingerprint,
             onValueChange = onFingerprint,
             enabled = !state.busy,
-            label = { Text(stringResource(ENTRY_FIELDS[2])) },
+            label = stringResource(ENTRY_FIELDS[2]),
             keyboardOptions = plain,
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
-        OutlinedTextField(
+        ProductTextField(
             value = state.apelido,
             onValueChange = onApelido,
             enabled = !state.busy,
-            label = { Text(stringResource(ENTRY_FIELDS[3])) },
+            label = stringResource(ENTRY_FIELDS[3]),
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
         if (state.failed) {

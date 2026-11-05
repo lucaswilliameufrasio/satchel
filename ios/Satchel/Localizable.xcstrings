@@ -185,6 +185,16 @@
         }
       }
     },
+    "Allow camera": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir câmera"
+          }
+        }
+      }
+    },
     "Always sync": {
       "localizations": {
         "pt-BR": {
@@ -221,6 +231,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "Traz o arquivo uma vez e não acompanha mudanças posteriores."
+          }
+        }
+      }
+    },
+    "Camera": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Câmera"
+          }
+        }
+      }
+    },
+    "Camera access is off for Satchel. Turn it on in Settings, or go back and type the code.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O acesso à câmera está desligado para o Satchel. Ligue nos Ajustes, ou volte e digite o código."
+          }
+        }
+      }
+    },
+    "Camera viewfinder": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visor da câmera"
           }
         }
       }
@@ -635,6 +675,16 @@
         }
       }
     },
+    "No camera": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem câmera"
+          }
+        }
+      }
+    },
     "No device keeps a copy.": {
       "localizations": {
         "pt-BR": {
@@ -681,6 +731,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Só este aparelho, que criou o repositório, pode trocar."
+          }
+        }
+      }
+    },
+    "Open Settings": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes"
           }
         }
       }
@@ -761,6 +821,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Registrado %@"
+          }
+        }
+      }
+    },
+    "Satchel uses the camera only to read the QR on the desktop. Nothing is recorded.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Satchel usa a câmera só para ler o QR do desktop. Nada é gravado."
           }
         }
       }
@@ -1005,6 +1075,16 @@
         }
       }
     },
+    "This device has no camera. Go back and type the address, code and fingerprint.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este aparelho não tem câmera. Volte e digite o endereço, o código e a impressão digital."
+          }
+        }
+      }
+    },
     "This device keeps the recovery password. The other one joins with a code.": {
       "localizations": {
         "pt-BR": {
@@ -1031,6 +1111,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tentar de novo"
+          }
+        }
+      }
+    },
+    "Type the code instead": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digitar o código"
           }
         }
       }

@@ -49,6 +49,15 @@
     <string name="scan_qr">Ler QR</string>
     <string name="join">Entrar</string>
     <string name="qr_point">Aponte a câmera para o QR do desktop.</string>
+    <string name="qr_viewfinder">Visor da câmera</string>
+    <string name="qr_camera_title">Câmera</string>
+    <string name="qr_camera_why">O Satchel usa a câmera só para ler o QR do desktop. Nada é gravado.</string>
+    <string name="qr_camera_refused">Sem a câmera não dá para ler o QR. Permita, ou volte e digite o código.</string>
+    <string name="qr_camera_blocked">O acesso à câmera está desligado para o Satchel. Ligue nas Configurações, ou volte e digite o código.</string>
+    <string name="qr_open_settings">Abrir configurações</string>
+    <string name="qr_no_camera_title">Sem câmera</string>
+    <string name="qr_no_camera">Este aparelho não tem câmera. Volte e digite o endereço, o código e a impressão digital.</string>
+    <string name="qr_type_instead">Digitar o código</string>
     <string name="qr_allow_camera">Permitir câmera</string>
 
     <string name="folder_title">Pasta do celular</string>

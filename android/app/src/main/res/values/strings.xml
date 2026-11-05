@@ -58,6 +58,15 @@
     <string name="scan_qr">Scan QR</string>
     <string name="join">Join</string>
     <string name="qr_point">Point the camera at the QR on the desktop.</string>
+    <string name="qr_viewfinder">Camera viewfinder</string>
+    <string name="qr_camera_title">Camera</string>
+    <string name="qr_camera_why">Satchel uses the camera only to read the QR on the desktop. Nothing is recorded.</string>
+    <string name="qr_camera_refused">Without the camera the QR cannot be read. Allow it, or go back and type the code.</string>
+    <string name="qr_camera_blocked">Camera access is off for Satchel. Turn it on in Settings, or go back and type the code.</string>
+    <string name="qr_open_settings">Open settings</string>
+    <string name="qr_no_camera_title">No camera</string>
+    <string name="qr_no_camera">This device has no camera. Go back and type the address, code and fingerprint.</string>
+    <string name="qr_type_instead">Type the code instead</string>
     <string name="qr_allow_camera">Allow camera</string>
 
     <!-- Phone folder -->

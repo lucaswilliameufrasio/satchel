@@ -104,6 +104,82 @@ final class CatalogLaunchUITests: XCTestCase {
         capture(name: "downloaded-\(lang.name)", text: updatedLabel)
     }
 
+    /// The largest accessibility text size, then Apple's audit (labels, contrast,
+    /// clipped text, hit areas) on the catalog, the file, the join form and the scanner.
+    func testScreensPassTheAccessibilityAuditAtTheLargestTextSize() throws {
+        try auditAtLargestText(.portuguese)
+    }
+
+    func testScreensPassTheAccessibilityAuditAtTheLargestTextSizeInEnglish() throws {
+        try auditAtLargestText(.english)
+    }
+
+    private func auditAtLargestText(_ lang: Lang) throws {
+        let app = XCUIApplication()
+        launch(app, lang, [
+            "-satchel-reset",
+            "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+        ])
+        let row = app.descendants(matching: .any)["catalog-row-kept.txt"]
+        XCTAssertTrue(row.waitForExistence(timeout: 60), "kept.txt row did not appear")
+        capture(name: "large-catalog-\(lang.name)", text: row.label)
+        try audit(app)
+
+        reveal(row, in: app)
+        row.tap()
+        let once = app.descendants(matching: .any)["follow-once"]
+        XCTAssertTrue(once.waitForExistence(timeout: 10))
+        capture(name: "large-file-\(lang.name)", text: once.label)
+        try audit(app)
+
+        let back = app.buttons[lang.catalog]
+        reveal(back, in: app, upward: true)
+        back.tap()
+        let join = app.buttons["pair-entry"]
+        XCTAssertTrue(join.waitForExistence(timeout: 20))
+        reveal(join, in: app)
+        join.tap()
+        let scan = app.buttons["pair-scan"]
+        XCTAssertTrue(scan.waitForExistence(timeout: 10))
+        capture(name: "large-join-\(lang.name)", text: scan.label)
+        try audit(app)
+
+        reveal(scan, in: app)
+        scan.tap()
+        let typeInstead = app.buttons["scanner-type-instead"]
+        XCTAssertTrue(typeInstead.waitForExistence(timeout: 10))
+        capture(name: "large-scanner-\(lang.name)", text: typeInstead.label)
+        try audit(app)
+    }
+
+    /// The audit exists from iOS 17; the app still runs on 16.
+    private func audit(_ app: XCUIApplication, fileNames: Set<String> = ["kept.txt"]) throws {
+        if #available(iOS 17.0, *) {
+            try app.performAccessibilityAudit { issue in
+                let element = issue.element
+                let label = element?.label ?? ""
+                self.proof("audit \(issue.compactDescription) | \(element?.elementType.rawValue ?? 0) | \(element?.identifier ?? "") | \(label)")
+                // A file name is the content itself: “kept.txt” reads as written.
+                return issue.compactDescription == "Label not human-readable" && fileNames.contains(label)
+            }
+        } else {
+            throw XCTSkip("the accessibility audit needs iOS 17")
+        }
+    }
+
+    /// Scroll until `element` can be tapped. Large text pushes it below the fold.
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, upward: Bool = false) {
+        var tries = 0
+        while !element.isHittable && tries < 12 {
+            if upward {
+                app.swipeDown()
+            } else {
+                app.swipeUp()
+            }
+            tries += 1
+        }
+    }
+
     /// Needs a clean install: the phone must not already hold a repository.
     func testCreateFolderRepositoryShowsTheRecoveryPasswordOnceThenTheInvite() throws {
         let app = XCUIApplication()

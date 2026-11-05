@@ -49,8 +49,9 @@ class InviteFieldsTest {
         assertEquals("127.0.0.1:9", filled.address)
         assertEquals("482193", filled.code)
         assertEquals(fingerprint, filled.fingerprint)
-        assertEquals("iPhone", openingApelido(""))
-        assertEquals("Casa", openingApelido("  Casa  "))
+        assertEquals("Pixel 8", openingApelido("", "Pixel 8"))
+        assertEquals("Android", openingApelido("", ""))
+        assertEquals("Casa", openingApelido("  Casa  ", "Pixel 8"))
     }
 
     @Test

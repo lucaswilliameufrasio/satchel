@@ -396,13 +396,17 @@ fun labelStoredFromEntry(typed: String): String? {
     return trimmed
 }
 
-/** Field default: the saved apelido, or iPhone when nothing valid is saved. */
-fun openingApelido(saved: String): String {
+/** Field default: the saved apelido, else the phone's model (`Build.MODEL`), else "Android". */
+fun openingApelido(saved: String, model: String): String {
     val trimmed = saved.trim()
     if (acceptableApelido(trimmed)) {
         return trimmed
     }
-    return "iPhone"
+    val named = model.trim()
+    if (acceptableApelido(named)) {
+        return named
+    }
+    return "Android"
 }
 
 /**

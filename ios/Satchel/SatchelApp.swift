@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 @main
@@ -261,13 +262,12 @@ struct CatalogList: View {
                                     .foregroundStyle(SatchelInk.secondary)
                             }
                             Spacer(minLength: 12)
-                            Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(SatchelInk.secondary)
+                            TrailingChevron()
                         }
                     }
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("pair-entry")
             }
             if rows.isEmpty {
                 ProductCard {
@@ -307,9 +307,7 @@ extension CatalogList {
                             .foregroundStyle(SatchelInk.secondary)
                     }
                     Spacer(minLength: 12)
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(SatchelInk.secondary)
+                    TrailingChevron()
                 }
             }
         }
@@ -426,21 +424,22 @@ struct FilePage: View {
         return Button {
             onChoose(follow)
         } label: {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
+            // The mark sits on the title line so the detail keeps the full width at large text.
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text(label)
                         .font(.body.weight(.semibold))
                         .foregroundStyle(SatchelInk.ink)
-                    Text(followDetail(follow, directory: row.isDirectory))
-                        .font(.subheadline)
-                        .foregroundStyle(SatchelInk.secondary)
+                    Spacer(minLength: 12)
+                    if selected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(SatchelInk.accent)
+                            .accessibilityHidden(true)
+                    }
                 }
-                Spacer(minLength: 12)
-                if selected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(SatchelInk.accent)
-                        .accessibilityHidden(true)
-                }
+                Text(followDetail(follow, directory: row.isDirectory))
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -576,6 +575,7 @@ struct PairForm: View {
                     )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("pair-scan")
             .disabled(busy)
             Button {
                 onSubmit(address, code, fingerprint, name)
@@ -594,18 +594,107 @@ struct PairForm: View {
     }
 }
 
+/// What the scanner can do right now.
+enum CameraAccess: Equatable {
+    case missing, ask, refused, granted
+
+    static func current() -> CameraAccess {
+        if AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) == nil {
+            return .missing
+        }
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            return .granted
+        case .notDetermined:
+            return .ask
+        default:
+            return .refused
+        }
+    }
+}
+
 struct ScannerPage: View {
     let onCode: (String) -> Void
     let onBack: () -> Void
+    var access: CameraAccess = .current()
+    @State private var shown: CameraAccess?
+    @Environment(\.scenePhase) private var phase
+
+    private func copy(_ key: String.LocalizationValue) -> String {
+        String(localized: key, bundle: .copy, locale: .copy)
+    }
 
     var body: some View {
-        ProductScreen(title: String(localized: "Scan QR", bundle: .copy, locale: .copy), backLabel: String(localized: "Back", bundle: .copy, locale: .copy), onBack: onBack) {
-            Text(String(localized: "Point the camera at the QR on the desktop.", bundle: .copy, locale: .copy))
-                .font(.subheadline)
+        let now = shown ?? access
+        ProductScreen(title: copy("Scan QR"), backLabel: copy("Back"), onBack: onBack) {
+            switch now {
+            case .granted:
+                Text(copy("Point the camera at the QR on the desktop."))
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+                QrScannerView(onCode: onCode)
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .accessibilityElement()
+                    .accessibilityLabel(copy("Camera viewfinder"))
+            case .missing:
+                ProductCard {
+                    Text(copy("No camera")).font(.headline).foregroundStyle(SatchelInk.ink)
+                    Text(copy("This device has no camera. Go back and type the address, code and fingerprint."))
+                        .font(.subheadline).foregroundStyle(SatchelInk.secondary)
+                }
+            case .ask:
+                ProductCard {
+                    Text(copy("Camera")).font(.headline).foregroundStyle(SatchelInk.ink)
+                    Text(copy("Satchel uses the camera only to read the QR on the desktop. Nothing is recorded."))
+                        .font(.subheadline).foregroundStyle(SatchelInk.secondary)
+                }
+                WideButton(title: copy("Allow camera"), id: "scanner-allow") {
+                    AVCaptureDevice.requestAccess(for: .video) { _ in
+                        DispatchQueue.main.async {
+                            shown = CameraAccess.current()
+                        }
+                    }
+                }
+            case .refused:
+                ProductCard {
+                    Text(copy("Camera")).font(.headline).foregroundStyle(SatchelInk.ink)
+                    Text(copy("Camera access is off for Satchel. Turn it on in Settings, or go back and type the code."))
+                        .font(.subheadline).foregroundStyle(SatchelInk.secondary)
+                }
+                WideButton(title: copy("Open Settings"), id: "scanner-settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+            }
+            Button(action: onBack) {
+                Text(copy("Type the code instead"))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SatchelInk.accent)
+            }
+            .accessibilityIdentifier("scanner-type-instead")
+        }
+        .onChange(of: phase) { now in
+            // Back from Settings with the permission changed.
+            if now == .active, shown != nil || access != .granted {
+                shown = CameraAccess.current()
+            }
+        }
+    }
+}
+
+/// The chevron of a card that opens a screen. Left out at accessibility text sizes,
+/// where it would squeeze the text into a narrow column; the whole card is the button.
+private struct TrailingChevron: View {
+    @Environment(\.dynamicTypeSize) private var size
+
+    var body: some View {
+        if !size.isAccessibilitySize {
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
                 .foregroundStyle(SatchelInk.secondary)
-            QrScannerView(onCode: onCode)
-                .frame(minHeight: 320)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .accessibilityHidden(true)
         }
     }
 }
