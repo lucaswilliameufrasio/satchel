@@ -143,7 +143,7 @@ fn add_device_screen_approves_without_the_recovery_password() {
     assert!(desktop.add_device_open());
     let mut saw_qr = false;
     for item in &desktop.tray_view().items {
-        if item.label == "QR" {
+        if item.label == "Or scan this code with the phone" {
             let png = item.icon_png.as_ref().expect("qr");
             assert!(png.starts_with(b"\x89PNG"));
             saw_qr = true;
@@ -190,12 +190,12 @@ fn add_device_screen_approves_without_the_recovery_password() {
         labels.push_str(&item.label);
         labels.push('\n');
     }
-    assert!(labels.contains("Device phone"));
-    assert!(labels.contains("System android"));
-    assert!(labels.contains("Address "));
-    assert!(labels.contains("Interface "));
-    assert!(labels.contains("Code "));
-    assert!(labels.contains("Approve"));
+    assert!(labels.contains("“phone” wants to join"));
+    assert!(labels.contains("System: android"));
+    assert!(labels.contains("From "));
+    assert!(labels.contains(&format!(" on {}", pending.local_interface)));
+    assert!(labels.contains("Code typed: "));
+    assert!(labels.contains("Approve “phone”"));
     assert!(labels.contains("Deny"));
     assert!(labels.contains("phone"));
     assert!(labels.contains("android"));
@@ -540,15 +540,18 @@ fn publish_lists_metadata_and_revoke_removes_only_the_device_key() {
         labels.push_str(&item.label);
         labels.push('\n');
     }
-    assert!(labels.contains("Revoke fedcba9876543210fedcba9876543210"));
-    assert!(!labels.contains("Revoke 0123456789abcdef0123456789abcdef"));
+    assert!(labels.contains("Remove device fedc ba98 7654 3210 fedc ba98 7654 3210"));
+    assert!(!labels.contains("Remove device 0123 4567 89ab cdef 0123 4567 89ab cdef"));
     assert!(!labels.contains("recovery-canary"));
     let mut key_id = String::new();
     let mut revoke_count = 0;
     for item in desktop.tray_view().items {
         if let satchel_desktop::TrayCommand::Revoke(id) = item.command {
             revoke_count += 1;
-            assert_ne!(item.label, "Revoke 0123456789abcdef0123456789abcdef");
+            assert_ne!(
+                item.label,
+                "Remove device 0123 4567 89ab cdef 0123 4567 89ab cdef"
+            );
             key_id = id;
         }
     }
@@ -593,8 +596,8 @@ fn tray_view_is_the_product_surface() {
     let idle = desktop.tray_view();
     assert_eq!(idle.title, "Satchel");
     assert!(idle.invite.is_none());
-    assert_eq!(idle.items[0].label, "No folder");
-    assert!(idle.items.iter().any(|item| item.label == "Quit"));
+    assert_eq!(idle.items[0].label, "No folder set up");
+    assert!(idle.items.iter().any(|item| item.label == "Quit Satchel"));
     assert!(idle.items.iter().all(|item| item.icon_png.is_none()));
     assert!(
         idle.items
@@ -612,17 +615,17 @@ fn tray_view_is_the_product_surface() {
     assert!(
         ready_labels
             .iter()
-            .any(|label| label.starts_with("Folder "))
+            .any(|label| label.starts_with("Folder: "))
     );
-    assert!(ready_labels.contains(&"Sync"));
-    assert!(ready_labels.contains(&"Add device"));
-    assert!(ready_labels.contains(&"Devices"));
-    assert!(ready_labels.contains(&"Quit"));
+    assert!(ready_labels.contains(&"Sync now"));
+    assert!(ready_labels.contains(&"Add device…"));
+    assert!(ready_labels.contains(&"Show devices"));
+    assert!(ready_labels.contains(&"Quit Satchel"));
     assert!(
         ready
             .items
             .iter()
-            .all(|item| !item.label.starts_with("Revoke "))
+            .all(|item| !item.label.starts_with("Remove device "))
     );
 
     let offer = desktop
@@ -638,23 +641,27 @@ fn tray_view_is_the_product_surface() {
         .iter()
         .map(|item| item.label.as_str())
         .collect();
-    assert!(adding_labels.iter().any(|label| label.starts_with("Code ")));
     assert!(
         adding_labels
             .iter()
-            .any(|label| label.starts_with("Address "))
+            .any(|label| label.starts_with("Type on the other device: "))
     );
     assert!(
         adding_labels
             .iter()
-            .any(|label| label.starts_with("Fingerprint "))
+            .any(|label| label.starts_with("Address: "))
     );
-    assert!(adding_labels.contains(&"Cancel"));
-    assert!(adding_labels.contains(&"QR"));
+    assert!(
+        adding_labels
+            .iter()
+            .any(|label| label.starts_with("Fingerprint: "))
+    );
+    assert!(adding_labels.contains(&"Stop adding"));
+    assert!(adding_labels.contains(&"Or scan this code with the phone"));
     let qr = adding
         .items
         .iter()
-        .find(|item| item.label == "QR")
+        .find(|item| item.label == "Or scan this code with the phone")
         .expect("qr row");
     let png = qr.icon_png.as_ref().expect("png");
     assert!(png.starts_with(b"\x89PNG"));

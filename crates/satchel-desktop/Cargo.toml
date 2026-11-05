@@ -7,6 +7,7 @@ rust-version.workspace = true
 description = "Desktop tray for one folder, the OS keystore, and device pairing."
 
 [dependencies]
+jiff = "0.2"
 rand = "0.10"
 satchel-core = { path = "../satchel-core" }
 satchel-pair = { path = "../satchel-pair" }

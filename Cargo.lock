@@ -5685,6 +5685,7 @@ name = "satchel-desktop"
 version = "0.1.0"
 dependencies = [
  "image",
+ "jiff",
  "keyring",
  "ksni",
  "rand 0.10.3",

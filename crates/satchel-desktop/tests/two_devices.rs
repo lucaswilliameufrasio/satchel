@@ -123,9 +123,9 @@ fn folder_repository_is_created_by_one_device_and_joined_by_the_other_without_th
     );
     let second_view = second.tray_view();
     let labels: Vec<&str> = second_view.items.iter().map(|i| i.label.as_str()).collect();
-    assert!(labels.contains(&"Sync"));
-    assert!(!labels.contains(&"Add device"));
-    assert!(labels.iter().any(|l| l.starts_with("Storage folder")));
+    assert!(labels.contains(&"Sync now"));
+    assert!(!labels.contains(&"Add device…"));
+    assert!(labels.iter().any(|l| l.starts_with("Storage: Folder · ")));
 
     second.publish(&second_store).expect("second sync");
     assert_eq!(

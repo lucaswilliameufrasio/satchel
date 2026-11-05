@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use jiff::{Timestamp, tz::TimeZone};
 use satchel_core::{
     Client, DeviceId, DeviceKeyRecord, Location, QuietMark, S3Store, SetupCheck, StorageKind,
     StorageSetup, WakeEndpoint, WakeListener, change_recovery_password, check_setup,
@@ -186,16 +187,76 @@ pub struct Desktop {
     wake: Option<WakeEndpoint>,
 }
 
-/// How the last sync ended, for the tray. A failure keeps its reason; it never carries a secret.
+/// How the last sync ended, for the tray. The error itself goes to the log, not the menu.
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum SyncStatus {
     Done { unix: u64, unprotected: bool },
-    Failed { unix: u64, reason: String },
+    Failed { unix: u64, hint: FailureHint },
 }
 
-fn clock_label(unix: u64) -> String {
-    let minutes = unix / 60 % (24 * 60);
-    format!("{:02}:{:02} UTC", minutes / 60, minutes % 60)
+/// What a failed sync asks the person to do next.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FailureHint {
+    /// The keystore is locked or lost an entry.
+    Keystore,
+    /// The storage did not answer or refused the request.
+    Storage,
+    /// The synced folder is missing or unreadable.
+    Folder,
+    /// Anything else. The log has the details.
+    Other,
+}
+
+fn failure_hint(err: &Error) -> FailureHint {
+    use satchel_core::Error as Core;
+    match err {
+        Error::Store { .. }
+        | Error::MissingSecret
+        | Error::MissingRecovery
+        | Error::MissingPhoneCredential => FailureHint::Keystore,
+        Error::Path { .. }
+        | Error::Io
+        | Error::Device(Core::FolderUnavailable | Core::SourceDirectory { .. }) => {
+            FailureHint::Folder
+        }
+        Error::Grant
+        | Error::Device(
+            Core::Repository { .. } | Core::Probe | Core::ProbeDenied | Core::ObjectProtection,
+        ) => FailureHint::Storage,
+        _ => FailureHint::Other,
+    }
+}
+
+/// `14:32` on the same local day as `now`, `2026-11-04 14:32` before it.
+fn clock_label(unix: u64, now: u64, zone: &TimeZone) -> String {
+    let at = |seconds: u64| {
+        Timestamp::from_second(i64::try_from(seconds).unwrap_or(0))
+            .unwrap_or(Timestamp::UNIX_EPOCH)
+            .to_zoned(zone.clone())
+    };
+    let (then, today) = (at(unix), at(now));
+    if then.date() == today.date() {
+        then.strftime("%H:%M").to_string()
+    } else {
+        then.strftime("%Y-%m-%d %H:%M").to_string()
+    }
+}
+
+fn local_clock(unix: u64) -> String {
+    clock_label(unix, now_unix(), &TimeZone::system())
+}
+
+/// The folder with the home directory written as `~`.
+fn folder_label(folder: &std::path::Path) -> String {
+    if let Some(home) = std::env::var_os("HOME")
+        && let Ok(rest) = folder.strip_prefix(&home)
+    {
+        if rest.as_os_str().is_empty() {
+            return "~".to_string();
+        }
+        return format!("~/{}", rest.display());
+    }
+    folder.display().to_string()
 }
 
 fn now_unix() -> u64 {
@@ -423,7 +484,7 @@ impl Desktop {
             },
             Err(err) => SyncStatus::Failed {
                 unix: now_unix(),
-                reason: err.to_string(),
+                hint: failure_hint(err),
             },
         });
         result
@@ -656,54 +717,45 @@ impl Desktop {
 
     /// Rows for the tray. Labels include the approval fields and not the keystore values.
     pub fn tray_view(&self) -> TrayView {
+        let info = |label: String| item(label, false, TrayCommand::None);
         let mut items = Vec::new();
         if let Some(profile) = &self.profile {
-            items.push(item(
-                format!("Folder {}", profile.folder.display()),
-                false,
-                TrayCommand::None,
-            ));
-            items.push(item(
-                format!("Storage {}", storage_label(profile)),
-                false,
-                TrayCommand::None,
-            ));
-            items.push(item(
-                match profile.role {
-                    Role::Maintainer => "Role maintainer".to_string(),
-                    Role::Member => "Role device".to_string(),
-                },
-                false,
-                TrayCommand::None,
-            ));
+            items.push(info(format!("Folder: {}", folder_label(&profile.folder))));
+            items.push(info(format!("Storage: {}", storage_label(profile))));
+            items.push(info(match profile.role {
+                Role::Maintainer => "Main device: adds and removes devices".to_string(),
+                Role::Member => "Added through another device".to_string(),
+            }));
             match &self.last_sync {
-                None => items.push(item("Not synced yet".to_string(), false, TrayCommand::None)),
+                None => items.push(info("Not synced yet".to_string())),
                 Some(SyncStatus::Done { unix, unprotected }) => {
-                    items.push(item(
-                        format!("Synced {}", clock_label(*unix)),
-                        false,
-                        TrayCommand::None,
-                    ));
+                    items.push(info(format!("Synced at {}", local_clock(*unix))));
                     if *unprotected {
-                        items.push(item(
-                            "No object versioning here: an overwritten file cannot come back"
+                        items.push(info(
+                            "This storage keeps no old versions: an overwritten file cannot come back"
                                 .to_string(),
-                            false,
-                            TrayCommand::None,
                         ));
                     }
                 }
-                Some(SyncStatus::Failed { unix, reason }) => {
-                    items.push(item(
-                        format!("Sync failed {}", clock_label(*unix)),
-                        false,
-                        TrayCommand::None,
+                Some(SyncStatus::Failed { unix, hint }) => {
+                    items.push(info(format!("Sync failed at {}", local_clock(*unix))));
+                    items.push(info(
+                        match hint {
+                            FailureHint::Keystore => "Unlock the keychain, then sync again",
+                            FailureHint::Storage => {
+                                "The storage did not answer. Check the network, then sync again"
+                            }
+                            FailureHint::Folder => {
+                                "The folder is missing or unreadable. Check it, then sync again"
+                            }
+                            FailureHint::Other => "Sync again. If it keeps failing, see the log",
+                        }
+                        .to_string(),
                     ));
-                    items.push(item(reason.clone(), false, TrayCommand::None));
                 }
             }
         } else {
-            items.push(item("No folder".to_string(), false, TrayCommand::None));
+            items.push(info("No folder set up".to_string()));
             items.push(item(
                 "Create or join…".to_string(),
                 true,
@@ -712,72 +764,54 @@ impl Desktop {
         }
         let mut invite = None;
         if let Some(pending) = &self.pending {
+            items.push(info(format!("“{}” wants to join", pending.device_name)));
+            items.push(info(format!("System: {}", pending.os)));
+            items.push(info(format!(
+                "From {} on {}",
+                pending.peer_address.ip(),
+                pending.local_interface
+            )));
+            items.push(info(format!("Code typed: {}", pending.code)));
             items.push(item(
-                format!("Device {}", pending.device_name),
-                false,
-                TrayCommand::None,
+                format!("Approve “{}”", pending.device_name),
+                true,
+                TrayCommand::Approve,
             ));
-            items.push(item(
-                format!("System {}", pending.os),
-                false,
-                TrayCommand::None,
-            ));
-            items.push(item(
-                format!("Address {}", pending.peer_address),
-                false,
-                TrayCommand::None,
-            ));
-            items.push(item(
-                format!("Interface {}", pending.local_interface),
-                false,
-                TrayCommand::None,
-            ));
-            items.push(item(
-                format!("Code {}", pending.code),
-                false,
-                TrayCommand::None,
-            ));
-            items.push(item("Approve".to_string(), true, TrayCommand::Approve));
             items.push(item("Deny".to_string(), true, TrayCommand::Deny));
         } else if let Some(session) = &self.session {
             let offer = session.offer();
             invite = Some(offer.invite.clone());
-            items.push(item(
-                format!("Code {}", offer.code),
-                false,
-                TrayCommand::None,
-            ));
-            items.push(item(
-                format!("Address {}", offer.address),
-                false,
-                TrayCommand::None,
-            ));
-            items.push(item(
-                format!("Fingerprint {}", offer.fingerprint),
-                false,
-                TrayCommand::None,
-            ));
-            items.push(item(
-                "Cancel".to_string(),
-                true,
-                TrayCommand::CloseAddDevice,
-            ));
+            items.push(info(format!("Type on the other device: {}", offer.code)));
             if let Ok(invite) = Invite::decode(&offer.invite)
                 && let Ok(png) = satchel_pair::invite_qr_png(&invite)
             {
-                let mut qr = item("QR".to_string(), false, TrayCommand::None);
+                let mut qr = info("Or scan this code with the phone".to_string());
                 qr.icon_png = Some(png);
                 items.push(qr);
             }
+            items.push(info(format!("Address: {}", offer.address)));
+            items.push(info(format!(
+                "Fingerprint: {}",
+                grouped(&offer.fingerprint, 4)
+            )));
+            items.push(item(
+                "Stop adding".to_string(),
+                true,
+                TrayCommand::CloseAddDevice,
+            ));
         } else if let Some(profile) = &self.profile {
-            items.push(item("Sync".to_string(), true, TrayCommand::Publish));
+            items.push(item("Sync now".to_string(), true, TrayCommand::Publish));
             if profile.role == Role::Maintainer {
                 items.push(item(
-                    "Add device".to_string(),
+                    "Add device…".to_string(),
                     true,
                     TrayCommand::OpenAddDevice,
                 ));
-                items.push(item("Devices".to_string(), true, TrayCommand::LoadDevices));
+                items.push(item(
+                    "Show devices".to_string(),
+                    true,
+                    TrayCommand::LoadDevices,
+                ));
                 items.push(item(
                     "Recovery password…".to_string(),
                     true,
@@ -785,16 +819,19 @@ impl Desktop {
                 ));
             }
             if let Some(keys) = &self.device_keys {
+                if keys.is_empty() {
+                    items.push(info("No other device yet".to_string()));
+                }
                 for key in keys {
                     items.push(item(
-                        format!("Revoke {}", key.device_id.as_str()),
+                        format!("Remove device {}", grouped(key.device_id.as_str(), 4)),
                         true,
                         TrayCommand::Revoke(key.key_id.clone()),
                     ));
                 }
             }
         }
-        items.push(item("Quit".to_string(), true, TrayCommand::Quit));
+        items.push(item("Quit Satchel".to_string(), true, TrayCommand::Quit));
         TrayView {
             title: "Satchel".to_string(),
             items,
@@ -838,19 +875,29 @@ fn item(label: String, enabled: bool, command: TrayCommand) -> TrayItem {
     }
 }
 
+/// `text` in groups of `size` characters, separated by spaces, for reading aloud or comparing.
+fn grouped(text: &str, size: usize) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    chars
+        .chunks(size)
+        .map(|chunk| chunk.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn storage_label(profile: &Profile) -> String {
     let name = match profile.kind {
-        StorageKind::Directory => "folder",
+        StorageKind::Directory => "Folder",
         StorageKind::S3 => "S3",
-        StorageKind::R2 => "R2",
-        StorageKind::B2 => "B2",
+        StorageKind::R2 => "Cloudflare R2",
+        StorageKind::B2 => "Backblaze B2",
         StorageKind::WebDav => "WebDAV",
         StorageKind::Sftp => "SFTP",
     };
     match &profile.object_store {
-        Some(store) if store.prefix.is_empty() => format!("{name} {}", store.bucket),
-        Some(store) => format!("{name} {}/{}", store.bucket, store.prefix),
-        None => format!("{name} {}", profile.repository.display()),
+        Some(store) if store.prefix.is_empty() => format!("{name} · {}", store.bucket),
+        Some(store) => format!("{name} · {}/{}", store.bucket, store.prefix),
+        None => format!("{name} · {}", folder_label(&profile.repository)),
     }
 }
 
@@ -1033,5 +1080,53 @@ impl Desktop {
             probed.lifecycle_deletes_objects,
         )
         .map_err(Error::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_clock_is_local_and_shows_the_date_only_for_an_earlier_day() {
+        let sao_paulo = TimeZone::fixed(jiff::tz::offset(-3));
+        // 2023-11-14 22:13:20 UTC is 19:13 in São Paulo, the same day.
+        let synced = 1_700_000_000;
+        assert_eq!(clock_label(synced, synced + 60, &sao_paulo), "19:13");
+        assert_eq!(clock_label(synced, synced + 60, &TimeZone::UTC), "22:13");
+        // Two hours later it is past midnight in UTC and still the 14th in São Paulo.
+        let later = synced + 2 * 3600;
+        assert_eq!(clock_label(synced, later, &sao_paulo), "19:13");
+        assert_eq!(
+            clock_label(synced, later, &TimeZone::UTC),
+            "2023-11-14 22:13"
+        );
+    }
+
+    #[test]
+    fn a_failed_sync_names_what_to_check_without_the_error_text() {
+        assert_eq!(
+            failure_hint(&Error::Store { kind: "locked" }),
+            FailureHint::Keystore
+        );
+        assert_eq!(failure_hint(&Error::MissingSecret), FailureHint::Keystore);
+        assert_eq!(
+            failure_hint(&Error::Device(satchel_core::Error::Repository {
+                message: "connection refused".to_string()
+            })),
+            FailureHint::Storage
+        );
+        assert_eq!(
+            failure_hint(&Error::Device(satchel_core::Error::FolderUnavailable)),
+            FailureHint::Folder
+        );
+        assert_eq!(failure_hint(&Error::Profile), FailureHint::Other);
+    }
+
+    #[test]
+    fn ids_are_grouped_for_reading() {
+        assert_eq!(grouped("0123456789ab", 4), "0123 4567 89ab");
+        assert_eq!(grouped("01234", 4), "0123 4");
+        assert_eq!(grouped("", 4), "");
     }
 }
