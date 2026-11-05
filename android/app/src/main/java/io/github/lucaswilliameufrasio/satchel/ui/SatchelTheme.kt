@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -139,7 +140,7 @@ fun BrandMark() {
             contentDescription = null,
             modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)),
         )
-        Text("Satchel", style = MaterialTheme.typography.titleMedium, color = satchel.ink)
+        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleMedium, color = satchel.ink)
     }
 }
 

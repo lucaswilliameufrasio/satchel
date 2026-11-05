@@ -12,6 +12,18 @@ final class ProductSurfaceTests: XCTestCase {
     private let publisher = "0123456789abcdef0123456789abcdef"
     private var trace: [String] = []
 
+    /// Every test reads the approved Portuguese copy unless it pins English itself,
+    /// so the result does not depend on the simulator's language.
+    nonisolated override func setUp() {
+        super.setUp()
+        Copy.use("pt-BR")
+    }
+
+    nonisolated override func tearDown() {
+        Copy.use(nil)
+        super.tearDown()
+    }
+
     func testExplicitZonesKeepTheSampleClock() {
         let minus3 = TimeZone(secondsFromGMT: -3 * 60 * 60)!
         let utc = TimeZone(identifier: "UTC")!
@@ -24,6 +36,163 @@ final class ProductSurfaceTests: XCTestCase {
         XCTAssertFalse(minusText.hasSuffix("UTC"))
         XCTAssertEqual(utcText, "14/11/2023 22:13 UTC")
         XCTAssertNotEqual(shortZoneName(minus3, at: Date(timeIntervalSince1970: TimeInterval(instant))), "UTC")
+    }
+
+    func testEnglishDatesAreYearFirstWithTheZone() {
+        Copy.use("en")
+        let minus3 = TimeZone(secondsFromGMT: -3 * 60 * 60)!
+        let utc = TimeZone(identifier: "UTC")!
+        let minusText = syncedWhen(instant, zone: minus3)
+        proof("en utc-minus-3 \(minusText)")
+        XCTAssertTrue(minusText.hasPrefix("2023-11-14 19:13 "))
+        XCTAssertFalse(minusText.hasSuffix("UTC"))
+        XCTAssertEqual(syncedWhen(instant, zone: utc), "2023-11-14 22:13 UTC")
+    }
+
+    func testEnglishCopyOnTheSameSurfaces() {
+        Copy.use("en")
+        let minus3 = TimeZone(secondsFromGMT: -3 * 60 * 60)!
+        let when = syncedWhen(instant, zone: minus3)
+        let file = keptRow(follow: "see", devices: [publisher], holders: [publisherCard()])
+        let folder = CatalogRow(
+            path: "notes",
+            isDirectory: true,
+            size: 0,
+            versionUnix: instant,
+            devices: [],
+            holders: [],
+            follow: "see"
+        )
+        let catalog = render(
+            CatalogList(rows: [file, folder], canPair: true, zone: minus3, onPair: {}, onOpen: { _ in })
+        )
+        assertProductSurface(catalog)
+        let joined = catalog.labels.joined(separator: "\n")
+        proof("en catalog \(catalog.labels.joined(separator: " | "))")
+        XCTAssertTrue(joined.contains("Catalog"))
+        XCTAssertTrue(joined.contains("Join on this device"))
+        XCTAssertTrue(joined.contains("Scan the QR shown on the desktop, or enter the invite."))
+        XCTAssertTrue(joined.contains("13 B · \(when)"))
+        XCTAssertTrue(joined.contains("1 device"))
+        XCTAssertFalse(joined.contains("1 devices"))
+        XCTAssertTrue(joined.contains("View"))
+        XCTAssertTrue(joined.contains("Folder · \(when)"))
+        XCTAssertTrue(joined.contains("No devices"))
+        XCTAssertFalse(joined.contains("aparelho"))
+        XCTAssertFalse(joined.contains("Catálogo"))
+
+        let empty = render(CatalogList(rows: [], canPair: false, zone: minus3, onPair: {}, onOpen: { _ in }))
+        XCTAssertTrue(
+            empty.labels.joined(separator: "\n")
+                .contains("No files yet. What this or another device sends shows up here.")
+        )
+
+        let downloaded = keptRow(
+            follow: "once",
+            devices: [publisher, reader],
+            holders: [
+                publisherCard(),
+                DeviceCard(id: reader, name: nil, os: nil, enrolledUnix: nil, lastUnix: instant),
+            ]
+        )
+        let page = render(filePage(downloaded, busy: true, zone: minus3))
+        assertProductSurface(page)
+        let pageText = page.labels.joined(separator: "\n")
+        proof("en file \(page.labels.joined(separator: " | "))")
+        XCTAssertTrue(pageText.contains("Size"))
+        XCTAssertTrue(pageText.contains("Synced"))
+        XCTAssertTrue(pageText.contains("On this device"))
+        XCTAssertEqual(
+            firstIndexes(of: ["View", "Download now", "Always sync"], in: page.labels),
+            [true]
+        )
+        XCTAssertTrue(pageText.contains("The content stays in storage. This device does not download it."))
+        XCTAssertTrue(pageText.contains("Brings the file once and does not follow later changes."))
+        XCTAssertTrue(pageText.contains("Downloads, uploads and follows."))
+        XCTAssertTrue(pageText.contains("Saving the choice…"))
+        XCTAssertTrue(pageText.contains("Devices"))
+        XCTAssertTrue(page.selected.contains { $0.contains("Download now") })
+        let local = cardText(identifier: "device-card-local", dump: page)
+        XCTAssertTrue(local.contains { $0.contains("This device") })
+        XCTAssertTrue(local.contains { $0.contains("Last sent \(when)") })
+        let other = cardText(identifier: "device-card-other", dump: page)
+        XCTAssertTrue(other.contains { $0.contains("System exemplo") })
+        XCTAssertTrue(other.contains { $0.contains("Registered \(when)") })
+
+        let failed = render(
+            StatusPage(
+                title: String(localized: "Catalog", bundle: .copy, locale: .copy),
+                message: String(
+                    localized: "Couldn't open the catalog. Check the network and try again.",
+                    bundle: .copy,
+                    locale: .copy
+                ),
+                retry: {}
+            )
+        )
+        XCTAssertTrue(failed.labels.contains("Try again"))
+
+        let entry = render(
+            PairForm(
+                address: "127.0.0.1:9",
+                code: "482193",
+                fingerprint: String(repeating: "ab", count: 32),
+                name: "iPhone",
+                busy: false,
+                failed: true,
+                onScan: {},
+                onBack: {},
+                onSubmit: { _, _, _, _ in }
+            )
+        )
+        assertProductSurface(entry)
+        let entryText = entry.labels.joined(separator: "\n")
+        XCTAssertTrue(entryText.contains("The desktop shows the QR. The recovery password is not part of the invite."))
+        XCTAssertTrue(entryText.contains("Couldn't join. Check the code and that the other device still shows the invite."))
+        XCTAssertTrue(entryText.contains("Scan QR"))
+        XCTAssertTrue(entry.labels.contains("Join"))
+        XCTAssertTrue(entry.labels.contains("Back"))
+        XCTAssertEqual(
+            firstIndexes(of: ["Address", "Code", "Fingerprint", "Nickname"], in: entry.labels),
+            [true]
+        )
+
+        XCTAssertEqual(deviceCountLabel([]), "No devices")
+        XCTAssertEqual(deviceCountLabel([publisher]), "1 device")
+        XCTAssertEqual(deviceCountLabel([publisher, reader]), "2 devices")
+        XCTAssertEqual(folderSummary(nil), "The folder sync failed. Check the network and try again.")
+        XCTAssertEqual(
+            folderSummary(#"{"status":"ok","imported":0,"exported":0,"deletedHere":0,"deletedThere":0,"deferred":0,"conflicts":0}"#),
+            "Up to date."
+        )
+        XCTAssertEqual(
+            folderSummary(#"{"status":"ok","imported":1,"exported":1,"deletedHere":0,"deletedThere":1,"deferred":1,"conflicts":2}"#),
+            "1 change sent, 2 changes received, 2 conflicts kept in the catalog, files edited during the sync go in the next one."
+        )
+        XCTAssertEqual(
+            createFailureCopy("protection"),
+            "The storage refused: turn on bucket versioning and remove lifecycle rules that delete objects."
+        )
+        XCTAssertEqual(folderTitle, "Phone folder")
+        proof("en-copy")
+    }
+
+    func testPortuguesePluralsAndFailures() {
+        XCTAssertEqual(deviceCountLabel([]), "Nenhum aparelho")
+        XCTAssertEqual(deviceCountLabel([publisher]), "1 aparelho")
+        XCTAssertEqual(deviceCountLabel([publisher, reader]), "2 aparelhos")
+        XCTAssertEqual(
+            folderSummary(#"{"status":"ok","imported":2,"exported":0,"deletedHere":0,"deletedThere":1,"deferred":1,"conflicts":2}"#),
+            "2 mudanças enviadas, 1 mudança recebida, 2 conflitos guardados no catálogo, arquivos editados durante a sincronização vão na próxima."
+        )
+        XCTAssertEqual(
+            createFailureCopy("protection"),
+            "O armazenamento recusou: ligue o versionamento do bucket e remova regras de ciclo de vida que apagam objetos."
+        )
+        XCTAssertEqual(createFailureCopy("other"), "Não foi possível criar. Confira os campos, o versionamento e o ciclo de vida.")
+        XCTAssertEqual(folderTitle, "Pasta do celular")
+        XCTAssertEqual(followLabel("always"), "Sincronizar sempre")
+        proof("pt-copy")
     }
 
     func testCatalogFileAndEntryAreCustomProductSurfaces() {
@@ -78,10 +247,25 @@ final class ProductSurfaceTests: XCTestCase {
         XCTAssertTrue(empty.labels.joined(separator: "\n").contains("Nenhum arquivo ainda. O que este ou outro aparelho enviar aparece aqui."))
         XCTAssertTrue(empty.identifiers.contains(ProductSurface.mark))
 
-        let loading = render(StatusPage(title: "Catálogo", message: "Lendo o catálogo…"))
+        let loading = render(
+            StatusPage(
+                title: String(localized: "Catalog", bundle: .copy, locale: .copy),
+                message: String(localized: "Reading the catalog…", bundle: .copy, locale: .copy)
+            )
+        )
         assertProductSurface(loading)
         XCTAssertTrue(loading.labels.joined(separator: "\n").contains("Lendo o catálogo…"))
-        let failed = render(StatusPage(title: "Catálogo", message: "Não foi possível abrir o catálogo. Confira a rede e tente de novo.", retry: {}))
+        let failed = render(
+            StatusPage(
+                title: String(localized: "Catalog", bundle: .copy, locale: .copy),
+                message: String(
+                    localized: "Couldn't open the catalog. Check the network and try again.",
+                    bundle: .copy,
+                    locale: .copy
+                ),
+                retry: {}
+            )
+        )
         assertProductSurface(failed)
         XCTAssertTrue(failed.labels.joined(separator: "\n").contains("Não foi possível abrir o catálogo. Confira a rede e tente de novo."))
         XCTAssertTrue(failed.labels.contains("Tentar de novo"), "a failure offers Tentar de novo")
@@ -652,7 +836,8 @@ final class ProductSurfaceTests: XCTestCase {
             guard let end = rest.firstIndex(of: "\"") else {
                 return
             }
-            let text = String(rest[..<end])
+            // `String(reflecting:)` escapes an apostrophe, as in English "Couldn't".
+            let text = String(rest[..<end]).replacingOccurrences(of: "\\'", with: "'")
             if !text.isEmpty {
                 found.append(text)
             }

@@ -1,6 +1,8 @@
 package io.github.lucaswilliameufrasio.satchel.catalog
 
 import io.github.lucaswilliameufrasio.satchel.JsonCursor
+import io.github.lucaswilliameufrasio.satchel.R
+import io.github.lucaswilliameufrasio.satchel.Words
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -18,43 +20,35 @@ enum class Follow {
 
 const val SAMPLE_READER_ID = "fedcba9876543210fedcba9876543210"
 
-const val LOADING_COPY = "Lendo o catálogo…"
-
-const val OPEN_FAILURE_COPY = "Não foi possível abrir o catálogo. Confira a rede e tente de novo."
-
-const val EMPTY_CATALOG = "Nenhum arquivo ainda. O que este ou outro aparelho enviar aparece aqui."
-
-const val SAVING_COPY = "Salvando a escolha…"
-
-const val ENTRY_TITLE = "Entrar neste aparelho"
-
-const val ENTRY_NOTE = "O desktop mostra o QR. A senha de recuperação não faz parte do convite."
-
-const val PAIR_SUPPORT = "Ler o QR mostrado no desktop, ou informar o convite."
-
-val ENTRY_FIELDS = listOf("Endereço", "Código", "Impressão digital", "Apelido")
+/** Labels of the join fields, in the order the screen shows them. */
+val ENTRY_FIELDS = listOf(
+    R.string.field_address,
+    R.string.field_code,
+    R.string.field_fingerprint,
+    R.string.field_nickname,
+)
 
 /** Label shown for a follow state. */
-fun followLabel(follow: Follow): String {
+fun followLabel(follow: Follow, words: Words): String {
     return when (follow) {
-        Follow.See -> "Ver"
-        Follow.Once -> "Baixar agora"
-        Follow.Always -> "Sincronizar sempre"
+        Follow.See -> words.text(R.string.follow_see)
+        Follow.Once -> words.text(R.string.follow_once)
+        Follow.Always -> words.text(R.string.follow_always)
     }
 }
 
 /** Support sentence under a follow choice. */
-fun followDetail(follow: Follow, directory: Boolean): String {
+fun followDetail(follow: Follow, directory: Boolean, words: Words): String {
     if (follow == Follow.Once) {
-        return "Traz o arquivo uma vez e não acompanha mudanças posteriores."
+        return words.text(R.string.follow_once_detail)
     }
     if (follow == Follow.Always) {
         if (directory) {
-            return "Baixa, envia e acompanha. Arquivo novo dentro desta pasta entra nesse estado."
+            return words.text(R.string.follow_always_folder_detail)
         }
-        return "Baixa, envia e acompanha."
+        return words.text(R.string.follow_always_detail)
     }
-    return "O conteúdo fica no storage. Este aparelho não baixa."
+    return words.text(R.string.follow_see_detail)
 }
 
 /** Wire value stored in a snapshot description. */
@@ -154,22 +148,23 @@ fun rowTitle(row: CatalogRow): String {
     return row.path
 }
 
-private val clockFormatter: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm", Locale.US)
-
 /**
- * `versionUnix` in `zone`, as `dd/MM/yyyy HH:mm` plus that zone's short name.
+ * `versionUnix` in `zone`, in the language's `clock_pattern` plus that zone's short name.
  *
- * A UTC zone keeps the short name `UTC`, so the clock does not depend on the machine.
+ * Portuguese reads `dd/MM/yyyy HH:mm`; English reads `yyyy-MM-dd HH:mm`, as on iOS and the desktop, so the
+ * day and month are never ambiguous. A UTC zone keeps the short name `UTC`, so the
+ * clock does not depend on the machine.
  */
-fun syncedWhen(versionUnix: Long, zone: ZoneId): String {
-    val clock = clockFormatter.withZone(zone).format(Instant.ofEpochSecond(versionUnix))
+fun syncedWhen(versionUnix: Long, zone: ZoneId, words: Words): String {
+    val locale = Locale.forLanguageTag(words.text(R.string.format_locale))
+    val formatter = DateTimeFormatter.ofPattern(words.text(R.string.clock_pattern), locale)
+    val clock = formatter.withZone(zone).format(Instant.ofEpochSecond(versionUnix))
     return "$clock ${shortZoneName(zone)}"
 }
 
 /** Sync time shown on the phone. */
-fun rowWhen(row: CatalogRow, zone: ZoneId): String {
-    return syncedWhen(row.versionUnix, zone)
+fun rowWhen(row: CatalogRow, zone: ZoneId, words: Words): String {
+    return syncedWhen(row.versionUnix, zone, words)
 }
 
 /** Short name of `zone`. UTC stays `UTC` rather than `Z`. */
@@ -205,28 +200,25 @@ fun byteCount(size: Long): String {
 }
 
 /** Support line under a catalog row. A folder never shows `0 B`. */
-fun catalogMeta(row: CatalogRow, zone: ZoneId): String {
-    val whenText = syncedWhen(row.versionUnix, zone)
+fun catalogMeta(row: CatalogRow, zone: ZoneId, words: Words): String {
+    val whenText = syncedWhen(row.versionUnix, zone, words)
     if (row.isDirectory) {
-        return "Pasta · $whenText"
+        return "${words.text(R.string.folder)} · $whenText"
     }
     return "${byteCount(row.size)} · $whenText"
 }
 
 /** How many devices keep a copy. This is not the opaque id. */
-fun deviceCountLabel(devices: List<String>): String {
+fun deviceCountLabel(devices: List<String>, words: Words): String {
     if (devices.isEmpty()) {
-        return "Nenhum aparelho"
+        return words.text(R.string.devices_none)
     }
-    if (devices.size == 1) {
-        return "1 aparelho"
-    }
-    return "${devices.size} aparelhos"
+    return words.count(R.plurals.device_count, devices.size, devices.size)
 }
 
-/** The row text the list shows: path, size or Pasta, date, count, and state. */
-fun catalogRowText(row: CatalogRow, zone: ZoneId): String {
-    return "${rowTitle(row)}\n${catalogMeta(row, zone)}\n${deviceCountLabel(row.devices)}\n${followLabel(row.follow)}"
+/** The row text the list shows: path, size or folder, date, count, and state. */
+fun catalogRowText(row: CatalogRow, zone: ZoneId, words: Words): String {
+    return "${rowTitle(row)}\n${catalogMeta(row, zone, words)}\n${deviceCountLabel(row.devices, words)}\n${followLabel(row.follow, words)}"
 }
 
 /** Opaque id in groups of four. Anything else is returned unchanged. */
@@ -268,18 +260,23 @@ fun localDeviceId(hasGrant: Boolean, storedDeviceId: String?): String {
     return ""
 }
 
-/** Header lines on the file screen: size or Pasta, then the same date. */
-fun fileHeaderLines(row: CatalogRow, zone: ZoneId): List<String> {
+/** Header lines on the file screen: size or folder, then the same date. */
+fun fileHeaderLines(row: CatalogRow, zone: ZoneId, words: Words): List<String> {
     val size = if (row.isDirectory) {
-        "Pasta"
+        words.text(R.string.folder)
     } else {
         byteCount(row.size)
     }
-    return listOf("Tamanho", size, "Sincronizado", syncedWhen(row.versionUnix, zone))
+    return listOf(
+        words.text(R.string.header_size),
+        size,
+        words.text(R.string.header_synced),
+        syncedWhen(row.versionUnix, zone, words),
+    )
 }
 
 /** The three states, in order, with support text and a check on the selected one. */
-fun fileChoiceLines(row: CatalogRow, busy: Boolean): List<String> {
+fun fileChoiceLines(row: CatalogRow, busy: Boolean, words: Words): List<String> {
     val lines = mutableListOf<String>()
     for (follow in Follow.entries) {
         val mark = if (row.follow == follow) {
@@ -287,11 +284,11 @@ fun fileChoiceLines(row: CatalogRow, busy: Boolean): List<String> {
         } else {
             ""
         }
-        lines.add("$mark${followLabel(follow)}")
-        lines.add(followDetail(follow, row.isDirectory))
+        lines.add("$mark${followLabel(follow, words)}")
+        lines.add(followDetail(follow, row.isDirectory, words))
     }
     if (busy) {
-        lines.add(SAVING_COPY)
+        lines.add(words.text(R.string.saving_choice))
     }
     return lines
 }
@@ -299,7 +296,7 @@ fun fileChoiceLines(row: CatalogRow, busy: Boolean): List<String> {
 /**
  * Lines for one device card.
  *
- * A missing holder field is omitted. This phone is titled Este aparelho.
+ * A missing holder field is omitted. This phone is titled This device.
  * Another phone uses its published apelido, or the grouped id when it has none.
  */
 fun deviceCardLines(
@@ -307,26 +304,27 @@ fun deviceCardLines(
     card: DeviceHolder?,
     local: Boolean,
     zone: ZoneId,
+    words: Words,
 ): List<String> {
     val lines = mutableListOf<String>()
-    val title = deviceTitle(deviceId, card, local)
+    val title = deviceTitle(deviceId, card, local, words)
     lines.add(title)
     if (card != null) {
         val name = card.name
         if (name != null && title != name) {
-            lines.add("Apelido $name")
+            lines.add(words.text(R.string.card_nickname, name))
         }
         val os = card.os
         if (os != null) {
-            lines.add("Sistema $os")
+            lines.add(words.text(R.string.card_system, os))
         }
         val enrolled = card.enrolledUnix
         if (enrolled != null) {
-            lines.add("Registrado ${syncedWhen(enrolled, zone)}")
+            lines.add(words.text(R.string.card_enrolled, syncedWhen(enrolled, zone, words)))
         }
         val last = card.lastUnix
         if (last != null) {
-            lines.add("Último envio ${syncedWhen(last, zone)}")
+            lines.add(words.text(R.string.card_last_sent, syncedWhen(last, zone, words)))
         }
     }
     val grouped = groupedDeviceId(deviceId)
@@ -337,15 +335,15 @@ fun deviceCardLines(
 }
 
 /** Cards for every device on the row. An empty list says nobody keeps a copy. */
-fun deviceSectionLines(row: CatalogRow, localDeviceId: String, zone: ZoneId): List<String> {
+fun deviceSectionLines(row: CatalogRow, localDeviceId: String, zone: ZoneId, words: Words): List<String> {
     if (row.devices.isEmpty()) {
-        return listOf("Nenhum aparelho mantém cópia.")
+        return listOf(words.text(R.string.devices_none_keep))
     }
     val lines = mutableListOf<String>()
     for (device in row.devices) {
         val card = holderFor(device, row.holders)
         val local = device == localDeviceId && localDeviceId.isNotEmpty()
-        lines.addAll(deviceCardLines(device, card, local, zone))
+        lines.addAll(deviceCardLines(device, card, local, zone, words))
     }
     return lines
 }
@@ -448,9 +446,9 @@ fun markRequest(path: String, follow: Follow, storedApelido: String): MarkReques
     return MarkRequest(path, followWire(follow), "", "")
 }
 
-private fun deviceTitle(deviceId: String, card: DeviceHolder?, local: Boolean): String {
+private fun deviceTitle(deviceId: String, card: DeviceHolder?, local: Boolean, words: Words): String {
     if (local) {
-        return "Este aparelho"
+        return words.text(R.string.this_device)
     }
     val name = card?.name
     if (name != null && name.isNotEmpty()) {

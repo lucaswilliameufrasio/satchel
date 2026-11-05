@@ -1,0 +1,1091 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "%lld changes received": {
+      "comment": "Part of the folder round summary.",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld change received"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld changes received"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld mudança recebida"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld mudanças recebidas"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld changes sent": {
+      "comment": "Part of the folder round summary.",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld change sent"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld changes sent"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld mudança enviada"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld mudanças enviadas"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld conflicts kept in the catalog": {
+      "comment": "Part of the folder round summary.",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld conflict kept in the catalog"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld conflicts kept in the catalog"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld conflito guardado no catálogo"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld conflitos guardados no catálogo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld devices": {
+      "comment": "Devices that keep a copy of a catalog row. Zero has its own string.",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld device"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld devices"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld aparelho"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld aparelhos"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Address": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Endereço"
+          }
+        }
+      }
+    },
+    "Address %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Endereço %@"
+          }
+        }
+      }
+    },
+    "Always sync": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizar sempre"
+          }
+        }
+      }
+    },
+    "Approve": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aprovar"
+          }
+        }
+      }
+    },
+    "Back": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voltar"
+          }
+        }
+      }
+    },
+    "Brings the file once and does not follow later changes.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traz o arquivo uma vez e não acompanha mudanças posteriores."
+          }
+        }
+      }
+    },
+    "Catalog": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Catálogo"
+          }
+        }
+      }
+    },
+    "Change now": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar agora"
+          }
+        }
+      }
+    },
+    "Change recovery password": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar senha de recuperação"
+          }
+        }
+      }
+    },
+    "Changing…": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocando…"
+          }
+        }
+      }
+    },
+    "Check the fields. The device key must be different from the maintenance key.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confira os campos. A chave dos aparelhos precisa ser diferente da de manutenção."
+          }
+        }
+      }
+    },
+    "Choose a folder. What you put in it goes to the repository. What comes from the other devices shows up in the catalog and goes into the folder when you mark it to download.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha uma pasta. O que você puser nela vai para o repositório. O que vem dos outros aparelhos aparece no catálogo e entra na pasta quando você marca para baixar."
+          }
+        }
+      }
+    },
+    "Choose another folder": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolher outra pasta"
+          }
+        }
+      }
+    },
+    "Code": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Código"
+          }
+        }
+      }
+    },
+    "Code %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Código %@"
+          }
+        }
+      }
+    },
+    "Couldn't approve. Close the invite and open it again.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível aprovar. Feche o convite e abra de novo."
+          }
+        }
+      }
+    },
+    "Couldn't change it. The old password still works. Check the connection to the storage.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível trocar. A senha antiga continua valendo. Confira a conexão com o armazenamento."
+          }
+        }
+      }
+    },
+    "Couldn't create. Check the fields, versioning and lifecycle.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível criar. Confira os campos, o versionamento e o ciclo de vida."
+          }
+        }
+      }
+    },
+    "Couldn't join. Check the code and that the other device still shows the invite.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível entrar. Confira o código e se o outro aparelho ainda mostra o convite."
+          }
+        }
+      }
+    },
+    "Couldn't open the catalog. Check the network and try again.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível abrir o catálogo. Confira a rede e tente de novo."
+          }
+        }
+      }
+    },
+    "Couldn't reach the storage. Check the endpoint, region and keys.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não consegui falar com o armazenamento. Confira endpoint, região e as chaves."
+          }
+        }
+      }
+    },
+    "Create": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar"
+          }
+        }
+      }
+    },
+    "Create repository": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar repositório"
+          }
+        }
+      }
+    },
+    "Deny": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Negar"
+          }
+        }
+      }
+    },
+    "Device %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aparelho %@"
+          }
+        }
+      }
+    },
+    "Device access key": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chave de acesso dos aparelhos"
+          }
+        }
+      }
+    },
+    "Device secret": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segredo dos aparelhos"
+          }
+        }
+      }
+    },
+    "Devices": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aparelhos"
+          }
+        }
+      }
+    },
+    "Download now": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixar agora"
+          }
+        }
+      }
+    },
+    "Downloads, uploads and follows.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixa, envia e acompanha."
+          }
+        }
+      }
+    },
+    "Downloads, uploads and follows. A new file inside this folder gets this state.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixa, envia e acompanha. Arquivo novo dentro desta pasta entra nesse estado."
+          }
+        }
+      }
+    },
+    "Fingerprint": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impressão digital"
+          }
+        }
+      }
+    },
+    "Fingerprint %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impressão digital %@"
+          }
+        }
+      }
+    },
+    "Folder": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasta"
+          }
+        }
+      }
+    },
+    "Folder · %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasta · %@"
+          }
+        }
+      }
+    },
+    "I saved it": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardei"
+          }
+        }
+      }
+    },
+    "Invite": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convite"
+          }
+        }
+      }
+    },
+    "Invite QR": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR do convite"
+          }
+        }
+      }
+    },
+    "Join": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar"
+          }
+        }
+      }
+    },
+    "Join on this device": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar neste aparelho"
+          }
+        }
+      }
+    },
+    "Keep this password in a password manager that opens without this repository. It shows only now, and official restic uses this password.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guarde esta senha num gerenciador de senhas que abre sem este repositório. Ela aparece só agora e o restic oficial usa esta senha."
+          }
+        }
+      }
+    },
+    "Last sent %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Último envio %@"
+          }
+        }
+      }
+    },
+    "Maintenance access key": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chave de acesso de manutenção"
+          }
+        }
+      }
+    },
+    "Maintenance secret": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segredo de manutenção"
+          }
+        }
+      }
+    },
+    "Makes a new password and shows it once. The other devices keep opening with their own key. Anyone who kept the old key file, or reads old versions in a bucket with versioning, still opens with the old password: the data key does not change.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gera uma senha nova e a mostra uma vez. Os outros aparelhos continuam abrindo com a chave deles. Quem guardou o arquivo de chave antigo, ou lê versões antigas num bucket com versionamento, ainda abre com a senha velha: a chave dos dados não muda."
+          }
+        }
+      }
+    },
+    "Nickname": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apelido"
+          }
+        }
+      }
+    },
+    "Nickname %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apelido %@"
+          }
+        }
+      }
+    },
+    "No device keeps a copy.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum aparelho mantém cópia."
+          }
+        }
+      }
+    },
+    "No devices": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum aparelho"
+          }
+        }
+      }
+    },
+    "No files yet. What this or another device sends shows up here.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum arquivo ainda. O que este ou outro aparelho enviar aparece aqui."
+          }
+        }
+      }
+    },
+    "On this device": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neste aparelho"
+          }
+        }
+      }
+    },
+    "Only this device, which created the repository, can change it.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só este aparelho, que criou o repositório, pode trocar."
+          }
+        }
+      }
+    },
+    "Phone folder": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasta do celular"
+          }
+        }
+      }
+    },
+    "Phone folder: %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasta do celular: %@"
+          }
+        }
+      }
+    },
+    "Point the camera at the QR on the desktop.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aponte a câmera para o QR do desktop."
+          }
+        }
+      }
+    },
+    "Prefix (can be empty)": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefixo (pode ficar vazio)"
+          }
+        }
+      }
+    },
+    "Reading the catalog…": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lendo o catálogo…"
+          }
+        }
+      }
+    },
+    "Recovery password": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senha de recuperação"
+          }
+        }
+      }
+    },
+    "Region": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Região"
+          }
+        }
+      }
+    },
+    "Registered %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrado %@"
+          }
+        }
+      }
+    },
+    "Saving the choice…": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvando a escolha…"
+          }
+        }
+      }
+    },
+    "Scan QR": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ler QR"
+          }
+        }
+      }
+    },
+    "Scan the QR shown on the desktop, or enter the invite.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ler o QR mostrado no desktop, ou informar o convite."
+          }
+        }
+      }
+    },
+    "Show invite": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar convite"
+          }
+        }
+      }
+    },
+    "Size": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho"
+          }
+        }
+      }
+    },
+    "Synced": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizado"
+          }
+        }
+      }
+    },
+    "Syncing the folder…": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sincronizando a pasta…"
+          }
+        }
+      }
+    },
+    "System %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema %@"
+          }
+        }
+      }
+    },
+    "Tap to sync now. The app also syncs when it opens.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toque para sincronizar agora. O app também sincroniza ao abrir."
+          }
+        }
+      }
+    },
+    "The app can no longer open this folder. Choose again.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O app não consegue mais abrir esta pasta. Escolha de novo."
+          }
+        }
+      }
+    },
+    "The content stays in storage. This device does not download it.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O conteúdo fica no storage. Este aparelho não baixa."
+          }
+        }
+      }
+    },
+    "The current folder stays as it is. The new one gets the files this device syncs.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pasta atual fica como está. A nova recebe os arquivos que este aparelho sincroniza."
+          }
+        }
+      }
+    },
+    "The desktop shows the QR. The recovery password is not part of the invite.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O desktop mostra o QR. A senha de recuperação não faz parte do convite."
+          }
+        }
+      }
+    },
+    "The folder did not respond or suddenly went empty. Nothing was deleted. Check the folder or choose again.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pasta não respondeu ou ficou vazia de repente. Nada foi apagado. Confira a pasta ou escolha de novo."
+          }
+        }
+      }
+    },
+    "The folder stays on this device only. It has no object versioning.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pasta fica só neste aparelho. Ela não tem versionamento de objeto."
+          }
+        }
+      }
+    },
+    "The folder sync failed. Check the network and try again.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sincronização da pasta falhou. Confira a rede e tente de novo."
+          }
+        }
+      }
+    },
+    "The old password no longer opens the repository. Keep this one in the password manager.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A senha antiga não abre mais o repositório. Guarde esta no gerenciador de senhas."
+          }
+        }
+      }
+    },
+    "The recovery password is not in the invite.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A senha de recuperação não vai no convite."
+          }
+        }
+      }
+    },
+    "The repository was created, but this device couldn't keep the grant in the Keychain. Save the password below now: without it and without the grant, this device can't open it again.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O repositório foi criado, mas este aparelho não conseguiu guardar a concessão no Keychain. Guarde a senha abaixo agora: sem ela e sem a concessão não dá para abrir de novo por aqui."
+          }
+        }
+      }
+    },
+    "The storage did not let this key check versioning. Give it admin permission on the bucket. R2 does not expose versioning through the S3 API and is always refused.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O armazenamento não deixou esta chave consultar o versionamento. Dê a ela permissão de administrador no bucket. O R2 não expõe versionamento pela API S3 e será sempre recusado."
+          }
+        }
+      }
+    },
+    "The storage needs versioning turned on and no lifecycle rule that deletes objects. The device key is only limited to deleting its own locks if the storage applies a per-key policy (AWS S3, MinIO, RustFS). On R2 and B2 that key can delete everything.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O armazenamento precisa ter versionamento ligado e nenhum ciclo de vida que apague objeto. A chave dos aparelhos só fica limitada a apagar os próprios locks se o armazenamento aplicar política por chave (S3 da AWS, MinIO, RustFS). No R2 e no B2 essa chave pode apagar tudo."
+          }
+        }
+      }
+    },
+    "The storage refused: turn on bucket versioning and remove lifecycle rules that delete objects.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O armazenamento recusou: ligue o versionamento do bucket e remova regras de ciclo de vida que apagam objetos."
+          }
+        }
+      }
+    },
+    "There is already a repository here. Choose another prefix, or join it with a code.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Já existe um repositório neste lugar. Escolha outro prefixo, ou entre nele com um código."
+          }
+        }
+      }
+    },
+    "This device": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este aparelho"
+          }
+        }
+      }
+    },
+    "This device keeps the recovery password. The other one joins with a code.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este aparelho guarda a senha de recuperação. O outro entra com um código."
+          }
+        }
+      }
+    },
+    "This device will keep the recovery password and the maintenance credential. The other device joins with a code and does not type the account again.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este aparelho passa a guardar a senha de recuperação e a credencial de manutenção. O outro aparelho entra com um código e não digita a conta de novo."
+          }
+        }
+      }
+    },
+    "Try again": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentar de novo"
+          }
+        }
+      }
+    },
+    "Up to date.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em dia."
+          }
+        }
+      }
+    },
+    "View": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver"
+          }
+        }
+      }
+    },
+    "Waiting for the other device to enter the code.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando o outro aparelho digitar o código."
+          }
+        }
+      }
+    },
+    "files edited during the sync go in the next one": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "arquivos editados durante a sincronização vão na próxima"
+          }
+        }
+      }
+    },
+    "yyyy-MM-dd HH:mm": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dd/MM/yyyy HH:mm"
+          }
+        }
+      },
+      "comment": "DateFormatter pattern for sync times. The short zone name follows it. Keep it unambiguous."
+    }
+  },
+  "version": "1.0"
+}

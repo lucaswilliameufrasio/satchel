@@ -590,25 +590,25 @@ enum SatchelCore {
 
 func followLabel(_ follow: String) -> String {
     if follow == "once" {
-        return "Baixar agora"
+        return String(localized: "Download now", bundle: .copy, locale: .copy)
     }
     if follow == "always" {
-        return "Sincronizar sempre"
+        return String(localized: "Always sync", bundle: .copy, locale: .copy)
     }
-    return "Ver"
+    return String(localized: "View", bundle: .copy, locale: .copy)
 }
 
 func followDetail(_ follow: String, directory: Bool) -> String {
     if follow == "once" {
-        return "Traz o arquivo uma vez e não acompanha mudanças posteriores."
+        return String(localized: "Brings the file once and does not follow later changes.", bundle: .copy, locale: .copy)
     }
     if follow == "always" {
         if directory {
-            return "Baixa, envia e acompanha. Arquivo novo dentro desta pasta entra nesse estado."
+            return String(localized: "Downloads, uploads and follows. A new file inside this folder gets this state.", bundle: .copy, locale: .copy)
         }
-        return "Baixa, envia e acompanha."
+        return String(localized: "Downloads, uploads and follows.", bundle: .copy, locale: .copy)
     }
-    return "O conteúdo fica no storage. Este aparelho não baixa."
+    return String(localized: "The content stays in storage. This device does not download it.", bundle: .copy, locale: .copy)
 }
 
 func byteCount(_ size: Int64) -> String {
@@ -637,19 +637,16 @@ func byteCount(_ size: Int64) -> String {
 func catalogMeta(_ row: CatalogRow, zone: TimeZone = .current) -> String {
     let when = syncedWhen(row.versionUnix, zone: zone)
     if row.isDirectory {
-        return "Pasta · \(when)"
+        return String(localized: "Folder · \(when)", bundle: .copy, locale: .copy)
     }
     return "\(byteCount(row.size)) · \(when)"
 }
 
 func deviceCountLabel(_ devices: [String]) -> String {
     if devices.isEmpty {
-        return "Nenhum aparelho"
+        return String(localized: "No devices", bundle: .copy, locale: .copy)
     }
-    if devices.count == 1 {
-        return "1 aparelho"
-    }
-    return "\(devices.count) aparelhos"
+    return String(localized: "\(devices.count) devices", bundle: .copy, locale: .copy)
 }
 
 func groupedDeviceId(_ id: String) -> String {
@@ -678,7 +675,8 @@ func syncedWhen(_ versionUnix: Int64, zone: TimeZone = .current) -> String {
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.timeZone = zone
-    formatter.dateFormat = "dd/MM/yyyy HH:mm"
+    // English shows yyyy-MM-dd HH:mm; pt-BR keeps dd/MM/yyyy HH:mm. Both end in the short zone name.
+    formatter.dateFormat = String(localized: "yyyy-MM-dd HH:mm", bundle: .copy, locale: .copy)
     let clock = formatter.string(from: instant)
     return "\(clock) \(shortZoneName(zone, at: instant))"
 }
@@ -724,33 +722,55 @@ func folderSummary(_ reportJSON: String?) -> String {
     let received = count("exported") + count("deletedThere")
     var parts: [String] = []
     if sent > 0 {
-        parts.append(sent == 1 ? "1 mudança enviada" : "\(sent) mudanças enviadas")
+        parts.append(String(localized: "\(sent) changes sent", bundle: .copy, locale: .copy))
     }
     if received > 0 {
-        parts.append(received == 1 ? "1 mudança recebida" : "\(received) mudanças recebidas")
+        parts.append(String(localized: "\(received) changes received", bundle: .copy, locale: .copy))
     }
     let conflicts = count("conflicts")
     if conflicts > 0 {
-        parts.append(conflicts == 1 ? "1 conflito guardado no catálogo" : "\(conflicts) conflitos guardados no catálogo")
+        parts.append(String(localized: "\(conflicts) conflicts kept in the catalog", bundle: .copy, locale: .copy))
     }
     if count("deferred") > 0 {
-        parts.append("arquivos editados durante a sincronização vão na próxima")
+        parts.append(String(localized: "files edited during the sync go in the next one", bundle: .copy, locale: .copy))
     }
     if parts.isEmpty {
-        return "Em dia."
+        return String(localized: "Up to date.", bundle: .copy, locale: .copy)
     }
     let joined = parts.joined(separator: ", ")
-    return joined.prefix(1).uppercased() + joined.dropFirst() + "."
+    return joined.prefix(1).uppercased(with: .copy) + joined.dropFirst() + "."
 }
 
-let folderTitle = "Pasta do celular"
-let folderChooseNote =
-    "Escolha uma pasta. O que você puser nela vai para o repositório. "
-    + "O que vem dos outros aparelhos aparece no catálogo e entra na pasta quando você marca para baixar."
-let folderReadyNote = "Toque para sincronizar agora. O app também sincroniza ao abrir."
-let folderSwitchNote = "A pasta atual fica como está. A nova recebe os arquivos que este aparelho sincroniza."
-let folderUnavailable =
-    "A pasta não respondeu ou ficou vazia de repente. Nada foi apagado. Confira a pasta ou escolha de novo."
-let folderLost = "O app não consegue mais abrir esta pasta. Escolha de novo."
-let folderSyncFailed = "A sincronização da pasta falhou. Confira a rede e tente de novo."
-let folderSyncing = "Sincronizando a pasta…"
+// Computed, so a test that pins a language with `Copy.use` reads that language.
+var folderTitle: String { String(localized: "Phone folder", bundle: .copy, locale: .copy) }
+var folderChooseNote: String {
+    String(
+        localized: "Choose a folder. What you put in it goes to the repository. What comes from the other devices shows up in the catalog and goes into the folder when you mark it to download.",
+        bundle: .copy,
+        locale: .copy
+    )
+}
+var folderReadyNote: String {
+    String(localized: "Tap to sync now. The app also syncs when it opens.", bundle: .copy, locale: .copy)
+}
+var folderSwitchNote: String {
+    String(
+        localized: "The current folder stays as it is. The new one gets the files this device syncs.",
+        bundle: .copy,
+        locale: .copy
+    )
+}
+var folderUnavailable: String {
+    String(
+        localized: "The folder did not respond or suddenly went empty. Nothing was deleted. Check the folder or choose again.",
+        bundle: .copy,
+        locale: .copy
+    )
+}
+var folderLost: String {
+    String(localized: "The app can no longer open this folder. Choose again.", bundle: .copy, locale: .copy)
+}
+var folderSyncFailed: String {
+    String(localized: "The folder sync failed. Check the network and try again.", bundle: .copy, locale: .copy)
+}
+var folderSyncing: String { String(localized: "Syncing the folder…", bundle: .copy, locale: .copy) }

@@ -14,6 +14,9 @@
 		0000000000000000000000A6 /* BackupExclusion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000018 /* BackupExclusion.swift */; };
 		0000000000000000000000A5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000017 /* Assets.xcassets */; };
 		0000000000000000000000A7 /* ProductSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000001A /* ProductSurface.swift */; };
+		0000000000000000000000A8 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000001F /* Localization.swift */; };
+		0000000000000000000000A9 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000019 /* Localizable.xcstrings */; };
+		0000000000000000000000AA /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000010 /* InfoPlist.xcstrings */; };
 		0000000000000000000000B1 /* ProductSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000001B /* ProductSurfaceTests.swift */; };
 		0000000000000000000000B2 /* CatalogLaunchUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000001C /* CatalogLaunchUITests.swift */; };
 /* End PBXBuildFile section */
@@ -28,6 +31,9 @@
 		000000000000000000000016 /* Satchel.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Satchel.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		000000000000000000000017 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		00000000000000000000001A /* ProductSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSurface.swift; sourceTree = "<group>"; };
+		00000000000000000000001F /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
+		000000000000000000000019 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		000000000000000000000010 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		00000000000000000000001B /* ProductSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSurfaceTests.swift; sourceTree = "<group>"; };
 		00000000000000000000001C /* CatalogLaunchUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogLaunchUITests.swift; sourceTree = "<group>"; };
 		00000000000000000000001D /* SatchelProductTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SatchelProductTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -44,7 +50,10 @@
 				000000000000000000000014 /* QrScannerView.swift */,
 				000000000000000000000018 /* BackupExclusion.swift */,
 				00000000000000000000001A /* ProductSurface.swift */,
+				00000000000000000000001F /* Localization.swift */,
 				000000000000000000000015 /* Info.plist */,
+				000000000000000000000019 /* Localizable.xcstrings */,
+				000000000000000000000010 /* InfoPlist.xcstrings */,
 				000000000000000000000017 /* Assets.xcassets */,
 			);
 			path = Satchel;
@@ -156,6 +165,7 @@
 			knownRegions = (
 				en,
 				Base,
+				"pt-BR",
 			);
 			mainGroup = 000000000000000000000023;
 			productRefGroup = 000000000000000000000022 /* Products */;
@@ -199,6 +209,7 @@
 				0000000000000000000000A4 /* QrScannerView.swift in Sources */,
 				0000000000000000000000A6 /* BackupExclusion.swift in Sources */,
 				0000000000000000000000A7 /* ProductSurface.swift in Sources */,
+				0000000000000000000000A8 /* Localization.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -210,6 +221,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				0000000000000000000000A5 /* Assets.xcassets in Resources */,
+				0000000000000000000000A9 /* Localizable.xcstrings in Resources */,
+				0000000000000000000000AA /* InfoPlist.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -291,6 +304,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 			};
@@ -305,6 +319,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 			};
@@ -324,7 +339,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Satchel/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Satchel;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Satchel lê o QR mostrado no desktop para preencher o convite.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Satchel reads the QR shown on the desktop to fill in the invite.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -350,6 +365,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.lucaswilliameufrasio.satchel;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
@@ -367,7 +383,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Satchel/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Satchel;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Satchel lê o QR mostrado no desktop para preencher o convite.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Satchel reads the QR shown on the desktop to fill in the invite.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -393,6 +409,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.lucaswilliameufrasio.satchel;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;

@@ -1,8 +1,6 @@
 package io.github.lucaswilliameufrasio.satchel
 
 import io.github.lucaswilliameufrasio.satchel.catalog.ENTRY_FIELDS
-import io.github.lucaswilliameufrasio.satchel.catalog.ENTRY_NOTE
-import io.github.lucaswilliameufrasio.satchel.catalog.ENTRY_TITLE
 import io.github.lucaswilliameufrasio.satchel.catalog.Follow
 import io.github.lucaswilliameufrasio.satchel.catalog.SAMPLE_READER_ID
 import io.github.lucaswilliameufrasio.satchel.catalog.labelStoredFromEntry
@@ -31,11 +29,19 @@ class InviteFieldsTest {
 
     @Test
     fun entryFieldsStayInOrderAndTheQrDoesNotSubmit() {
-        assertEquals("Entrar neste aparelho", ENTRY_TITLE)
-        assertEquals(listOf("Endereço", "Código", "Impressão digital", "Apelido"), ENTRY_FIELDS)
+        val pt = XmlWords("values-pt")
+        val en = XmlWords("values")
+        assertEquals("Entrar neste aparelho", pt.text(R.string.entry_title))
+        assertEquals(listOf("Endereço", "Código", "Impressão digital", "Apelido"), ENTRY_FIELDS.map { pt.text(it) })
         assertEquals(
             "O desktop mostra o QR. A senha de recuperação não faz parte do convite.",
-            ENTRY_NOTE,
+            pt.text(R.string.entry_note),
+        )
+        assertEquals("Join on this device", en.text(R.string.entry_title))
+        assertEquals(listOf("Address", "Code", "Fingerprint", "Nickname"), ENTRY_FIELDS.map { en.text(it) })
+        assertEquals(
+            "Couldn't join. Check the code and that the other device still shows the invite.",
+            en.text(R.string.join_failed),
         )
         val filled = pairingAfterQr("Casa", "127.0.0.1:9", "482193", fingerprint)
         assertFalse(filled.submit)

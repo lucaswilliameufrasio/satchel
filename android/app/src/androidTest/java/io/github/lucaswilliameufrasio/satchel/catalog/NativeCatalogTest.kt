@@ -3,6 +3,7 @@ package io.github.lucaswilliameufrasio.satchel.catalog
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import io.github.lucaswilliameufrasio.satchel.wordsIn
 import java.io.File
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
@@ -38,7 +39,7 @@ class NativeCatalogTest {
         val work = File(root, "work/kept.txt")
         assertFalse(work.exists())
         val row = rowNamed(session, "kept.txt")
-        val text = catalogRowText(row, ZoneId.systemDefault())
+        val text = catalogRowText(row, ZoneId.systemDefault(), wordsIn("pt-BR"))
         Log.i("satchel-row", text)
         File(root, "row-proof.txt").writeText(text + "\nwork-copy-absent\n")
         assertTrue(text.contains("kept.txt"))
@@ -47,6 +48,13 @@ class NativeCatalogTest {
         assertFalse(text.contains("2023-11-14T22:13:20Z"))
         assertFalse(text.contains("0123456789abcdef0123456789abcdef"))
         assertFalse(text.contains("fedcba9876543210fedcba9876543210"))
+        val english = catalogRowText(row, ZoneId.systemDefault(), wordsIn("en"))
+        assertTrue(english.contains("kept.txt"))
+        assertTrue(Regex("""\d{4}-\d{2}-\d{2} \d{2}:\d{2}""").containsMatchIn(english))
+        assertTrue(english.contains("View"))
+        assertFalse(english.contains("2023-11-14T22:13:20Z"))
+        assertFalse(english.contains("0123456789abcdef0123456789abcdef"))
+        assertFalse(english.contains("fedcba9876543210fedcba9876543210"))
     }
 
     @Test
@@ -63,7 +71,8 @@ class NativeCatalogTest {
         val bytes = work.readBytes()
         session.open()
         val row = rowNamed(session, "kept.txt")
-        val text = catalogRowText(row, ZoneId.systemDefault())
+        val text = catalogRowText(row, ZoneId.systemDefault(), wordsIn("pt-BR"))
+        val english = catalogRowText(row, ZoneId.systemDefault(), wordsIn("en"))
         Log.i("satchel-row", text)
         val still = work.lastModified()
         val body = work.readText()
@@ -73,6 +82,8 @@ class NativeCatalogTest {
         assertEquals(Follow.Once, row.follow)
         assertTrue(text.contains("Baixar agora"))
         assertTrue(text.contains("2 aparelhos"))
+        assertTrue(english.contains("Download now"))
+        assertTrue(english.contains("2 devices"))
         assertEquals("payload-bytes", body)
         assertTrue(work.readBytes().contentEquals(bytes))
         assertEquals(stamp, still)

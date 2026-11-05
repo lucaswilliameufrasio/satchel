@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Satchel lê o QR mostrado no desktop para preencher o convite.</string>
+	<string>Satchel reads the QR shown on the desktop to fill in the invite.</string>
 </dict>
 </plist>

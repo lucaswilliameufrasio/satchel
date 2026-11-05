@@ -102,7 +102,7 @@ Falha ao abrir, centralizado: Não foi possível abrir o catálogo. Confira a re
 
 ## Logo
 
-`assets/satchel-icon.png` é a marca, 1024×1024, sem texto. O iOS usa essa imagem como ícone único do app e, no topo da superfície do catálogo, como o recurso `SatchelMark`. A bandeja do macOS usa `assets/satchel-tray.rgba`, 36×36, RGB preto e o alfa da marca, como template. O Linux continua com o nome de ícone `folder-remote`.
+`assets/satchel-icon.png` é a marca, 1024×1024, sem texto. O iOS usa essa imagem como ícone único do app e, no topo da superfície do catálogo, como o recurso `SatchelMark`. A bandeja do macOS usa `assets/satchel-tray.rgba` como template do item de status. Os rótulos dela mudaram em 2026-11-05 e estão em inglês e português (ver [idiomas.md](idiomas.md) e a nota “bandeja e idiomas” em [progresso.md](progresso.md)). A vista enviada traz a pasta ou “No folder set up”, Sync now, Add device…, Show devices, as linhas de aprovação (quem quer entrar, sistema, endereço e interface, código digitado, Approve, Deny), as linhas de adicionar aparelho (código para digitar, QR, endereço, impressão digital em grupos, Stop adding), Remove device com o id opaco do outro aparelho, e Quit Satchel. Remove device não oferece a chave de recuperação nem a chave deste desktop. A senha de recuperação não aparece. O Linux continua com `folder-remote`.
 
 ## Android
 

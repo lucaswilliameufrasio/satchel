@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -50,19 +51,19 @@ internal fun QrScanner(onCode: (String) -> Unit, onClose: () -> Unit) {
         granted = allowed
     }
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Aponte a câmera para o QR do desktop.")
+        Text(stringResource(R.string.qr_point))
         if (!granted) {
             Button(
                 onClick = { request.launch(Manifest.permission.CAMERA) },
                 modifier = Modifier.padding(top = 16.dp),
             ) {
-                Text("Permitir câmera")
+                Text(stringResource(R.string.qr_allow_camera))
             }
         } else {
             CameraPreview(onCode)
         }
         Button(onClick = onClose, modifier = Modifier.padding(top = 16.dp)) {
-            Text("Voltar")
+            Text(stringResource(R.string.back))
         }
     }
 }

@@ -39,11 +39,11 @@ struct PhoneView: View {
     private var screenView: some View {
         switch model.screen {
         case .loading:
-            StatusPage(title: "Catálogo", message: "Lendo o catálogo…")
+            StatusPage(title: String(localized: "Catalog", bundle: .copy, locale: .copy), message: String(localized: "Reading the catalog…", bundle: .copy, locale: .copy))
         case .failed:
             StatusPage(
-                title: "Catálogo",
-                message: "Não foi possível abrir o catálogo. Confira a rede e tente de novo.",
+                title: String(localized: "Catalog", bundle: .copy, locale: .copy),
+                message: String(localized: "Couldn't open the catalog. Check the network and try again.", bundle: .copy, locale: .copy),
                 retry: { model.openCatalog() }
             )
         case .ready(let rows, _):
@@ -181,7 +181,7 @@ struct StatusPage: View {
                     .foregroundStyle(retry == nil ? SatchelInk.secondary : SatchelInk.ink)
                     .multilineTextAlignment(.center)
                 if let retry {
-                    WideButton(title: "Tentar de novo", id: "status-retry", action: retry)
+                    WideButton(title: String(localized: "Try again", bundle: .copy, locale: .copy), id: "status-retry", action: retry)
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 280)
@@ -205,25 +205,25 @@ struct CatalogList: View {
     let onOpen: (String) -> Void
 
     var body: some View {
-        ProductScreen(title: "Catálogo") {
+        ProductScreen(title: String(localized: "Catalog", bundle: .copy, locale: .copy)) {
             if canCreate {
                 actionCard(
-                    "Criar repositório",
-                    "Este aparelho guarda a senha de recuperação. O outro entra com um código.",
+                    String(localized: "Create repository", bundle: .copy, locale: .copy),
+                    String(localized: "This device keeps the recovery password. The other one joins with a code.", bundle: .copy, locale: .copy),
                     id: "create-repository",
                     action: onCreate
                 )
             }
             if canInvite {
                 actionCard(
-                    "Mostrar convite",
-                    "A senha de recuperação não vai no convite.",
+                    String(localized: "Show invite", bundle: .copy, locale: .copy),
+                    String(localized: "The recovery password is not in the invite.", bundle: .copy, locale: .copy),
                     id: "show-invite",
                     action: onInvite
                 )
                 actionCard(
-                    "Trocar senha de recuperação",
-                    "Só este aparelho, que criou o repositório, pode trocar.",
+                    String(localized: "Change recovery password", bundle: .copy, locale: .copy),
+                    String(localized: "Only this device, which created the repository, can change it.", bundle: .copy, locale: .copy),
                     id: "change-recovery",
                     action: onChangeRecovery
                 )
@@ -231,14 +231,14 @@ struct CatalogList: View {
             if let folder {
                 if let name = folder.name {
                     actionCard(
-                        "\(folderTitle): \(name)",
+                        String(localized: "Phone folder: \(name)", bundle: .copy, locale: .copy),
                         folder.status ?? folderReadyNote,
                         id: "folder-sync",
                         action: onSyncFolder
                     )
                     .disabled(folder.busy)
                     actionCard(
-                        "Escolher outra pasta",
+                        String(localized: "Choose another folder", bundle: .copy, locale: .copy),
                         folderSwitchNote,
                         id: "folder-switch",
                         action: onChooseFolder
@@ -253,10 +253,10 @@ struct CatalogList: View {
                     ProductCard {
                         HStack(alignment: .center, spacing: 12) {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Entrar neste aparelho")
+                                Text(String(localized: "Join on this device", bundle: .copy, locale: .copy))
                                     .font(.headline)
                                     .foregroundStyle(SatchelInk.ink)
-                                Text("Ler o QR mostrado no desktop, ou informar o convite.")
+                                Text(String(localized: "Scan the QR shown on the desktop, or enter the invite.", bundle: .copy, locale: .copy))
                                     .font(.subheadline)
                                     .foregroundStyle(SatchelInk.secondary)
                             }
@@ -271,7 +271,7 @@ struct CatalogList: View {
             }
             if rows.isEmpty {
                 ProductCard {
-                    Text("Nenhum arquivo ainda. O que este ou outro aparelho enviar aparece aqui.")
+                    Text(String(localized: "No files yet. What this or another device sends shows up here.", bundle: .copy, locale: .copy))
                         .foregroundStyle(SatchelInk.secondary)
                 }
             }
@@ -365,31 +365,31 @@ struct FilePage: View {
     let onChoose: (String) -> Void
 
     var body: some View {
-        ProductScreen(title: path, backLabel: "Catálogo", backDisabled: busy, onBack: onBack) {
+        ProductScreen(title: path, backLabel: String(localized: "Catalog", bundle: .copy, locale: .copy), backDisabled: busy, onBack: onBack) {
             if let row = listedRow(path, rows) {
                 ProductCard {
-                    factLine("Tamanho", row.isDirectory ? "Pasta" : byteCount(row.size))
-                    factLine("Sincronizado", syncedWhen(row.versionUnix, zone: zone))
+                    factLine(String(localized: "Size", bundle: .copy, locale: .copy), row.isDirectory ? String(localized: "Folder", bundle: .copy, locale: .copy) : byteCount(row.size))
+                    factLine(String(localized: "Synced", bundle: .copy, locale: .copy), syncedWhen(row.versionUnix, zone: zone))
                 }
                 ProductCard {
-                    Text("Neste aparelho")
+                    Text(String(localized: "On this device", bundle: .copy, locale: .copy))
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(SatchelInk.secondary)
-                    stateButton("Ver", "see", row: row)
-                    stateButton("Baixar agora", "once", row: row)
-                    stateButton("Sincronizar sempre", "always", row: row)
+                    stateButton(String(localized: "View", bundle: .copy, locale: .copy), "see", row: row)
+                    stateButton(String(localized: "Download now", bundle: .copy, locale: .copy), "once", row: row)
+                    stateButton(String(localized: "Always sync", bundle: .copy, locale: .copy), "always", row: row)
                     if busy {
-                        Text("Salvando a escolha…")
+                        Text(String(localized: "Saving the choice…", bundle: .copy, locale: .copy))
                             .font(.subheadline)
                             .foregroundStyle(SatchelInk.secondary)
                     }
                 }
                 ProductCard {
-                    Text("Aparelhos")
+                    Text(String(localized: "Devices", bundle: .copy, locale: .copy))
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(SatchelInk.secondary)
                     if row.devices.isEmpty {
-                        Text("Nenhum aparelho mantém cópia.")
+                        Text(String(localized: "No device keeps a copy.", bundle: .copy, locale: .copy))
                             .foregroundStyle(SatchelInk.secondary)
                     }
                     ForEach(Array(row.devices.enumerated()), id: \.offset) { _, device in
@@ -403,7 +403,7 @@ struct FilePage: View {
                 }
             } else {
                 ProductCard {
-                    Text("Nenhum arquivo ainda. O que este ou outro aparelho enviar aparece aqui.")
+                    Text(String(localized: "No files yet. What this or another device sends shows up here.", bundle: .copy, locale: .copy))
                         .foregroundStyle(SatchelInk.secondary)
                 }
             }
@@ -475,22 +475,22 @@ struct DeviceFacts: View {
                 .font(.headline)
                 .foregroundStyle(SatchelInk.ink)
             if let name = card?.name, title != name {
-                Text("Apelido \(name)")
+                Text(String(localized: "Nickname \(name)", bundle: .copy, locale: .copy))
                     .font(.subheadline)
                     .foregroundStyle(SatchelInk.secondary)
             }
             if let os = card?.os {
-                Text("Sistema \(os)")
+                Text(String(localized: "System \(os)", bundle: .copy, locale: .copy))
                     .font(.subheadline)
                     .foregroundStyle(SatchelInk.secondary)
             }
             if let enrolled = card?.enrolledUnix {
-                Text("Registrado \(syncedWhen(enrolled, zone: zone))")
+                Text(String(localized: "Registered \(syncedWhen(enrolled, zone: zone))", bundle: .copy, locale: .copy))
                     .font(.subheadline)
                     .foregroundStyle(SatchelInk.secondary)
             }
             if let last = card?.lastUnix {
-                Text("Último envio \(syncedWhen(last, zone: zone))")
+                Text(String(localized: "Last sent \(syncedWhen(last, zone: zone))", bundle: .copy, locale: .copy))
                     .font(.subheadline)
                     .foregroundStyle(SatchelInk.secondary)
             }
@@ -508,7 +508,7 @@ struct DeviceFacts: View {
 
     private var title: String {
         if local {
-            return "Este aparelho"
+            return String(localized: "This device", bundle: .copy, locale: .copy)
         }
         if let name = card?.name, !name.isEmpty {
             return name
@@ -539,31 +539,31 @@ struct PairForm: View {
 
     var body: some View {
         ProductScreen(
-            title: "Entrar neste aparelho",
-            backLabel: "Voltar",
+            title: String(localized: "Join on this device", bundle: .copy, locale: .copy),
+            backLabel: String(localized: "Back", bundle: .copy, locale: .copy),
             backDisabled: busy,
             onBack: onBack
         ) {
-            Text("O desktop mostra o QR. A senha de recuperação não faz parte do convite.")
+            Text(String(localized: "The desktop shows the QR. The recovery password is not part of the invite.", bundle: .copy, locale: .copy))
                 .font(.subheadline)
                 .foregroundStyle(SatchelInk.secondary)
             ProductCard {
-                ProductField(title: "Endereço", text: $address, suppressesAutocorrection: true)
-                ProductField(title: "Código", text: $code)
+                ProductField(title: String(localized: "Address", bundle: .copy, locale: .copy), text: $address, suppressesAutocorrection: true)
+                ProductField(title: String(localized: "Code", bundle: .copy, locale: .copy), text: $code)
                 ProductField(
-                    title: "Impressão digital",
+                    title: String(localized: "Fingerprint", bundle: .copy, locale: .copy),
                     text: $fingerprint,
                     suppressesAutocorrection: true
                 )
-                ProductField(title: "Apelido", text: $name)
+                ProductField(title: String(localized: "Nickname", bundle: .copy, locale: .copy), text: $name)
             }
             if failed {
-                Text("Não foi possível entrar. Confira o código e se o outro aparelho ainda mostra o convite.")
+                Text(String(localized: "Couldn't join. Check the code and that the other device still shows the invite.", bundle: .copy, locale: .copy))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(SatchelInk.danger)
             }
             Button(action: onScan) {
-                Text("Ler QR")
+                Text(String(localized: "Scan QR", bundle: .copy, locale: .copy))
                     .font(.body.weight(.semibold))
                     .foregroundStyle(SatchelInk.ink)
                     .frame(maxWidth: .infinity)
@@ -580,7 +580,7 @@ struct PairForm: View {
             Button {
                 onSubmit(address, code, fingerprint, name)
             } label: {
-                Text("Entrar")
+                Text(String(localized: "Join", bundle: .copy, locale: .copy))
                     .font(.body.weight(.semibold))
                     .foregroundStyle(SatchelInk.onAccent)
                     .frame(maxWidth: .infinity)
@@ -599,8 +599,8 @@ struct ScannerPage: View {
     let onBack: () -> Void
 
     var body: some View {
-        ProductScreen(title: "Ler QR", backLabel: "Voltar", onBack: onBack) {
-            Text("Aponte a câmera para o QR do desktop.")
+        ProductScreen(title: String(localized: "Scan QR", bundle: .copy, locale: .copy), backLabel: String(localized: "Back", bundle: .copy, locale: .copy), onBack: onBack) {
+            Text(String(localized: "Point the camera at the QR on the desktop.", bundle: .copy, locale: .copy))
                 .font(.subheadline)
                 .foregroundStyle(SatchelInk.secondary)
             QrScannerView(onCode: onCode)
@@ -657,18 +657,18 @@ struct CreatePage: View {
 
     var body: some View {
         ProductScreen(
-            title: "Criar repositório",
-            backLabel: "Voltar",
+            title: String(localized: "Create repository", bundle: .copy, locale: .copy),
+            backLabel: String(localized: "Back", bundle: .copy, locale: .copy),
             backDisabled: draft.busy,
             onBack: onBack
         ) {
             Text(
-                "Este aparelho passa a guardar a senha de recuperação e a credencial de manutenção. O outro aparelho entra com um código e não digita a conta de novo."
+                String(localized: "This device will keep the recovery password and the maintenance credential. The other device joins with a code and does not type the account again.", bundle: .copy, locale: .copy)
             )
             .font(.subheadline)
             .foregroundStyle(SatchelInk.secondary)
             HStack(spacing: 8) {
-                ForEach([("folder", "Pasta"), ("s3", "S3"), ("r2", "R2"), ("b2", "B2")], id: \.0) { item in
+                ForEach([("folder", String(localized: "Folder", bundle: .copy, locale: .copy)), ("s3", "S3"), ("r2", "R2"), ("b2", "B2")], id: \.0) { item in
                     Button {
                         var next = draft
                         next.storage = item.0
@@ -690,24 +690,24 @@ struct CreatePage: View {
                 }
             }
             if draft.storage == "folder" {
-                Text("A pasta fica só neste aparelho. Ela não tem versionamento de objeto.")
+                Text(String(localized: "The folder stays on this device only. It has no object versioning.", bundle: .copy, locale: .copy))
                     .font(.subheadline)
                     .foregroundStyle(SatchelInk.secondary)
             } else {
                 Text(
-                    "O armazenamento precisa ter versionamento ligado e nenhum ciclo de vida que apague objeto. A chave dos aparelhos só fica limitada a apagar os próprios locks se o armazenamento aplicar política por chave (S3 da AWS, MinIO, RustFS). No R2 e no B2 essa chave pode apagar tudo."
+                    String(localized: "The storage needs versioning turned on and no lifecycle rule that deletes objects. The device key is only limited to deleting its own locks if the storage applies a per-key policy (AWS S3, MinIO, RustFS). On R2 and B2 that key can delete everything.", bundle: .copy, locale: .copy)
                 )
                 .font(.subheadline)
                 .foregroundStyle(SatchelInk.secondary)
                 ProductCard {
                     ProductField(title: "Endpoint", text: bind(\.endpoint), suppressesAutocorrection: true)
                     ProductField(title: "Bucket", text: bind(\.bucket), suppressesAutocorrection: true)
-                    ProductField(title: "Região", text: bind(\.region), suppressesAutocorrection: true)
-                    ProductField(title: "Prefixo (pode ficar vazio)", text: bind(\.prefix), suppressesAutocorrection: true)
-                    ProductField(title: "Chave de acesso de manutenção", text: bind(\.accessKeyId), suppressesAutocorrection: true)
-                    ProductField(title: "Segredo de manutenção", text: bind(\.secretAccessKey), suppressesAutocorrection: true, secure: true)
-                    ProductField(title: "Chave de acesso dos aparelhos", text: bind(\.deviceAccessKeyId), suppressesAutocorrection: true)
-                    ProductField(title: "Segredo dos aparelhos", text: bind(\.deviceSecretAccessKey), suppressesAutocorrection: true, secure: true)
+                    ProductField(title: String(localized: "Region", bundle: .copy, locale: .copy), text: bind(\.region), suppressesAutocorrection: true)
+                    ProductField(title: String(localized: "Prefix (can be empty)", bundle: .copy, locale: .copy), text: bind(\.prefix), suppressesAutocorrection: true)
+                    ProductField(title: String(localized: "Maintenance access key", bundle: .copy, locale: .copy), text: bind(\.accessKeyId), suppressesAutocorrection: true)
+                    ProductField(title: String(localized: "Maintenance secret", bundle: .copy, locale: .copy), text: bind(\.secretAccessKey), suppressesAutocorrection: true, secure: true)
+                    ProductField(title: String(localized: "Device access key", bundle: .copy, locale: .copy), text: bind(\.deviceAccessKeyId), suppressesAutocorrection: true)
+                    ProductField(title: String(localized: "Device secret", bundle: .copy, locale: .copy), text: bind(\.deviceSecretAccessKey), suppressesAutocorrection: true, secure: true)
                 }
             }
             if draft.failed {
@@ -716,7 +716,7 @@ struct CreatePage: View {
                     .foregroundStyle(SatchelInk.danger)
             }
             WideButton(
-                title: "Criar",
+                title: String(localized: "Create", bundle: .copy, locale: .copy),
                 disabled: draft.busy || !draft.complete,
                 id: "create-submit",
                 action: onSubmit
@@ -732,21 +732,21 @@ struct RecoveryChangePage: View {
     let onBack: () -> Void
 
     var body: some View {
-        ProductScreen(title: "Trocar senha de recuperação") {
+        ProductScreen(title: String(localized: "Change recovery password", bundle: .copy, locale: .copy)) {
             Text(
-                "Gera uma senha nova e a mostra uma vez. Os outros aparelhos continuam abrindo com a chave deles. Quem guardou o arquivo de chave antigo, ou lê versões antigas num bucket com versionamento, ainda abre com a senha velha: a chave dos dados não muda."
+                String(localized: "Makes a new password and shows it once. The other devices keep opening with their own key. Anyone who kept the old key file, or reads old versions in a bucket with versioning, still opens with the old password: the data key does not change.", bundle: .copy, locale: .copy)
             )
             .font(.subheadline)
             .foregroundStyle(SatchelInk.secondary)
             if failed {
-                Text("Não foi possível trocar. A senha antiga continua valendo. Confira a conexão com o armazenamento.")
+                Text(String(localized: "Couldn't change it. The old password still works. Check the connection to the storage.", bundle: .copy, locale: .copy))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(SatchelInk.danger)
                     .accessibilityIdentifier("recovery-change-failed")
             }
-            WideButton(title: busy ? "Trocando…" : "Trocar agora", id: "recovery-change-now", action: onChange)
+            WideButton(title: busy ? String(localized: "Changing…", bundle: .copy, locale: .copy) : String(localized: "Change now", bundle: .copy, locale: .copy), id: "recovery-change-now", action: onChange)
                 .disabled(busy)
-            WideButton(title: "Voltar", id: "recovery-change-back", action: onBack)
+            WideButton(title: String(localized: "Back", bundle: .copy, locale: .copy), id: "recovery-change-back", action: onBack)
                 .disabled(busy)
         }
     }
@@ -758,9 +758,9 @@ struct RecoveryPage: View {
     let onDone: () -> Void
 
     var body: some View {
-        ProductScreen(title: "Senha de recuperação") {
+        ProductScreen(title: String(localized: "Recovery password", bundle: .copy, locale: .copy)) {
             Text(
-                "Guarde esta senha num gerenciador de senhas que abre sem este repositório. Ela aparece só agora e o restic oficial usa esta senha."
+                String(localized: "Keep this password in a password manager that opens without this repository. It shows only now, and official restic uses this password.", bundle: .copy, locale: .copy)
             )
             .font(.subheadline)
             .foregroundStyle(SatchelInk.secondary)
@@ -776,7 +776,7 @@ struct RecoveryPage: View {
                     .textSelection(.enabled)
                     .accessibilityIdentifier("recovery-password")
             }
-            WideButton(title: "Guardei", id: "recovery-done", action: onDone)
+            WideButton(title: String(localized: "I saved it", bundle: .copy, locale: .copy), id: "recovery-done", action: onDone)
         }
     }
 }
@@ -789,36 +789,36 @@ struct HoldPage: View {
 
     var body: some View {
         ProductScreen(
-            title: "Convite",
-            backLabel: "Voltar",
+            title: String(localized: "Invite", bundle: .copy, locale: .copy),
+            backLabel: String(localized: "Back", bundle: .copy, locale: .copy),
             backDisabled: state.busy,
             onBack: onBack
         ) {
             if let approval = state.approval {
                 ProductCard {
-                    Text("Aparelho \(approval.deviceName)")
-                    Text("Sistema \(approval.os)")
-                    Text("Endereço \(approval.peerAddress)")
-                    Text("Código \(approval.code)")
+                    Text(String(localized: "Device \(approval.deviceName)", bundle: .copy, locale: .copy))
+                    Text(String(localized: "System \(approval.os)", bundle: .copy, locale: .copy))
+                    Text(String(localized: "Address \(approval.peerAddress)", bundle: .copy, locale: .copy))
+                    Text(String(localized: "Code \(approval.code)", bundle: .copy, locale: .copy))
                 }
                 .foregroundStyle(SatchelInk.ink)
                 if state.failed {
-                    Text("Não foi possível aprovar. Feche o convite e abra de novo.")
+                    Text(String(localized: "Couldn't approve. Close the invite and open it again.", bundle: .copy, locale: .copy))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(SatchelInk.danger)
                 }
-                WideButton(title: "Aprovar", disabled: state.busy, id: "hold-approve", action: onApprove)
-                WideButton(title: "Negar", primary: false, disabled: state.busy, id: "hold-deny", action: onDeny)
+                WideButton(title: String(localized: "Approve", bundle: .copy, locale: .copy), disabled: state.busy, id: "hold-approve", action: onApprove)
+                WideButton(title: String(localized: "Deny", bundle: .copy, locale: .copy), primary: false, disabled: state.busy, id: "hold-deny", action: onDeny)
             } else {
-                Text("Esperando o outro aparelho digitar o código.")
+                Text(String(localized: "Waiting for the other device to enter the code.", bundle: .copy, locale: .copy))
                     .font(.subheadline)
                     .foregroundStyle(SatchelInk.secondary)
                 ProductCard {
-                    Text("Código \(state.offer.code)")
+                    Text(String(localized: "Code \(state.offer.code)", bundle: .copy, locale: .copy))
                         .accessibilityIdentifier("hold-code")
-                    Text("Endereço \(state.offer.address)")
+                    Text(String(localized: "Address \(state.offer.address)", bundle: .copy, locale: .copy))
                         .accessibilityIdentifier("hold-address")
-                    Text("Impressão digital \(state.offer.fingerprint)")
+                    Text(String(localized: "Fingerprint \(state.offer.fingerprint)", bundle: .copy, locale: .copy))
                         .accessibilityIdentifier("hold-fingerprint")
                 }
                 .foregroundStyle(SatchelInk.ink)
@@ -828,9 +828,9 @@ struct HoldPage: View {
                         .resizable()
                         .scaledToFit()
                         .frame(width: 240, height: 240)
-                        .accessibilityLabel("QR do convite")
+                        .accessibilityLabel(String(localized: "Invite QR", bundle: .copy, locale: .copy))
                 }
-                Text("A senha de recuperação não vai no convite.")
+                Text(String(localized: "The recovery password is not in the invite.", bundle: .copy, locale: .copy))
                     .font(.footnote)
                     .foregroundStyle(SatchelInk.secondary)
             }
@@ -841,16 +841,16 @@ struct HoldPage: View {
 func createFailureCopy(_ reason: String) -> String {
     switch reason {
     case "protection":
-        return "O armazenamento recusou: ligue o versionamento do bucket e remova regras de ciclo de vida que apagam objetos."
+        return String(localized: "The storage refused: turn on bucket versioning and remove lifecycle rules that delete objects.", bundle: .copy, locale: .copy)
     case "denied":
-        return "O armazenamento não deixou esta chave consultar o versionamento. Dê a ela permissão de administrador no bucket. O R2 não expõe versionamento pela API S3 e será sempre recusado."
+        return String(localized: "The storage did not let this key check versioning. Give it admin permission on the bucket. R2 does not expose versioning through the S3 API and is always refused.", bundle: .copy, locale: .copy)
     case "exists":
-        return "Já existe um repositório neste lugar. Escolha outro prefixo, ou entre nele com um código."
+        return String(localized: "There is already a repository here. Choose another prefix, or join it with a code.", bundle: .copy, locale: .copy)
     case "unreachable":
-        return "Não consegui falar com o armazenamento. Confira endpoint, região e as chaves."
+        return String(localized: "Couldn't reach the storage. Check the endpoint, region and keys.", bundle: .copy, locale: .copy)
     case "fields":
-        return "Confira os campos. A chave dos aparelhos precisa ser diferente da de manutenção."
+        return String(localized: "Check the fields. The device key must be different from the maintenance key.", bundle: .copy, locale: .copy)
     default:
-        return "Não foi possível criar. Confira os campos, o versionamento e o ciclo de vida."
+        return String(localized: "Couldn't create. Check the fields, versioning and lifecycle.", bundle: .copy, locale: .copy)
     }
 }

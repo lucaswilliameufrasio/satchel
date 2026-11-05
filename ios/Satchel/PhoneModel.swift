@@ -329,7 +329,7 @@ final class PhoneModel: ObservableObject {
             if let fresh {
                 screen = .recovery(
                     password: fresh,
-                    note: "A senha antiga não abre mais o repositório. Guarde esta no gerenciador de senhas."
+                    note: String(localized: "The old password no longer opens the repository. Keep this one in the password manager.", bundle: .copy, locale: .copy)
                 )
             } else {
                 screen = .changingRecovery(busy: false, failed: true)
@@ -423,9 +423,9 @@ final class PhoneModel: ObservableObject {
             if let made {
                 var note: String?
                 if !made.stored {
-                    note = "O repositório foi criado, mas este aparelho não conseguiu guardar a concessão no Keychain. Guarde a senha abaixo agora: sem ela e sem a concessão não dá para abrir de novo por aqui."
+                    note = String(localized: "The repository was created, but this device couldn't keep the grant in the Keychain. Save the password below now: without it and without the grant, this device can't open it again.", bundle: .copy, locale: .copy)
                 } else if draft.storage == "folder" {
-                    note = "A pasta fica só neste aparelho. Ela não tem versionamento de objeto."
+                    note = String(localized: "The folder stays on this device only. It has no object versioning.", bundle: .copy, locale: .copy)
                 }
                 screen = .recovery(password: made.password, note: note)
             } else {

@@ -31,6 +31,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.annotation.StringRes
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -66,12 +68,12 @@ internal fun CreateScreen(
         autoCorrectEnabled = false,
     )
     val enabled = !form.busy
-    PhoneScaffold(title = CREATE_TITLE, onBack = onBack, backEnabled = enabled) { padding ->
+    PhoneScaffold(title = stringResource(R.string.create_title), onBack = onBack, backEnabled = enabled) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Text(CREATE_NOTE, color = satchel.secondary)
+            Text(stringResource(R.string.create_note), color = satchel.secondary)
             Row(
                 modifier = Modifier.padding(top = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -82,7 +84,7 @@ internal fun CreateScreen(
                         selected = chosen,
                         onClick = { onForm(form.copy(storage = choice, failed = false)) },
                         enabled = enabled,
-                        label = { Text((if (chosen) "● " else "") + choice.label) },
+                        label = { Text((if (chosen) "● " else "") + stringResource(choice.label)) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = satchel.selected,
                             selectedLabelColor = satchel.ink,
@@ -92,23 +94,23 @@ internal fun CreateScreen(
                 }
             }
             if (form.storage == StorageChoice.Folder) {
-                Text(CREATE_FOLDER_NOTE, color = satchel.secondary, modifier = Modifier.padding(top = 8.dp))
+                Text(stringResource(R.string.create_folder_note), color = satchel.secondary, modifier = Modifier.padding(top = 8.dp))
             } else {
-                Text(CREATE_OBJECT_NOTE, color = satchel.secondary, modifier = Modifier.padding(top = 8.dp))
-                Field("Endpoint", form.endpoint, enabled, plain) { onForm(form.copy(endpoint = it, failed = false)) }
-                Field("Bucket", form.bucket, enabled, plain) { onForm(form.copy(bucket = it, failed = false)) }
-                Field("Região", form.region, enabled, plain) { onForm(form.copy(region = it, failed = false)) }
-                Field("Prefixo (pode ficar vazio)", form.prefix, enabled, plain) { onForm(form.copy(prefix = it, failed = false)) }
-                Field("Chave de acesso de manutenção", form.accessKeyId, enabled, plain) { onForm(form.copy(accessKeyId = it, failed = false)) }
-                Field("Segredo de manutenção", form.secretAccessKey, enabled, plain, secret = true) { onForm(form.copy(secretAccessKey = it, failed = false)) }
-                Field("Chave de acesso dos aparelhos", form.deviceAccessKeyId, enabled, plain) { onForm(form.copy(deviceAccessKeyId = it, failed = false)) }
-                Field("Segredo dos aparelhos", form.deviceSecretAccessKey, enabled, plain, secret = true) { onForm(form.copy(deviceSecretAccessKey = it, failed = false)) }
+                Text(stringResource(R.string.create_object_note), color = satchel.secondary, modifier = Modifier.padding(top = 8.dp))
+                Field(R.string.field_endpoint, form.endpoint, enabled, plain) { onForm(form.copy(endpoint = it, failed = false)) }
+                Field(R.string.field_bucket, form.bucket, enabled, plain) { onForm(form.copy(bucket = it, failed = false)) }
+                Field(R.string.field_region, form.region, enabled, plain) { onForm(form.copy(region = it, failed = false)) }
+                Field(R.string.field_prefix, form.prefix, enabled, plain) { onForm(form.copy(prefix = it, failed = false)) }
+                Field(R.string.field_maintenance_key, form.accessKeyId, enabled, plain) { onForm(form.copy(accessKeyId = it, failed = false)) }
+                Field(R.string.field_maintenance_secret, form.secretAccessKey, enabled, plain, secret = true) { onForm(form.copy(secretAccessKey = it, failed = false)) }
+                Field(R.string.field_device_key, form.deviceAccessKeyId, enabled, plain) { onForm(form.copy(deviceAccessKeyId = it, failed = false)) }
+                Field(R.string.field_device_secret, form.deviceSecretAccessKey, enabled, plain, secret = true) { onForm(form.copy(deviceSecretAccessKey = it, failed = false)) }
             }
             if (form.failed) {
-                FailureText(createFailureCopy(form.reason), modifier = Modifier.padding(top = 12.dp))
+                FailureText(stringResource(createFailureCopy(form.reason)), modifier = Modifier.padding(top = 12.dp))
             }
             PrimaryButton(
-                if (form.busy) "Criando…" else "Criar",
+                stringResource(if (form.busy) R.string.creating else R.string.create),
                 onClick = onSubmit,
                 enabled = enabled && createFormComplete(form),
                 modifier = Modifier.padding(top = 16.dp, bottom = 32.dp),
@@ -119,7 +121,7 @@ internal fun CreateScreen(
 
 @Composable
 private fun Field(
-    label: String,
+    @StringRes label: Int,
     value: String,
     enabled: Boolean,
     keyboard: KeyboardOptions,
@@ -130,7 +132,7 @@ private fun Field(
         value = value,
         onValueChange = onValue,
         enabled = enabled,
-        label = { Text(label) },
+        label = { Text(stringResource(label)) },
         keyboardOptions = keyboard,
         visualTransformation = if (secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
@@ -138,19 +140,20 @@ private fun Field(
 }
 
 @Composable
-internal fun RecoveryScreen(password: String, warning: String?, onDone: () -> Unit) {
+internal fun RecoveryScreen(password: String, @StringRes warning: Int?, onDone: () -> Unit) {
     // Leaving this screen any other way would lose the only copy the person was shown.
     BackHandler(enabled = true) {}
     val context = LocalContext.current
-    PhoneScaffold(title = RECOVERY_TITLE, onBack = null) { padding ->
+    val clipLabel = stringResource(R.string.recovery_clip_label)
+    PhoneScaffold(title = stringResource(R.string.recovery_title), onBack = null) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(RECOVERY_NOTE, color = satchel.secondary)
+            Text(stringResource(R.string.recovery_note), color = satchel.secondary)
             if (warning != null) {
-                FailureText(warning)
+                FailureText(stringResource(warning))
             }
             ProductCard {
                 Text(
@@ -159,10 +162,10 @@ internal fun RecoveryScreen(password: String, warning: String?, onDone: () -> Un
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
-            TextButton(onClick = { copySensitive(context, password) }) {
-                Text("Copiar")
+            TextButton(onClick = { copySensitive(context, clipLabel, password) }) {
+                Text(stringResource(R.string.copy))
             }
-            PrimaryButton("Guardei", onClick = onDone, modifier = Modifier.padding(bottom = 32.dp))
+            PrimaryButton(stringResource(R.string.saved_it), onClick = onDone, modifier = Modifier.padding(bottom = 32.dp))
         }
     }
 }
@@ -178,36 +181,36 @@ internal fun HoldScreen(
     onDeny: () -> Unit,
     onBack: () -> Unit,
 ) {
-    PhoneScaffold(title = INVITE_TITLE, onBack = onBack, backEnabled = !busy) { padding ->
+    PhoneScaffold(title = stringResource(R.string.invite_title), onBack = onBack, backEnabled = !busy) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
             if (approval == null) {
-                Text(INVITE_WAITING_COPY, color = satchel.secondary)
-                Text("Código ${offer.code}", modifier = Modifier.padding(top = 12.dp))
-                Text("Endereço ${offer.address}")
-                Text("Impressão digital ${offer.fingerprint}")
+                Text(stringResource(R.string.invite_waiting), color = satchel.secondary)
+                Text(stringResource(R.string.invite_code, offer.code), modifier = Modifier.padding(top = 12.dp))
+                Text(stringResource(R.string.invite_address, offer.address))
+                Text(stringResource(R.string.invite_fingerprint, offer.fingerprint))
                 val bitmap = qr?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
                 if (bitmap != null) {
                     Image(
                         bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "QR do convite",
+                        contentDescription = stringResource(R.string.invite_qr_description),
                         modifier = Modifier.size(240.dp).padding(top = 12.dp),
                     )
                 }
-                Text(INVITE_NOTE, modifier = Modifier.padding(top = 12.dp))
+                Text(stringResource(R.string.invite_note), modifier = Modifier.padding(top = 12.dp))
             } else {
-                Text("Aparelho ${approval.deviceName}")
-                Text("Sistema ${approval.os}")
-                Text("Endereço ${approval.peerAddress}")
-                Text("Código ${approval.code}")
+                Text(stringResource(R.string.invite_device, approval.deviceName))
+                Text(stringResource(R.string.card_system, approval.os))
+                Text(stringResource(R.string.invite_address, approval.peerAddress))
+                Text(stringResource(R.string.invite_code, approval.code))
                 if (failed) {
-                    FailureText("Não foi possível aprovar. Feche o convite e abra de novo.", modifier = Modifier.padding(top = 12.dp))
+                    FailureText(stringResource(R.string.approve_failed), modifier = Modifier.padding(top = 12.dp))
                 }
-                PrimaryButton("Aprovar", onClick = onApprove, enabled = !busy, modifier = Modifier.padding(top = 16.dp))
+                PrimaryButton(stringResource(R.string.approve), onClick = onApprove, enabled = !busy, modifier = Modifier.padding(top = 16.dp))
                 TextButton(onClick = onDeny, enabled = !busy) {
-                    Text("Negar")
+                    Text(stringResource(R.string.deny))
                 }
             }
         }
@@ -215,9 +218,9 @@ internal fun HoldScreen(
 }
 
 /** Copy [text] and mark the clip sensitive so the system hides it in previews. */
-private fun copySensitive(context: Context, text: String) {
+private fun copySensitive(context: Context, label: String, text: String) {
     val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    val clip = ClipData.newPlainText("senha de recuperação", text)
+    val clip = ClipData.newPlainText(label, text)
     clip.description.extras = PersistableBundle().apply {
         putBoolean("android.content.extra.IS_SENSITIVE", true)
     }
@@ -226,14 +229,14 @@ private fun copySensitive(context: Context, text: String) {
 
 @Composable
 internal fun RecoveryChangeScreen(busy: Boolean, failed: Boolean, onChange: () -> Unit, onBack: () -> Unit) {
-    PhoneScaffold(title = RECOVERY_CHANGE_TITLE, onBack = onBack, backEnabled = !busy) { padding ->
+    PhoneScaffold(title = stringResource(R.string.recovery_change_title), onBack = onBack, backEnabled = !busy) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)) {
-            Text(RECOVERY_CHANGE_NOTE, color = satchel.secondary)
+            Text(stringResource(R.string.recovery_change_note), color = satchel.secondary)
             if (failed) {
-                FailureText(RECOVERY_CHANGE_FAILED, modifier = Modifier.padding(top = 12.dp))
+                FailureText(stringResource(R.string.recovery_change_failed), modifier = Modifier.padding(top = 12.dp))
             }
             PrimaryButton(
-                if (busy) "Trocando…" else "Trocar agora",
+                stringResource(if (busy) R.string.changing else R.string.change_now),
                 onClick = onChange,
                 enabled = !busy,
                 modifier = Modifier.padding(top = 16.dp),

@@ -1,4 +1,146 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  English is the default. Brazilian Portuguese is in values-pt, so every
+  Portuguese locale gets it. The app follows the system language.
+-->
 <resources>
-    <string name="app_name">Satchel</string>
+    <string name="app_name" translatable="false">Satchel</string>
+
+    <!-- How dates are written. format_locale is a BCP 47 tag for month names. -->
+    <string name="clock_pattern">yyyy-MM-dd HH:mm</string>
+    <string name="format_locale">en</string>
+
+    <!-- Catalog -->
+    <string name="catalog_title">Catalog</string>
+    <string name="catalog_loading">Reading the catalog…</string>
+    <string name="catalog_open_failed">Couldn\'t open the catalog. Check the network and try again.</string>
+    <string name="catalog_empty">No files yet. What this or another device sends shows up here.</string>
+    <string name="try_again">Try again</string>
+    <string name="back">Back</string>
+    <string name="saving_choice">Saving the choice…</string>
+    <string name="folder">Folder</string>
+    <string name="devices_none">No devices</string>
+    <plurals name="device_count">
+        <item quantity="one">%d device</item>
+        <item quantity="other">%d devices</item>
+    </plurals>
+
+    <!-- Follow states -->
+    <string name="follow_see">View</string>
+    <string name="follow_once">Download now</string>
+    <string name="follow_always">Always sync</string>
+    <string name="follow_see_detail">The content stays in storage. This device does not download it.</string>
+    <string name="follow_once_detail">Brings the file once and does not follow later changes.</string>
+    <string name="follow_always_detail">Downloads, uploads and follows.</string>
+    <string name="follow_always_folder_detail">Downloads, uploads and follows. A new file in this folder takes this state too.</string>
+
+    <!-- File screen -->
+    <string name="header_size">Size</string>
+    <string name="header_synced">Synced</string>
+    <string name="section_this_device">On this device</string>
+    <string name="section_devices">Devices</string>
+    <string name="this_device">This device</string>
+    <string name="card_nickname">Nickname %1$s</string>
+    <string name="card_system">System %1$s</string>
+    <string name="card_enrolled">Registered %1$s</string>
+    <string name="card_last_sent">Last sent %1$s</string>
+    <string name="devices_none_keep">No device keeps a copy.</string>
+
+    <!-- Joining -->
+    <string name="entry_title">Join on this device</string>
+    <string name="entry_note">The desktop shows the QR. The recovery password is not part of the invite.</string>
+    <string name="pair_support">Scan the QR shown on the desktop, or enter the invite.</string>
+    <string name="field_address">Address</string>
+    <string name="field_code">Code</string>
+    <string name="field_fingerprint">Fingerprint</string>
+    <string name="field_nickname">Nickname</string>
+    <string name="join_failed">Couldn\'t join. Check the code and that the other device still shows the invite.</string>
+    <string name="scan_qr">Scan QR</string>
+    <string name="join">Join</string>
+    <string name="qr_point">Point the camera at the QR on the desktop.</string>
+    <string name="qr_allow_camera">Allow camera</string>
+
+    <!-- Phone folder -->
+    <string name="folder_title">Phone folder</string>
+    <string name="folder_card_title">Phone folder: %1$s</string>
+    <string name="folder_choose_note">Choose a folder. What you put in it goes to the repository. What comes from other devices shows up in the catalog and goes into the folder when you mark it to download.</string>
+    <string name="folder_choose">Choose</string>
+    <string name="folder_choose_other">Choose another folder</string>
+    <string name="folder_switch_note">The current folder stays as it is. The new one gets the files this device syncs.</string>
+    <string name="folder_ready_note">Tap to sync now. The app also syncs when it opens.</string>
+    <string name="folder_sync">Sync</string>
+    <string name="folder_syncing_short">Syncing</string>
+    <string name="folder_syncing">Syncing the folder…</string>
+    <string name="folder_sync_failed">The folder sync failed. Check the network and try again.</string>
+    <string name="folder_unavailable">The folder did not answer or was suddenly empty. Nothing was deleted. Check the folder or choose it again.</string>
+    <string name="folder_lost">Android no longer lets the app open this folder. Choose it again.</string>
+    <string name="folder_up_to_date">Up to date.</string>
+    <string name="folder_deferred">files edited during the sync go in the next one</string>
+    <plurals name="folder_sent">
+        <item quantity="one">%d change sent</item>
+        <item quantity="other">%d changes sent</item>
+    </plurals>
+    <plurals name="folder_received">
+        <item quantity="one">%d change received</item>
+        <item quantity="other">%d changes received</item>
+    </plurals>
+    <plurals name="folder_conflicts">
+        <item quantity="one">%d conflict kept in the catalog</item>
+        <item quantity="other">%d conflicts kept in the catalog</item>
+    </plurals>
+
+    <!-- Creating a repository -->
+    <string name="create_title">Create repository</string>
+    <string name="create_note">This device keeps the recovery password and the maintenance credential. The other device joins with a code and does not type the account again.</string>
+    <string name="create_folder_note">The folder stays only on this device. It has no object versioning.</string>
+    <string name="create_object_note">The storage needs versioning turned on and no lifecycle rule that deletes objects. The device key is limited to deleting its own locks only if the storage applies a policy per key (AWS S3, MinIO, RustFS). On R2 and B2 that key can delete everything.</string>
+    <string name="storage_folder">Folder</string>
+    <string name="storage_s3" translatable="false">S3</string>
+    <string name="storage_r2" translatable="false">R2</string>
+    <string name="storage_b2" translatable="false">B2</string>
+    <string name="field_endpoint">Endpoint</string>
+    <string name="field_bucket">Bucket</string>
+    <string name="field_region">Region</string>
+    <string name="field_prefix">Prefix (can be empty)</string>
+    <string name="field_maintenance_key">Maintenance access key</string>
+    <string name="field_maintenance_secret">Maintenance secret</string>
+    <string name="field_device_key">Device access key</string>
+    <string name="field_device_secret">Device secret</string>
+    <string name="create">Create</string>
+    <string name="creating">Creating…</string>
+    <string name="create_refused">Couldn\'t create. Check the fields, versioning and lifecycle rules.</string>
+    <string name="create_failed_protection">The storage refused: turn on bucket versioning and remove lifecycle rules that delete objects.</string>
+    <string name="create_failed_denied">The storage did not let this key check versioning. Give it admin permission on the bucket. R2 does not expose versioning through the S3 API and will always be refused.</string>
+    <string name="create_failed_exists">A repository already exists here. Choose another prefix, or join it with a code.</string>
+    <string name="create_failed_unreachable">Couldn\'t reach the storage. Check the endpoint, region and keys.</string>
+    <string name="create_failed_fields">Check the fields. The device key must be different from the maintenance key.</string>
+    <string name="vault_failed">The repository was created, but this device couldn\'t keep the grant in the vault. Keep the password below now: without it and without the grant, it can\'t be opened here again.</string>
+
+    <!-- Recovery password -->
+    <string name="recovery_title">Recovery password</string>
+    <string name="recovery_note">Keep this password in a password manager that opens without this repository. It shows only now, and the official restic uses this password.</string>
+    <string name="recovery_clip_label">recovery password</string>
+    <string name="copy">Copy</string>
+    <string name="saved_it">I saved it</string>
+    <string name="recovery_change_title">Change recovery password</string>
+    <string name="recovery_change_only_here">Only this device, which created the repository, can change it.</string>
+    <string name="recovery_change_note">Makes a new password and shows it once. The other devices keep opening with their own key. Anyone who kept the old key file, or reads old versions in a bucket with versioning, still opens with the old password: the data key does not change.</string>
+    <string name="recovery_change_failed">Couldn\'t change it. The old password still works. Check the connection to the storage.</string>
+    <string name="recovery_changed_note">The old password no longer opens the repository. Keep this one in the password manager.</string>
+    <string name="change_now">Change now</string>
+    <string name="changing">Changing…</string>
+
+    <!-- Invite -->
+    <string name="show_invite">Show invite</string>
+    <string name="invite_title">Invite</string>
+    <string name="invite_waiting">Waiting for the other device to type the code.</string>
+    <string name="invite_note">The recovery password is not in the invite.</string>
+    <string name="invite_qr_description">Invite QR</string>
+    <string name="invite_code">Code %1$s</string>
+    <string name="invite_address">Address %1$s</string>
+    <string name="invite_fingerprint">Fingerprint %1$s</string>
+    <string name="invite_device">Device %1$s</string>
+    <string name="approve_failed">Couldn\'t approve. Close the invite and open it again.</string>
+    <string name="approve">Approve</string>
+    <string name="deny">Deny</string>
 </resources>

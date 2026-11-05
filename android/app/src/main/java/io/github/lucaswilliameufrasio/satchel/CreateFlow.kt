@@ -1,14 +1,15 @@
 package io.github.lucaswilliameufrasio.satchel
 
+import androidx.annotation.StringRes
 import io.github.lucaswilliameufrasio.satchel.catalog.NativeCatalog
 import java.io.File
 
 /** Where the new repository lives. The same fields as the desktop. */
-internal enum class StorageChoice(val wire: String, val label: String) {
-    Folder("folder", "Pasta"),
-    S3("s3", "S3"),
-    R2("r2", "R2"),
-    B2("b2", "B2"),
+internal enum class StorageChoice(val wire: String, @StringRes val label: Int) {
+    Folder("folder", R.string.storage_folder),
+    S3("s3", R.string.storage_s3),
+    R2("r2", R.string.storage_r2),
+    B2("b2", R.string.storage_b2),
 }
 
 internal data class CreateForm(
@@ -26,35 +27,6 @@ internal data class CreateForm(
     val failed: Boolean = false,
     val reason: String = "",
 )
-
-internal const val CREATE_TITLE = "Criar repositório"
-
-internal const val CREATE_NOTE =
-    "Este aparelho passa a guardar a senha de recuperação e a credencial de manutenção. " +
-        "O outro aparelho entra com um código e não digita a conta de novo."
-
-internal const val CREATE_FOLDER_NOTE =
-    "A pasta fica só neste aparelho. Ela não tem versionamento de objeto."
-
-internal const val CREATE_OBJECT_NOTE =
-    "O armazenamento precisa ter versionamento ligado e nenhum ciclo de vida que apague objeto. " +
-        "A chave dos aparelhos só fica limitada a apagar os próprios locks se o armazenamento aplicar política por chave " +
-        "(S3 da AWS, MinIO, RustFS). No R2 e no B2 essa chave pode apagar tudo."
-
-internal const val CREATE_REFUSED_COPY =
-    "Não foi possível criar. Confira os campos, o versionamento e o ciclo de vida."
-
-internal const val RECOVERY_TITLE = "Senha de recuperação"
-
-internal const val RECOVERY_NOTE =
-    "Guarde esta senha num gerenciador de senhas que abre sem este repositório. " +
-        "Ela aparece só agora e o restic oficial usa esta senha."
-
-internal const val INVITE_TITLE = "Convite"
-
-internal const val INVITE_WAITING_COPY = "Esperando o outro aparelho digitar o código."
-
-internal const val INVITE_NOTE = "A senha de recuperação não vai no convite."
 
 /** The spec the native side reads. Secrets travel to the library and nowhere else. */
 internal fun createSpecJson(form: CreateForm, directory: String, deviceId: String): String {
@@ -98,23 +70,15 @@ internal fun createFormComplete(form: CreateForm): Boolean {
     return form.accessKeyId.trim() != form.deviceAccessKeyId.trim()
 }
 
-internal const val VAULT_FAILED_COPY =
-    "O repositório foi criado, mas este aparelho não conseguiu guardar a concessão no cofre. " +
-        "Guarde a senha abaixo agora: sem ela e sem a concessão não dá para abrir de novo por aqui."
-
 /** Why the native side refused, in words a person can act on. */
-internal fun createFailureCopy(reason: String): String = when (reason) {
-    "protection" ->
-        "O armazenamento recusou: ligue o versionamento do bucket e remova regras de ciclo de vida que apagam objetos."
-    "denied" ->
-        "O armazenamento não deixou esta chave consultar o versionamento. Dê a ela permissão de administrador no bucket. " +
-            "O R2 não expõe versionamento pela API S3 e será sempre recusado."
-    "exists" ->
-        "Já existe um repositório neste lugar. Escolha outro prefixo, ou entre nele com um código."
-    "unreachable" ->
-        "Não consegui falar com o armazenamento. Confira endpoint, região e as chaves."
-    "fields" -> "Confira os campos. A chave dos aparelhos precisa ser diferente da de manutenção."
-    else -> CREATE_REFUSED_COPY
+@StringRes
+internal fun createFailureCopy(reason: String): Int = when (reason) {
+    "protection" -> R.string.create_failed_protection
+    "denied" -> R.string.create_failed_denied
+    "exists" -> R.string.create_failed_exists
+    "unreachable" -> R.string.create_failed_unreachable
+    "fields" -> R.string.create_failed_fields
+    else -> R.string.create_refused
 }
 
 internal data class CreateResult(

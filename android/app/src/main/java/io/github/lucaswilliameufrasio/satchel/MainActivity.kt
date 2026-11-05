@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import io.github.lucaswilliameufrasio.satchel.catalog.holderFor
 import io.github.lucaswilliameufrasio.satchel.catalog.deviceCardLines
 import androidx.compose.ui.text.font.FontFamily
@@ -68,21 +69,11 @@ import io.github.lucaswilliameufrasio.satchel.ui.satchel
 import io.github.lucaswilliameufrasio.satchel.catalog.CatalogSession
 import io.github.lucaswilliameufrasio.satchel.catalog.CatalogSource
 import io.github.lucaswilliameufrasio.satchel.catalog.CoreCatalog
-import io.github.lucaswilliameufrasio.satchel.catalog.EMPTY_CATALOG
 import io.github.lucaswilliameufrasio.satchel.catalog.ENTRY_FIELDS
-import io.github.lucaswilliameufrasio.satchel.catalog.ENTRY_NOTE
-import io.github.lucaswilliameufrasio.satchel.catalog.ENTRY_TITLE
 import io.github.lucaswilliameufrasio.satchel.catalog.Follow
-import io.github.lucaswilliameufrasio.satchel.catalog.FOLDER_CHOOSE_NOTE
-import io.github.lucaswilliameufrasio.satchel.catalog.FOLDER_LOST
-import io.github.lucaswilliameufrasio.satchel.catalog.FOLDER_TITLE
 import io.github.lucaswilliameufrasio.satchel.catalog.GrantCatalog
 import io.github.lucaswilliameufrasio.satchel.catalog.PhoneFolder
-import io.github.lucaswilliameufrasio.satchel.catalog.LOADING_COPY
 import io.github.lucaswilliameufrasio.satchel.catalog.NativeCatalog
-import io.github.lucaswilliameufrasio.satchel.catalog.OPEN_FAILURE_COPY
-import io.github.lucaswilliameufrasio.satchel.catalog.PAIR_SUPPORT
-import io.github.lucaswilliameufrasio.satchel.catalog.SAVING_COPY
 import io.github.lucaswilliameufrasio.satchel.catalog.SharedCatalog
 import io.github.lucaswilliameufrasio.satchel.catalog.catalogMeta
 import io.github.lucaswilliameufrasio.satchel.catalog.deviceCountLabel
@@ -127,6 +118,7 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             SatchelTheme {
+                val words = rememberWords()
                 var phoneId by remember { mutableStateOf(initialPhoneId) }
                 var screen by remember {
                     mutableStateOf<CatalogScreenState>(
@@ -157,8 +149,8 @@ class MainActivity : ComponentActivity() {
                 var folderUri by remember { mutableStateOf(folderChoice.read()) }
                 var folderStatus by remember { mutableStateOf<String?>(null) }
                 var folderBusy by remember { mutableStateOf(false) }
-                val folderName = remember(folderUri) {
-                    folderUri?.let { folderDisplayName(contentResolver, it) }
+                val folderName = remember(folderUri, words) {
+                    folderUri?.let { folderDisplayName(contentResolver, it, words.text(R.string.folder)) }
                 }
                 val runFolder: () -> Unit = runFolder@{
                     val active = session
@@ -166,11 +158,11 @@ class MainActivity : ComponentActivity() {
                         return@runFolder
                     }
                     folderBusy = true
-                    folderStatus = FOLDER_SYNCING
+                    folderStatus = words.text(R.string.folder_syncing)
                     scope.launch {
                         val (summary, next) = withContext(Dispatchers.IO) {
                             synchronized(active) {
-                                val said = folderRound(vault.read().orEmpty(), openFolder(), apelido())
+                                val said = folderRound(vault.read().orEmpty(), openFolder(), apelido(), words)
                                 said to openCatalog(active)
                             }
                         }
@@ -209,7 +201,7 @@ class MainActivity : ComponentActivity() {
                         if (kept) {
                             runFolder()
                         } else {
-                            folderStatus = FOLDER_LOST
+                            folderStatus = words.text(R.string.folder_lost)
                         }
                     }
                 }
@@ -235,8 +227,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 when (val current = screen) {
-                    CatalogScreenState.Loading -> StatusText(LOADING_COPY)
-                    CatalogScreenState.Failed -> StatusText(OPEN_FAILURE_COPY) {
+                    CatalogScreenState.Loading -> StatusText(stringResource(R.string.catalog_loading))
+                    CatalogScreenState.Failed -> StatusText(stringResource(R.string.catalog_open_failed)) {
                         val opened = session
                         if (opened != null) {
                             screen = CatalogScreenState.Loading
@@ -458,8 +450,8 @@ class MainActivity : ComponentActivity() {
                                 hasGrant = result.stored
                                 phoneId = localDeviceId(result.stored, readStoredDeviceId(filesDir))
                                 val warning = when {
-                                    !result.stored -> VAULT_FAILED_COPY
-                                    form.storage == StorageChoice.Folder -> CREATE_FOLDER_NOTE
+                                    !result.stored -> R.string.vault_failed
+                                    form.storage == StorageChoice.Folder -> R.string.create_folder_note
                                     else -> null
                                 }
                                 screen = CatalogScreenState.Recovery(result.password, warning)
@@ -483,7 +475,7 @@ class MainActivity : ComponentActivity() {
                                 screen = if (fresh == null) {
                                     CatalogScreenState.ChangingRecovery(busy = false, failed = true)
                                 } else {
-                                    CatalogScreenState.Recovery(fresh, RECOVERY_CHANGED_NOTE)
+                                    CatalogScreenState.Recovery(fresh, R.string.recovery_changed_note)
                                 }
                             }
                         },
@@ -603,13 +595,6 @@ internal const val PENDING_GRANT = "grant.pending.enc"
 /** The folder card on the catalog. [name] is null until a folder is picked. */
 internal data class FolderCard(val name: String?, val status: String?, val busy: Boolean)
 
-internal const val FOLDER_SYNCING = "Sincronizando a pasta…"
-
-internal const val FOLDER_READY_NOTE = "Toque para sincronizar agora. O app também sincroniza ao abrir."
-
-internal const val FOLDER_SWITCH_NOTE =
-    "A pasta atual fica como está. A nova recebe os arquivos que este aparelho sincroniza."
-
 private sealed interface CatalogScreenState {
     data object Loading : CatalogScreenState
 
@@ -642,7 +627,7 @@ private sealed interface CatalogScreenState {
 
     data class Creating(val form: CreateForm) : CatalogScreenState
 
-    data class Recovery(val password: String, val warning: String?) : CatalogScreenState
+    data class Recovery(val password: String, @androidx.annotation.StringRes val warning: Int?) : CatalogScreenState
 
     data class ChangingRecovery(val busy: Boolean, val failed: Boolean) : CatalogScreenState
 
@@ -838,7 +823,7 @@ private fun chooseCatalog(session: CatalogSession, path: String, follow: Follow)
 internal fun PhoneScaffold(
     title: String,
     onBack: (() -> Unit)?,
-    backLabel: String = "Voltar",
+    backLabel: String? = null,
     backEnabled: Boolean = true,
     showMark: Boolean = false,
     content: @androidx.compose.runtime.Composable (PaddingValues) -> Unit,
@@ -859,7 +844,7 @@ internal fun PhoneScaffold(
                         enabled = backEnabled,
                         contentPadding = PaddingValues(0.dp),
                     ) {
-                        Text(backLabel, color = if (backEnabled) satchel.accent else satchel.secondary)
+                        Text(backLabel ?: stringResource(R.string.back), color = if (backEnabled) satchel.accent else satchel.secondary)
                     }
                 }
                 if (showMark) {
@@ -888,7 +873,8 @@ private fun CatalogScreen(
     onOpen: (String) -> Unit,
 ) {
     val zone = ZoneId.systemDefault()
-    PhoneScaffold(title = "Catálogo", onBack = null, showMark = true) { padding ->
+    val words = rememberWords()
+    PhoneScaffold(title = stringResource(R.string.catalog_title), onBack = null, showMark = true) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp),
@@ -896,16 +882,19 @@ private fun CatalogScreen(
         ) {
             if (canCreate) {
                 item {
-                    ProductCard(onClick = onCreate) { CardText(CREATE_TITLE, CREATE_NOTE) }
+                    ProductCard(onClick = onCreate) { CardText(stringResource(R.string.create_title), stringResource(R.string.create_note)) }
                 }
             }
             if (canInvite) {
                 item {
-                    ProductCard(onClick = onInvite) { CardText("Mostrar convite", INVITE_NOTE) }
+                    ProductCard(onClick = onInvite) { CardText(stringResource(R.string.show_invite), stringResource(R.string.invite_note)) }
                 }
                 item {
                     ProductCard(onClick = onChangeRecovery) {
-                        CardText(RECOVERY_CHANGE_TITLE, "Só este aparelho, que criou o repositório, pode trocar.")
+                        CardText(
+                            stringResource(R.string.recovery_change_title),
+                            stringResource(R.string.recovery_change_only_here),
+                        )
                     }
                 }
             }
@@ -913,14 +902,17 @@ private fun CatalogScreen(
                 item {
                     if (folder.name == null) {
                         ProductCard(onClick = onChooseFolder) {
-                            CardText(FOLDER_TITLE, FOLDER_CHOOSE_NOTE)
-                            Text("Escolher", color = satchel.accent, fontWeight = FontWeight.SemiBold)
+                            CardText(stringResource(R.string.folder_title), stringResource(R.string.folder_choose_note))
+                            Text(stringResource(R.string.folder_choose), color = satchel.accent, fontWeight = FontWeight.SemiBold)
                         }
                     } else {
                         ProductCard(onClick = onSyncFolder, enabled = !folder.busy) {
-                            CardText("$FOLDER_TITLE: ${folder.name}", folder.status ?: FOLDER_READY_NOTE)
+                            CardText(
+                                stringResource(R.string.folder_card_title, folder.name),
+                                folder.status ?: stringResource(R.string.folder_ready_note),
+                            )
                             Text(
-                                if (folder.busy) "Sincronizando" else "Sincronizar",
+                                stringResource(if (folder.busy) R.string.folder_syncing_short else R.string.folder_sync),
                                 color = if (folder.busy) satchel.secondary else satchel.accent,
                                 fontWeight = FontWeight.SemiBold,
                             )
@@ -930,19 +922,19 @@ private fun CatalogScreen(
                 if (folder.name != null) {
                     item {
                         ProductCard(onClick = onChooseFolder, enabled = !folder.busy) {
-                            CardText("Escolher outra pasta", FOLDER_SWITCH_NOTE)
+                            CardText(stringResource(R.string.folder_choose_other), stringResource(R.string.folder_switch_note))
                         }
                     }
                 }
             }
             if (canPair) {
                 item {
-                    ProductCard(onClick = onPair) { CardText(ENTRY_TITLE, PAIR_SUPPORT) }
+                    ProductCard(onClick = onPair) { CardText(stringResource(R.string.entry_title), stringResource(R.string.pair_support)) }
                 }
             }
             if (rows.isEmpty()) {
                 item {
-                    ProductCard { Text(EMPTY_CATALOG, color = satchel.secondary) }
+                    ProductCard { Text(stringResource(R.string.catalog_empty), color = satchel.secondary) }
                 }
             }
             items(rows, key = { row -> row.path }) { row ->
@@ -950,11 +942,11 @@ private fun CatalogScreen(
                     Row(verticalAlignment = Alignment.Top) {
                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(rowTitle(row), style = MaterialTheme.typography.titleMedium)
-                            Text(catalogMeta(row, zone), style = MaterialTheme.typography.bodyMedium, color = satchel.secondary)
-                            Text(deviceCountLabel(row.devices), style = MaterialTheme.typography.bodyMedium, color = satchel.secondary)
+                            Text(catalogMeta(row, zone, words), style = MaterialTheme.typography.bodyMedium, color = satchel.secondary)
+                            Text(deviceCountLabel(row.devices, words), style = MaterialTheme.typography.bodyMedium, color = satchel.secondary)
                         }
                         Text(
-                            followLabel(row.follow),
+                            followLabel(row.follow, words),
                             color = satchel.accent,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(start = 12.dp),
@@ -974,10 +966,11 @@ private fun FileScreen(
 ) {
     val row = listedRow(state.path, state.rows)
     val zone = ZoneId.systemDefault()
+    val words = rememberWords()
     PhoneScaffold(
         title = state.path,
         onBack = onBack,
-        backLabel = "Catálogo",
+        backLabel = stringResource(R.string.catalog_title),
         backEnabled = !state.busy,
     ) { padding ->
         LazyColumn(
@@ -987,11 +980,11 @@ private fun FileScreen(
         ) {
             if (row == null) {
                 item {
-                    ProductCard { Text(EMPTY_CATALOG, color = satchel.secondary) }
+                    ProductCard { Text(stringResource(R.string.catalog_empty), color = satchel.secondary) }
                 }
                 return@LazyColumn
             }
-            val header = fileHeaderLines(row, zone)
+            val header = fileHeaderLines(row, zone, words)
             item {
                 ProductCard {
                     Text(header[0], style = MaterialTheme.typography.labelMedium, color = satchel.secondary)
@@ -1006,11 +999,11 @@ private fun FileScreen(
                 }
             }
             item {
-                SectionLabel("Neste aparelho")
+                SectionLabel(stringResource(R.string.section_this_device))
             }
             if (state.busy) {
                 item {
-                    Text(SAVING_COPY, color = satchel.secondary)
+                    Text(stringResource(R.string.saving_choice), color = satchel.secondary)
                 }
             }
             item {
@@ -1029,9 +1022,9 @@ private fun FileScreen(
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(followLabel(follow), fontWeight = FontWeight.SemiBold)
+                                Text(followLabel(follow, words), fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    followDetail(follow, row.isDirectory),
+                                    followDetail(follow, row.isDirectory, words),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = satchel.secondary,
                                 )
@@ -1044,16 +1037,16 @@ private fun FileScreen(
                 }
             }
             item {
-                SectionLabel("Aparelhos")
+                SectionLabel(stringResource(R.string.section_devices))
             }
             if (row.devices.isEmpty()) {
                 item {
-                    ProductCard { Text(deviceSectionLines(row, state.localDeviceId, zone)[0], color = satchel.secondary) }
+                    ProductCard { Text(deviceSectionLines(row, state.localDeviceId, zone, words)[0], color = satchel.secondary) }
                 }
             }
             items(row.devices, key = { device -> device }) { device ->
                 val local = device == state.localDeviceId && state.localDeviceId.isNotEmpty()
-                val lines = deviceCardLines(device, holderFor(device, row.holders), local, zone)
+                val lines = deviceCardLines(device, holderFor(device, row.holders), local, zone, words)
                 ProductCard {
                     lines.forEachIndexed { index, line ->
                         when {
@@ -1110,17 +1103,17 @@ private fun PairScreen(
         capitalization = KeyboardCapitalization.None,
         autoCorrectEnabled = false,
     )
-    PhoneScaffold(title = ENTRY_TITLE, onBack = onBack, backEnabled = !state.busy) { padding ->
+    PhoneScaffold(title = stringResource(R.string.entry_title), onBack = onBack, backEnabled = !state.busy) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
-        Text(ENTRY_NOTE, color = satchel.secondary)
+        Text(stringResource(R.string.entry_note), color = satchel.secondary)
         OutlinedTextField(
             value = state.address,
             onValueChange = onAddress,
             enabled = !state.busy,
-            label = { Text(ENTRY_FIELDS[0]) },
+            label = { Text(stringResource(ENTRY_FIELDS[0])) },
             keyboardOptions = plain,
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
         )
@@ -1128,14 +1121,14 @@ private fun PairScreen(
             value = state.code,
             onValueChange = onCode,
             enabled = !state.busy,
-            label = { Text(ENTRY_FIELDS[1]) },
+            label = { Text(stringResource(ENTRY_FIELDS[1])) },
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
         OutlinedTextField(
             value = state.fingerprint,
             onValueChange = onFingerprint,
             enabled = !state.busy,
-            label = { Text(ENTRY_FIELDS[2]) },
+            label = { Text(stringResource(ENTRY_FIELDS[2])) },
             keyboardOptions = plain,
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
@@ -1143,12 +1136,12 @@ private fun PairScreen(
             value = state.apelido,
             onValueChange = onApelido,
             enabled = !state.busy,
-            label = { Text(ENTRY_FIELDS[3]) },
+            label = { Text(stringResource(ENTRY_FIELDS[3])) },
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
         if (state.failed) {
             FailureText(
-                "Não foi possível entrar. Confira o código e se o outro aparelho ainda mostra o convite.",
+                stringResource(R.string.join_failed),
                 modifier = Modifier.padding(top = 12.dp),
             )
         }
@@ -1157,10 +1150,10 @@ private fun PairScreen(
             enabled = !state.busy,
             modifier = Modifier.padding(top = 16.dp),
         ) {
-            Text("Ler QR")
+            Text(stringResource(R.string.scan_qr))
         }
         PrimaryButton(
-            "Entrar",
+            stringResource(R.string.join),
             onClick = onSubmit,
             enabled = !state.busy,
             modifier = Modifier.padding(top = 8.dp, bottom = 32.dp),
@@ -1171,7 +1164,7 @@ private fun PairScreen(
 
 @androidx.compose.runtime.Composable
 private fun StatusText(message: String, onRetry: (() -> Unit)? = null) {
-    PhoneScaffold(title = "Catálogo", onBack = null, showMark = true) { padding ->
+    PhoneScaffold(title = stringResource(R.string.catalog_title), onBack = null, showMark = true) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp, vertical = 48.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -1186,7 +1179,7 @@ private fun StatusText(message: String, onRetry: (() -> Unit)? = null) {
                 textAlign = TextAlign.Center,
             )
             if (onRetry != null) {
-                PrimaryButton("Tentar de novo", onClick = onRetry)
+                PrimaryButton(stringResource(R.string.try_again), onClick = onRetry)
             }
         }
     }

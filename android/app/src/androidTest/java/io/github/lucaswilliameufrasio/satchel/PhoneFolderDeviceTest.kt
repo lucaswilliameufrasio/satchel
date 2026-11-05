@@ -2,7 +2,6 @@ package io.github.lucaswilliameufrasio.satchel
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import io.github.lucaswilliameufrasio.satchel.catalog.FOLDER_UNAVAILABLE
 import io.github.lucaswilliameufrasio.satchel.catalog.FileTree
 import io.github.lucaswilliameufrasio.satchel.catalog.FolderTree
 import io.github.lucaswilliameufrasio.satchel.catalog.NativeCatalog
@@ -30,16 +29,28 @@ class PhoneFolderDeviceTest {
         File(first, "a.txt").writeText("alpha")
         File(first, "trip/day1.txt").writeText("day one")
         val manifest = File(root, "folder.manifest").absolutePath
+        val pt = wordsIn("pt-BR")
+        val en = wordsIn("en")
+        val unavailable = pt.text(R.string.folder_unavailable)
+        assertEquals(
+            "A pasta não respondeu ou ficou vazia de repente. Nada foi apagado. Confira a pasta ou escolha de novo.",
+            unavailable,
+        )
 
-        assertEquals("2 mudanças enviadas.", folderRoundOn(grant, FileTree(first), manifest, "Pixel"))
+        assertEquals("2 mudanças enviadas.", folderRoundOn(grant, FileTree(first), manifest, "Pixel", pt))
         val listed = NativeCatalog.catalogGrant(grant)
         assertTrue(listed.contains("\"a.txt\"") && listed.contains("\"trip/day1.txt\""))
-        assertEquals("Em dia.", folderRoundOn(grant, FileTree(first), manifest, "Pixel"))
+        assertEquals("Em dia.", folderRoundOn(grant, FileTree(first), manifest, "Pixel", pt))
+        assertEquals("Up to date.", folderRoundOn(grant, FileTree(first), manifest, "Pixel", en))
 
         // A folder that suddenly lists nothing deletes nothing.
         File(first, "a.txt").delete()
         File(first, "trip/day1.txt").delete()
-        assertEquals(FOLDER_UNAVAILABLE, folderRoundOn(grant, FileTree(first), manifest, "Pixel"))
+        assertEquals(unavailable, folderRoundOn(grant, FileTree(first), manifest, "Pixel", pt))
+        assertEquals(
+            "The folder did not answer or was suddenly empty. Nothing was deleted. Check the folder or choose it again.",
+            folderRoundOn(grant, FileTree(first), manifest, "Pixel", en),
+        )
         assertTrue(NativeCatalog.catalogGrant(grant).contains("\"a.txt\""))
 
         // A Kotlin exception in the folder is a refusal, not a crash.
@@ -49,7 +60,7 @@ class PhoneFolderDeviceTest {
             override fun write(path: String, bytes: ByteArray) = throw IOException("no")
             override fun remove(path: String) = throw IOException("no")
         }
-        assertEquals(FOLDER_UNAVAILABLE, folderRoundOn(grant, broken, manifest, "Pixel"))
+        assertEquals(unavailable, folderRoundOn(grant, broken, manifest, "Pixel", pt))
 
         // Picking another folder: a fresh manifest, and the synced files arrive.
         val second = File(root, "other")
@@ -58,7 +69,7 @@ class PhoneFolderDeviceTest {
         File(second, "new.txt").writeText("from the second folder")
         assertEquals(
             "1 mudança enviada, 2 mudanças recebidas.",
-            folderRoundOn(grant, FileTree(second), manifest, "Pixel"),
+            folderRoundOn(grant, FileTree(second), manifest, "Pixel", pt),
         )
         assertEquals("alpha", File(second, "a.txt").readText())
         assertEquals("day one", File(second, "trip/day1.txt").readText())

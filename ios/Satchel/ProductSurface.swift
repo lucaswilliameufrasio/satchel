@@ -66,7 +66,7 @@ struct ProductScreen<Content: View>: View {
                             .frame(width: 36, height: 36)
                             .accessibilityIdentifier(ProductSurface.mark)
                             .accessibilityLabel("Satchel")
-                        Text("Satchel")
+                        Text(verbatim: "Satchel")
                             .font(.headline.weight(.semibold))
                             .foregroundStyle(SatchelInk.ink)
                     }

@@ -7,19 +7,6 @@ internal interface GrantSlot {
     fun clear()
 }
 
-internal const val RECOVERY_CHANGE_TITLE = "Trocar senha de recuperação"
-
-internal const val RECOVERY_CHANGE_NOTE =
-    "Gera uma senha nova e a mostra uma vez. Os outros aparelhos continuam abrindo com a chave deles. " +
-        "Quem guardou o arquivo de chave antigo, ou lê versões antigas num bucket com versionamento, " +
-        "ainda abre com a senha velha: a chave dos dados não muda."
-
-internal const val RECOVERY_CHANGE_FAILED =
-    "Não foi possível trocar. A senha antiga continua valendo. Confira a conexão com o armazenamento."
-
-internal const val RECOVERY_CHANGED_NOTE =
-    "A senha antiga não abre mais o repositório. Guarde esta no gerenciador de senhas."
-
 /**
  * Change the recovery password held in [main]. The new grant is sealed in [pending]
  * before the repository changes, so a crash in between never leaves this device

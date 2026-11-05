@@ -3,8 +3,11 @@ package io.github.lucaswilliameufrasio.satchel.catalog
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.DocumentsContract
+import io.github.lucaswilliameufrasio.satchel.R
+import io.github.lucaswilliameufrasio.satchel.Words
 import java.io.File
 import java.io.IOException
+import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -210,41 +213,30 @@ class SafTree(private val resolver: ContentResolver, private val tree: Uri) : Fo
 }
 
 /** What the person reads after a round. */
-internal fun folderSummary(reportJson: String): String {
+internal fun folderSummary(reportJson: String, words: Words): String {
     val report = JSONObject(reportJson)
     if (report.optString("status") == "unavailable") {
-        return FOLDER_UNAVAILABLE
+        return words.text(R.string.folder_unavailable)
     }
     val sent = report.optInt("imported") + report.optInt("deletedHere")
     val received = report.optInt("exported") + report.optInt("deletedThere")
     val parts = mutableListOf<String>()
     if (sent > 0) {
-        parts.add(if (sent == 1) "1 mudança enviada" else "$sent mudanças enviadas")
+        parts.add(words.count(R.plurals.folder_sent, sent, sent))
     }
     if (received > 0) {
-        parts.add(if (received == 1) "1 mudança recebida" else "$received mudanças recebidas")
+        parts.add(words.count(R.plurals.folder_received, received, received))
     }
     val conflicts = report.optInt("conflicts")
     if (conflicts > 0) {
-        parts.add(if (conflicts == 1) "1 conflito guardado no catálogo" else "$conflicts conflitos guardados no catálogo")
+        parts.add(words.count(R.plurals.folder_conflicts, conflicts, conflicts))
     }
     if (report.optInt("deferred") > 0) {
-        parts.add("arquivos editados durante a sincronização vão na próxima")
+        parts.add(words.text(R.string.folder_deferred))
     }
     if (parts.isEmpty()) {
-        return "Em dia."
+        return words.text(R.string.folder_up_to_date)
     }
-    return parts.joinToString(", ").replaceFirstChar { it.uppercase() } + "."
+    val locale = Locale.forLanguageTag(words.text(R.string.format_locale))
+    return parts.joinToString(", ").replaceFirstChar { it.titlecase(locale) } + "."
 }
-
-internal const val FOLDER_TITLE = "Pasta do celular"
-
-internal const val FOLDER_CHOOSE_NOTE =
-    "Escolha uma pasta. O que você puser nela vai para o repositório. " +
-        "O que vem dos outros aparelhos aparece no catálogo e entra na pasta quando você marca para baixar."
-
-internal const val FOLDER_UNAVAILABLE =
-    "A pasta não respondeu ou ficou vazia de repente. Nada foi apagado. Confira a pasta ou escolha de novo."
-
-internal const val FOLDER_LOST =
-    "O Android não deixa mais o app abrir esta pasta. Escolha de novo."

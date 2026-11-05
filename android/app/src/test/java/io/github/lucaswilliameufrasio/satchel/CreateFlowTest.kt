@@ -74,9 +74,15 @@ class CreateFlowTest {
 
     @Test
     fun everyRefusalReasonHasItsOwnAdvice() {
-        val texts = listOf("protection", "exists", "unreachable", "fields", "").map { createFailureCopy(it) }
+        val pt = XmlWords("values-pt")
+        val en = XmlWords("values")
+        val reasons = listOf("protection", "denied", "exists", "unreachable", "fields", "")
+        val texts = reasons.map { pt.text(createFailureCopy(it)) }
         assertEquals(texts.size, texts.toSet().size)
-        assertTrue(createFailureCopy("protection").contains("versionamento"))
-        assertTrue(createFailureCopy("exists").contains("prefixo"))
+        assertEquals(reasons.size, reasons.map { en.text(createFailureCopy(it)) }.toSet().size)
+        assertTrue(pt.text(createFailureCopy("protection")).contains("versionamento"))
+        assertTrue(pt.text(createFailureCopy("exists")).contains("prefixo"))
+        assertTrue(en.text(createFailureCopy("protection")).contains("versioning"))
+        assertTrue(en.text(createFailureCopy("exists")).contains("prefix"))
     }
 }

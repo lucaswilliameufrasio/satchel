@@ -4,7 +4,6 @@ import android.content.ContentResolver
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
-import io.github.lucaswilliameufrasio.satchel.catalog.FOLDER_LOST
 import io.github.lucaswilliameufrasio.satchel.catalog.FolderTree
 import io.github.lucaswilliameufrasio.satchel.catalog.NativeCatalog
 import io.github.lucaswilliameufrasio.satchel.catalog.PhoneFolder
@@ -68,8 +67,8 @@ internal class FolderChoice(filesDir: File) {
     }
 }
 
-/** Name the folder shows in the system picker, or the last part of its id. */
-internal fun folderDisplayName(resolver: ContentResolver, uri: Uri): String {
+/** Name the folder shows in the system picker, or the last part of its id, or [fallback]. */
+internal fun folderDisplayName(resolver: ContentResolver, uri: Uri, fallback: String): String {
     val id = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull().orEmpty()
     val document = DocumentsContract.buildDocumentUriUsingTree(uri, id)
     val named = runCatching {
@@ -84,29 +83,32 @@ internal fun folderDisplayName(resolver: ContentResolver, uri: Uri): String {
     if (!named.isNullOrBlank()) {
         return named
     }
-    return id.substringAfterLast(':').substringAfterLast('/').ifEmpty { "Pasta" }
+    return id.substringAfterLast(':').substringAfterLast('/').ifEmpty { fallback }
 }
 
 /** Run one round and say what happened. Never throws. */
-internal fun folderRound(grant: String, folder: PhoneFolder?, apelido: String): String {
+internal fun folderRound(grant: String, folder: PhoneFolder?, apelido: String, words: Words): String {
     if (folder == null) {
-        return FOLDER_LOST
+        return words.text(R.string.folder_lost)
     }
-    return folderRoundOn(grant, folder.tree, folder.manifest, apelido)
+    return folderRoundOn(grant, folder.tree, folder.manifest, apelido, words)
 }
 
-internal fun folderRoundOn(grant: String, tree: FolderTree, manifest: String, apelido: String): String {
+internal fun folderRoundOn(
+    grant: String,
+    tree: FolderTree,
+    manifest: String,
+    apelido: String,
+    words: Words,
+): String {
     return try {
         val label = io.github.lucaswilliameufrasio.satchel.catalog.markRequest(
             "",
             io.github.lucaswilliameufrasio.satchel.catalog.Follow.See,
             apelido,
         )
-        folderSummary(NativeCatalog.syncFolder(grant, tree, manifest, "", "", label.name, label.os))
+        folderSummary(NativeCatalog.syncFolder(grant, tree, manifest, "", "", label.name, label.os), words)
     } catch (_: RuntimeException) {
-        FOLDER_SYNC_FAILED
+        words.text(R.string.folder_sync_failed)
     }
 }
-
-internal const val FOLDER_SYNC_FAILED =
-    "A sincronização da pasta falhou. Confira a rede e tente de novo."
