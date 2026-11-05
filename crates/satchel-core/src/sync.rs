@@ -111,6 +111,8 @@ pub struct SyncOutcome {
     pub conflicts: Vec<MarkedConflict>,
     /// Other devices whose latest snapshot says where they listen for a wake notice.
     pub peers: Vec<WakePeer>,
+    /// True when this call wrote a snapshot, which is when peers should be told.
+    pub wrote: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -306,9 +308,9 @@ impl Client {
         Ok(())
     }
 
-    /// True when a caller set a follow on this client since it was opened.
+    /// True when a caller set a follow or a wake endpoint on this client since it was opened.
     pub(crate) fn has_marks(&self) -> bool {
-        !self.follows.is_empty()
+        !self.follows.is_empty() || self.wake.is_some()
     }
 
     /// Local copy this client syncs.
@@ -668,6 +670,7 @@ impl Client {
                 cursor: self.last_cursor.clone(),
                 conflicts: Vec::new(),
                 peers: self.wake_peers(latest),
+                wrote: false,
             });
         }
 
@@ -772,6 +775,7 @@ impl Client {
             cursor: Some(cursor),
             conflicts,
             peers: self.wake_peers(latest),
+            wrote: true,
         })
     }
 

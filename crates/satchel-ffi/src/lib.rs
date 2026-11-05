@@ -364,13 +364,18 @@ fn mark_grant(
     let spec = read_grant(spec_path)?;
     let location = open_grant(&spec)?;
     let device = DeviceId::parse(&spec.device_id).map_err(|_| CatalogFailure)?;
-    let mut client =
-        Client::open(device, &spec.work, &spec.device_key_password).map_err(|_| CatalogFailure)?;
+    let mut client = Client::open(device.clone(), &spec.work, &spec.device_key_password)
+        .map_err(|_| CatalogFailure)?;
     if !name.is_empty() || !os.is_empty() {
         client.introduce(name, os).map_err(|_| CatalogFailure)?;
     }
+    let announce = wake::to_announce();
+    if announce.is_some() {
+        client.announce_wake(announce.clone());
+    }
     client.follow(path, follow).map_err(|_| CatalogFailure)?;
-    client.sync(&location).map_err(|_| CatalogFailure)?;
+    let outcome = client.sync(&location).map_err(|_| CatalogFailure)?;
+    wake::after_sync(&device, announce.as_ref(), &outcome);
     Ok(())
 }
 
@@ -389,10 +394,14 @@ fn folder_grant(
     let spec = read_grant(spec_path)?;
     let location = open_grant(&spec)?;
     let device = DeviceId::parse(&spec.device_id).map_err(|_| CatalogFailure)?;
-    let mut client =
-        Client::open(device, &spec.work, &spec.device_key_password).map_err(|_| CatalogFailure)?;
+    let mut client = Client::open(device.clone(), &spec.work, &spec.device_key_password)
+        .map_err(|_| CatalogFailure)?;
     if !name.is_empty() || !os.is_empty() {
         client.introduce(name, os).map_err(|_| CatalogFailure)?;
+    }
+    let announce = wake::to_announce();
+    if announce.is_some() {
+        client.announce_wake(announce.clone());
     }
     if let Some((path, follow)) = mark {
         client
@@ -400,21 +409,13 @@ fn folder_grant(
             .map_err(|_| CatalogFailure)?;
     }
     match satchel_core::sync_mirrored(&mut client, &location, tree, manifest) {
-        Ok(report) => serde_json::to_string(&FolderReportJson {
-            status: "ok",
-            imported: report.imported.len(),
-            exported: report.exported.len(),
-            deleted_here: report.deleted_here.len(),
-            deleted_there: report.deleted_there.len(),
-            deferred: report.deferred.len(),
-            conflicts: report
-                .outcome
-                .as_ref()
-                .map(|outcome| outcome.conflicts.len())
-                .unwrap_or(0),
-            quiet: report.quiet,
-        })
-        .map_err(|_| CatalogFailure),
+        Ok(report) => {
+            let woken = match &report.outcome {
+                Some(outcome) => wake::after_sync(&device, announce.as_ref(), outcome),
+                None => 0,
+            };
+            folder_report_json(&report, woken)
+        }
         Err(satchel_core::Error::FolderUnavailable) => serde_json::to_string(&FolderReportJson {
             status: "unavailable",
             ..FolderReportJson::default()
@@ -422,6 +423,28 @@ fn folder_grant(
         .map_err(|_| CatalogFailure),
         Err(_) => Err(CatalogFailure),
     }
+}
+
+fn folder_report_json(
+    report: &satchel_core::MirrorReport,
+    woken: usize,
+) -> Result<String, CatalogFailure> {
+    serde_json::to_string(&FolderReportJson {
+        status: "ok",
+        imported: report.imported.len(),
+        exported: report.exported.len(),
+        deleted_here: report.deleted_here.len(),
+        deleted_there: report.deleted_there.len(),
+        deferred: report.deferred.len(),
+        conflicts: report
+            .outcome
+            .as_ref()
+            .map(|outcome| outcome.conflicts.len())
+            .unwrap_or(0),
+        quiet: report.quiet,
+        woken,
+    })
+    .map_err(|_| CatalogFailure)
 }
 
 #[derive(Default, Serialize)]
@@ -435,6 +458,8 @@ struct FolderReportJson {
     deferred: usize,
     conflicts: usize,
     quiet: bool,
+    /// Wake notices sent to peers on the mesh.
+    woken: usize,
 }
 
 fn read_grant_bytes(spec_path: &Path, path: &str) -> Result<Vec<u8>, CatalogFailure> {
@@ -1179,6 +1204,54 @@ impl satchel_core::FolderTree for JniTree<'_, '_, '_> {
     }
 }
 
+/// Listen for wake notices while the app is in the foreground. `ip` empty means
+/// the mesh address. Returns the address listened on, or an empty string.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_wakeStart<
+    'local,
+>(
+    mut unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    state_dir: JString<'local>,
+    ip: JString<'local>,
+) -> jstring {
+    unowned
+        .with_env(|env| -> Result<jstring, CatalogFailure> {
+            let dir = text_arg(env, &state_dir, false)?;
+            let ip = text_arg(env, &ip, true)?;
+            let address = wake::start(Path::new(&dir), &ip);
+            Ok(env.new_string(address)?.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// Block up to `timeout_ms` for a notice.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_wakeWait<
+    'local,
+>(
+    _unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    timeout_ms: jni::sys::jlong,
+) -> jni::sys::jboolean {
+    let millis = u64::try_from(timeout_ms).unwrap_or(0);
+    wake::wait(std::time::Duration::from_millis(millis))
+}
+
+/// Stop listening.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_NativeCatalog_wakeStop<
+    'local,
+>(
+    _unowned: EnvUnowned<'local>,
+    _class: JClass<'local>,
+) {
+    wake::stop();
+}
+
 /// One folder round. `path` and `follow` may be empty; when set they mark first.
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
@@ -1228,6 +1301,7 @@ pub extern "system" fn Java_io_github_lucaswilliameufrasio_satchel_catalog_Nativ
 #[cfg(any(test, target_os = "ios"))]
 mod ios;
 mod maker;
+mod wake;
 
 #[cfg(any(test, target_os = "ios"))]
 mod tests {

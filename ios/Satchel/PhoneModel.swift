@@ -84,6 +84,7 @@ final class PhoneModel: ObservableObject {
     @Published var folderBusy = false
 
     let supportURL: URL
+    private var wakeTask: Task<Void, Never>?
     let sampleURL: URL
     /// Older installs wrote `grant.json` in clear. It is moved into the Keychain once.
     let legacyGrantURL: URL
@@ -259,6 +260,55 @@ final class PhoneModel: ObservableObject {
             }.value
             folderStatus = said
             folderBusy = false
+            if case .ready(_, false) = screen, let rows {
+                screen = .ready(rows: rows, busy: false)
+            }
+        }
+    }
+
+    /// Listen for "look now" notices while the app is active. iOS suspends the app
+    /// in the background, so nothing listens there and the next open catches up.
+    func startWakes() {
+        if wakeTask != nil || (GrantVault.read() ?? "").isEmpty {
+            return
+        }
+        let dir = supportURL.appendingPathComponent("wake", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let path = dir.path
+        wakeTask = Task { [weak self] in
+            let address = await Task.detached { SatchelCore.wakeStart(stateDir: path) }.value
+            if address.isEmpty {
+                return
+            }
+            if Task.isCancelled {
+                SatchelCore.wakeStop()
+                return
+            }
+            while !Task.isCancelled {
+                let woke = await Task.detached { SatchelCore.wakeWait(timeoutMs: 1000) }.value
+                if woke && !Task.isCancelled {
+                    self?.wakeArrived()
+                }
+            }
+        }
+    }
+
+    func stopWakes() {
+        wakeTask?.cancel()
+        wakeTask = nil
+        SatchelCore.wakeStop()
+    }
+
+    private func wakeArrived() {
+        if folderName != nil {
+            syncFolder()
+            return
+        }
+        guard case .ready(_, false) = screen, let grant = GrantVault.read() else {
+            return
+        }
+        Task {
+            let rows = await Task.detached { SatchelCore.catalogGrant(specPath: grant) }.value
             if case .ready(_, false) = screen, let rows {
                 screen = .ready(rows: rows, busy: false)
             }

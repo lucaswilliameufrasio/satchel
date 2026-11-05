@@ -184,8 +184,6 @@ pub struct Desktop {
     quiet: Option<(QuietMark, SetupCheck)>,
     /// Where this desktop listens for wake notices, while it does.
     wake: Option<WakeEndpoint>,
-    /// This device's snapshot after the last full sync, to tell when one was written.
-    last_written: Option<String>,
 }
 
 /// How the last sync ended, for the tray. A failure keeps its reason; it never carries a secret.
@@ -222,7 +220,6 @@ impl Desktop {
             last_sync: None,
             quiet: None,
             wake: None,
-            last_written: None,
         })
     }
 
@@ -411,19 +408,12 @@ impl Desktop {
         self.quiet = None;
         let mut result = self.publish_inner(store);
         if let Ok(report) = &mut result {
-            let written = report
-                .outcome
-                .cursor
-                .as_ref()
-                .map(|cursor| cursor.snapshot_id.clone());
-            if written.is_some()
-                && written != self.last_written
+            if report.outcome.wrote
                 && let Some(profile) = &self.profile
             {
                 report.wakes_sent =
                     send_wakes(&profile.device_id, &report.outcome.peers, now_unix());
             }
-            self.last_written = written;
             self.remember_quiet(store, report.protection);
         }
         self.last_sync = Some(match &result {
@@ -445,7 +435,8 @@ impl Desktop {
     /// be this machine's address on the mesh network: peers elsewhere cannot reach
     /// it, and a LAN address would take notices from anyone on the LAN.
     pub fn listen_for_wakes(&mut self, ip: std::net::IpAddr) -> Result<WakeListener, Error> {
-        let (listener, endpoint) = crate::wake::bind(&self.config_dir, ip)?;
+        let (listener, endpoint) =
+            satchel_core::bind_saved_wake(&self.config_dir.join("wake.json"), ip)?;
         if self.wake.as_ref() != Some(&endpoint) {
             self.quiet = None;
         }

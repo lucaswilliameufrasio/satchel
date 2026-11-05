@@ -113,6 +113,18 @@ private func satchelSyncFolder(
     _ os: UnsafePointer<CChar>
 ) -> UnsafeMutablePointer<CChar>?
 
+@_silgen_name("satchel_wake_start")
+private func satchelWakeStart(
+    _ stateDir: UnsafePointer<CChar>,
+    _ ip: UnsafePointer<CChar>
+) -> UnsafeMutablePointer<CChar>?
+
+@_silgen_name("satchel_wake_wait")
+private func satchelWakeWait(_ timeoutMs: UInt32) -> Int32
+
+@_silgen_name("satchel_wake_stop")
+private func satchelWakeStop()
+
 @_silgen_name("satchel_read_grant")
 private func satchelReadGrant(
     _ specPath: UnsafePointer<CChar>,
@@ -268,6 +280,26 @@ enum SatchelCore {
         old.withCString { oldPointer in
             new.withCString { satchelRecoveryCommit(oldPointer, $0) == 1 }
         }
+    }
+
+    /// Listen for wake notices from paired devices on the mesh. `ip` empty means the
+    /// Tailscale or NetBird address. Returns the address listened on, or "" when none.
+    static func wakeStart(stateDir: String, ip: String = "") -> String {
+        let raw = stateDir.withCString { dirPointer in
+            ip.withCString { ipPointer in
+                satchelWakeStart(dirPointer, ipPointer)
+            }
+        }
+        return takeString(raw) ?? ""
+    }
+
+    /// Block up to `timeoutMs` for a notice. Notices within 5 s of the last count once.
+    static func wakeWait(timeoutMs: UInt32) -> Bool {
+        satchelWakeWait(timeoutMs) == 1
+    }
+
+    static func wakeStop() {
+        satchelWakeStop()
     }
 
     static func grantOpens(_ grant: String) -> Bool {

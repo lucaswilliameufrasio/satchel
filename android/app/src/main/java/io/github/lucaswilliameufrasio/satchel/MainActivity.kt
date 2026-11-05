@@ -36,6 +36,9 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import io.github.lucaswilliameufrasio.satchel.catalog.CatalogRow
 import io.github.lucaswilliameufrasio.satchel.catalog.CatalogSession
 import io.github.lucaswilliameufrasio.satchel.catalog.CatalogSource
@@ -150,6 +153,25 @@ class MainActivity : ComponentActivity() {
                         folderBusy = false
                         if (screen is CatalogScreenState.Ready && next is CatalogScreenState.Ready) {
                             screen = next
+                        }
+                    }
+                }
+                val lifecycle = LocalLifecycleOwner.current.lifecycle
+                LaunchedEffect(hasGrant) {
+                    if (!ordinary || !hasGrant) {
+                        return@LaunchedEffect
+                    }
+                    lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                        listenForWakes(wakeStateDir(filesDir)) {
+                            val active = session
+                            if (folderUri != null) {
+                                runFolder()
+                            } else if (active != null && screen is CatalogScreenState.Ready) {
+                                val next = withContext(Dispatchers.IO) { openCatalog(active) }
+                                if (screen is CatalogScreenState.Ready && next is CatalogScreenState.Ready) {
+                                    screen = next
+                                }
+                            }
                         }
                     }
                 }

@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct SatchelApp: App {
     @StateObject private var model = PhoneModel()
+    @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
         WindowGroup {
@@ -10,6 +11,13 @@ struct SatchelApp: App {
                 .onAppear {
                     model.openIfNeeded()
                 }
+        }
+        .onChange(of: phase) { now in
+            if now == .active {
+                model.startWakes()
+            } else {
+                model.stopWakes()
+            }
         }
     }
 }

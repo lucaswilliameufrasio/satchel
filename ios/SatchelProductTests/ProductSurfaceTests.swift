@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import CryptoKit
 import XCTest
 
 @testable import Satchel
@@ -241,6 +242,67 @@ final class ProductSurfaceTests: XCTestCase {
             "1 mudança enviada, 2 mudanças recebidas, 1 conflito guardado no catálogo."
         )
         proof("folder-summary")
+    }
+
+    func testASignedNoticeWakesTheListenerAndAWrongKeyDoesNot() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("satchel-wake-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer {
+            SatchelCore.wakeStop()
+            try? FileManager.default.removeItem(at: dir)
+        }
+        XCTAssertFalse(SatchelCore.wakeWait(timeoutMs: 50), "not started")
+        let address = SatchelCore.wakeStart(stateDir: dir.path, ip: "127.0.0.1")
+        XCTAssertTrue(address.hasPrefix("127.0.0.1:"), address)
+        let port = try XCTUnwrap(UInt16(address.split(separator: ":").last ?? ""))
+        let saved = try JSONSerialization.jsonObject(
+            with: Data(contentsOf: dir.appendingPathComponent("wake.json"))
+        ) as? [String: Any]
+        let keyHex = try XCTUnwrap(saved?["key"] as? String)
+        let key = Data(stride(from: 0, to: keyHex.count, by: 2).map { offset -> UInt8 in
+            let start = keyHex.index(keyHex.startIndex, offsetBy: offset)
+            return UInt8(keyHex[start..<keyHex.index(start, offsetBy: 2)], radix: 16) ?? 0
+        })
+
+        try sendDatagram(notice(key: Data(repeating: 1, count: 32)), port: port)
+        XCTAssertFalse(SatchelCore.wakeWait(timeoutMs: 500), "a wrong key is dropped")
+        try sendDatagram(notice(key: key), port: port)
+        XCTAssertTrue(SatchelCore.wakeWait(timeoutMs: 2000))
+
+        SatchelCore.wakeStop()
+        XCTAssertFalse(SatchelCore.wakeWait(timeoutMs: 50))
+        XCTAssertEqual(SatchelCore.wakeStart(stateDir: dir.path, ip: "127.0.0.1"), address)
+        proof("wake-notice")
+    }
+
+    private func notice(key: Data) -> Data {
+        var signed = Data("SATWAKE1".utf8)
+        var time = UInt64(Date().timeIntervalSince1970).bigEndian
+        signed.append(Data(bytes: &time, count: 8))
+        signed.append(Data((0..<16).map { _ in UInt8.random(in: 0...255) }))
+        signed.append(Data("0123456789abcdef0123456789abcdef".utf8))
+        let code = HMAC<SHA256>.authenticationCode(for: signed, using: SymmetricKey(data: key))
+        return signed + Data(code)
+    }
+
+    private func sendDatagram(_ bytes: Data, port: UInt16) throws {
+        let socket = Darwin.socket(AF_INET, SOCK_DGRAM, 0)
+        XCTAssertGreaterThanOrEqual(socket, 0)
+        defer { close(socket) }
+        var target = sockaddr_in()
+        target.sin_family = sa_family_t(AF_INET)
+        target.sin_port = port.bigEndian
+        target.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let sent = bytes.withUnsafeBytes { buffer in
+            withUnsafePointer(to: &target) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { address in
+                    sendto(socket, buffer.baseAddress, buffer.count, 0, address,
+                           socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+        }
+        XCTAssertEqual(sent, bytes.count)
     }
 
     func testSampleKeepsApelidoOutOfTheKeyFile() throws {

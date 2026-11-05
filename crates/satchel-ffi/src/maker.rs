@@ -822,4 +822,124 @@ mod tests {
         );
         assert!(!is_maintainer(Path::new(&member_grant)));
     }
+
+    #[test]
+    fn a_phone_in_the_foreground_announces_once_sends_after_writing_and_wakes_on_a_notice() {
+        use std::ffi::{CStr, CString};
+
+        let _guard = ONE_AT_A_TIME.lock().unwrap_or_else(|p| p.into_inner());
+        let root = Temp::new("wake");
+        let (password, maker_grant) = made(&root.0);
+        let spec = read_grant(Path::new(&maker_grant)).expect("spec");
+        let location = open_grant(&spec).expect("location");
+        let other = DeviceId::generate();
+        let provisioned = provision_device_key(&location, &password, &other).expect("device key");
+        let maker_folder = root.0.join("maker-folder");
+        fs::create_dir_all(&maker_folder).expect("folder");
+        fs::write(maker_folder.join("a.txt"), b"alpha").expect("file");
+        let state = root.0.join("state");
+        fs::create_dir_all(&state).expect("state");
+        let c = |text: &str| CString::new(text).expect("c string");
+        let take = |raw: *mut std::os::raw::c_char| {
+            assert!(!raw.is_null());
+            // SAFETY: the pointer came from leak_string and is freed right after.
+            let text = unsafe { CStr::from_ptr(raw) }
+                .to_str()
+                .expect("utf-8")
+                .to_string();
+            crate::ios::satchel_free_string(raw);
+            text
+        };
+        let round = || {
+            let (grant, folder) = (c(&maker_grant), c(maker_folder.to_str().expect("utf-8")));
+            let manifest = c(root.0.join("maker.manifest").to_str().expect("utf-8"));
+            let (empty, name, os) = (c(""), c("Phone"), c("ios"));
+            let raw = crate::ios::satchel_sync_folder(
+                grant.as_ptr(),
+                folder.as_ptr(),
+                manifest.as_ptr(),
+                empty.as_ptr(),
+                empty.as_ptr(),
+                name.as_ptr(),
+                os.as_ptr(),
+            );
+            serde_json::from_str::<serde_json::Value>(&take(raw)).expect("report")
+        };
+
+        // Not started: nothing to wait for.
+        assert_eq!(crate::ios::satchel_wake_wait(50), 0);
+        let (dir, ip) = (c(state.to_str().expect("utf-8")), c("127.0.0.1"));
+        let address = take(crate::ios::satchel_wake_start(dir.as_ptr(), ip.as_ptr()));
+        assert!(address.starts_with("127.0.0.1:"), "{address}");
+
+        // The first round writes and so carries the endpoint; the next one is quiet.
+        let first = round();
+        assert_eq!(first["imported"], 1);
+        assert_eq!(first["woken"], 0, "no peer listens yet");
+        assert_eq!(round()["quiet"], true, "the endpoint is already published");
+
+        // A peer that listens reads the endpoint and is told when the phone writes.
+        let key = satchel_core::generate_wake_key();
+        let mut ear = satchel_core::WakeListener::bind("127.0.0.1:0".parse().expect("addr"), &key)
+            .expect("bind");
+        let peer_endpoint = satchel_core::WakeEndpoint {
+            address: ear.local_addr().expect("addr").to_string(),
+            key,
+        };
+        let peer_work = root.0.join("peer-work");
+        let mut peer =
+            satchel_core::Client::open(other.clone(), &peer_work, &provisioned.device_key_password)
+                .expect("peer");
+        peer.announce_wake(Some(peer_endpoint));
+        let seen = peer.sync(&location).expect("peer sync");
+        assert_eq!(
+            seen.peers.len(),
+            1,
+            "the phone's endpoint is in its snapshot"
+        );
+        assert_eq!(seen.peers[0].endpoint.address, address);
+
+        fs::write(maker_folder.join("b.txt"), b"beta").expect("file");
+        let wrote = round();
+        assert_eq!(wrote["woken"], 1);
+        let now = || {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_secs()
+        };
+        assert_eq!(
+            ear.wait(Duration::from_secs(2), now).as_deref(),
+            Some(spec.device_id.as_str())
+        );
+
+        // The peer writes and tells the phone. Two notices close together count once.
+        fs::write(peer_work.join("c.txt"), b"gamma").expect("file");
+        peer.follow("c.txt", satchel_core::Follow::Always)
+            .expect("follow");
+        let pushed = peer.sync(&location).expect("peer write");
+        assert!(pushed.wrote);
+        assert_eq!(satchel_core::send_wakes(&other, &pushed.peers, now()), 1);
+        assert_eq!(crate::ios::satchel_wake_wait(2000), 1);
+        assert_eq!(satchel_core::send_wakes(&other, &pushed.peers, now()), 1);
+        let started = Instant::now();
+        assert_eq!(
+            crate::ios::satchel_wake_wait(1000),
+            0,
+            "held inside the gap"
+        );
+        assert_eq!(crate::ios::satchel_wake_wait(6000), 1);
+        assert!(started.elapsed() >= Duration::from_secs(4));
+
+        // In the background nothing listens. Coming back keeps the port, so the
+        // endpoint in the snapshot still holds and the next round stays quiet.
+        crate::ios::satchel_wake_stop();
+        assert_eq!(crate::ios::satchel_wake_wait(50), 0);
+        let back = take(crate::ios::satchel_wake_start(dir.as_ptr(), ip.as_ptr()));
+        assert_eq!(back, address);
+        round();
+        assert_eq!(round()["quiet"], true);
+        crate::ios::satchel_wake_stop();
+        assert!(!round()["woken"].is_null());
+    }
 }

@@ -12,7 +12,8 @@
 //! everything before it under the receiver's key.
 
 use std::collections::BTreeMap;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{IpAddr, SocketAddr, UdpSocket};
+use std::path::Path;
 use std::time::Duration;
 
 use hmac::{Hmac, Mac};
@@ -155,6 +156,72 @@ impl WakeCheck {
             .ok()
             .map(|id| id.as_str().to_string())
     }
+}
+
+#[derive(Deserialize, Serialize)]
+struct SavedWake {
+    key: String,
+    port: u16,
+}
+
+/// Bind on `ip` with the key and port kept in `file`, creating them on first use.
+///
+/// The saved port is reused when it is free, so peers that read an older
+/// snapshot still reach this device after a restart. `file` should be readable
+/// only by the user; it is written with mode 0600 on Unix. The key is not a
+/// storage secret: whoever holds it can only make this device list
+/// `snapshots/` sooner.
+pub fn bind_saved_wake(file: &Path, ip: IpAddr) -> Result<(WakeListener, WakeEndpoint), Error> {
+    let saved: Option<SavedWake> = std::fs::read(file)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    let key = match &saved {
+        Some(saved) if key_bytes(&saved.key).is_ok() => saved.key.clone(),
+        _ => generate_wake_key(),
+    };
+    let mut listener = None;
+    if let Some(saved) = &saved {
+        listener = WakeListener::bind(SocketAddr::new(ip, saved.port), &key).ok();
+    }
+    let listener = match listener {
+        Some(listener) => listener,
+        None => WakeListener::bind(SocketAddr::new(ip, 0), &key)?,
+    };
+    let address = listener.local_addr()?;
+    let unchanged = saved
+        .as_ref()
+        .is_some_and(|saved| saved.port == address.port() && saved.key == key);
+    if !unchanged {
+        let bytes = serde_json::to_vec(&SavedWake {
+            key: key.clone(),
+            port: address.port(),
+        })
+        .map_err(|_| Error::Wake)?;
+        write_private(file, &bytes)?;
+    }
+    Ok((
+        listener,
+        WakeEndpoint {
+            address: address.to_string(),
+            key,
+        },
+    ))
+}
+
+fn write_private(file: &Path, bytes: &[u8]) -> Result<(), Error> {
+    let name = file
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or(Error::Wake)?;
+    let temp = file.with_file_name(format!(".{name}.tmp"));
+    std::fs::write(&temp, bytes).map_err(|_| Error::Wake)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o600))
+            .map_err(|_| Error::Wake)?;
+    }
+    std::fs::rename(&temp, file).map_err(|_| Error::Wake)
 }
 
 /// A bound socket that waits for notices.

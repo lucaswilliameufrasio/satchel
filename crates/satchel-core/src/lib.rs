@@ -29,6 +29,6 @@ pub use sync::{
     sync_folder_announcing,
 };
 pub use wake::{
-    WAKE_WINDOW_SECS, WakeCheck, WakeEndpoint, WakeListener, WakePeer, generate_wake_key,
-    send_wakes, wake_datagram,
+    WAKE_WINDOW_SECS, WakeCheck, WakeEndpoint, WakeListener, WakePeer, bind_saved_wake,
+    generate_wake_key, send_wakes, wake_datagram,
 };

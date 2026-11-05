@@ -407,6 +407,31 @@ pub extern "C" fn satchel_sync_folder(
     }
 }
 
+/// Listen for wake notices while the app is in the foreground.
+/// `state_dir` is a private folder the app owns; `ip` may be NULL or empty for the
+/// mesh address. Returns the address listened on, empty when none, or NULL.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_wake_start(state_dir: *const c_char, ip: *const c_char) -> *mut c_char {
+    let (Ok(state_dir), Ok(ip)) = (text_from(state_dir), optional_text_from(ip)) else {
+        return ptr::null_mut();
+    };
+    leak_string(super::wake::start(Path::new(&state_dir), &ip))
+}
+
+/// Block up to `timeout_ms` for a notice. 1 when one came, 0 otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_wake_wait(timeout_ms: u32) -> i32 {
+    i32::from(super::wake::wait(std::time::Duration::from_millis(
+        u64::from(timeout_ms),
+    )))
+}
+
+/// Stop listening.
+#[unsafe(no_mangle)]
+pub extern "C" fn satchel_wake_stop() {
+    super::wake::stop();
+}
+
 /// Start showing the invite. `bind` may be empty. Offer JSON, or NULL.
 #[unsafe(no_mangle)]
 pub extern "C" fn satchel_hold_start(grant: *const c_char, bind: *const c_char) -> *mut c_char {

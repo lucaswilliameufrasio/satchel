@@ -231,6 +231,18 @@ object NativeCatalog {
         os: String,
     ): String
 
+    /**
+     * Listen for wake notices in [stateDir], a private folder. [ip] empty means the
+     * mesh address. Returns the address listened on, or an empty string.
+     */
+    external fun wakeStart(stateDir: String, ip: String): String
+
+    /** Block up to [timeoutMs] for a notice. Notices within 5 s of the last count once. */
+    external fun wakeWait(timeoutMs: Long): Boolean
+
+    /** Stop listening. */
+    external fun wakeStop()
+
     /** Canonical invite JSON. Rejects unknown fields, including a recovery password. */
     external fun parseInvite(text: String): String
 }
