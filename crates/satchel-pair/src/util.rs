@@ -35,6 +35,18 @@ pub(crate) fn random_hex(bytes_len: usize) -> String {
 /// Loopback, link-local, container bridges, and anything public are skipped. `None`
 /// means no interface qualifies and the person has to type the address.
 pub fn preferred_bind_ip() -> Option<std::net::IpAddr> {
+    let (mesh, private) = candidate_ips()?;
+    mesh.or(private).map(std::net::IpAddr::V4)
+}
+
+/// This machine's IPv4 address on a Tailscale or NetBird network (100.64.0.0/10).
+///
+/// `None` when no such interface is up. A LAN address is never returned.
+pub fn mesh_ip() -> Option<std::net::IpAddr> {
+    candidate_ips()?.0.map(std::net::IpAddr::V4)
+}
+
+fn candidate_ips() -> Option<(Option<std::net::Ipv4Addr>, Option<std::net::Ipv4Addr>)> {
     let list = if_addrs::get_if_addrs().ok()?;
     let mut mesh = None;
     let mut private = None;
@@ -57,5 +69,5 @@ pub fn preferred_bind_ip() -> Option<std::net::IpAddr> {
             private = Some(ip);
         }
     }
-    mesh.or(private).map(std::net::IpAddr::V4)
+    Some((mesh, private))
 }

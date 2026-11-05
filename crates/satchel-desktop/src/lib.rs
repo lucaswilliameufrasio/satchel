@@ -8,6 +8,7 @@ mod error;
 mod profile;
 mod secrets;
 mod setup_ui;
+mod wake;
 
 pub use app::{
     AccessPair, CreatedProfile, Desktop, Granted, JoinTarget, PublishReport, TrayCommand, TrayItem,

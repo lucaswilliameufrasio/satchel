@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use satchel_core::{
     Client, DeviceId, DeviceKeyRecord, Location, QuietMark, S3Store, SetupCheck, StorageKind,
-    StorageSetup, change_recovery_password, check_setup, create_repository,
-    generate_recovery_password, list_other_device_keys, probe_object_protection,
-    provision_device_key, quiet_mark, remove_device_key, sync_folder,
+    StorageSetup, WakeEndpoint, WakeListener, change_recovery_password, check_setup,
+    create_repository, generate_recovery_password, list_other_device_keys, probe_object_protection,
+    provision_device_key, quiet_mark, remove_device_key, send_wakes, sync_folder_announcing,
 };
 use satchel_pair::{
     ApprovalRequest, Decision, DeviceSecrets, Invite, ListenConfig, Offer, PairingSession,
@@ -49,6 +49,8 @@ pub struct PublishReport {
     pub outcome: satchel_core::SyncOutcome,
     /// Ready for object storage, or a warning for a local folder.
     pub protection: SetupCheck,
+    /// Wake notices sent because this sync wrote a snapshot.
+    pub wakes_sent: usize,
 }
 
 /// An access key pair for a bucket. The secret is never printed.
@@ -180,6 +182,10 @@ pub struct Desktop {
     last_sync: Option<SyncStatus>,
     /// State after the last full sync, so the timer can skip a cycle with nothing to do.
     quiet: Option<(QuietMark, SetupCheck)>,
+    /// Where this desktop listens for wake notices, while it does.
+    wake: Option<WakeEndpoint>,
+    /// This device's snapshot after the last full sync, to tell when one was written.
+    last_written: Option<String>,
 }
 
 /// How the last sync ended, for the tray. A failure keeps its reason; it never carries a secret.
@@ -215,6 +221,8 @@ impl Desktop {
             device_keys: None,
             last_sync: None,
             quiet: None,
+            wake: None,
+            last_written: None,
         })
     }
 
@@ -401,8 +409,21 @@ impl Desktop {
     /// versioning is absent. A device that joined uses its own key, not the recovery password.
     pub fn publish(&mut self, store: &dyn SecretStore) -> Result<PublishReport, Error> {
         self.quiet = None;
-        let result = self.publish_inner(store);
-        if let Ok(report) = &result {
+        let mut result = self.publish_inner(store);
+        if let Ok(report) = &mut result {
+            let written = report
+                .outcome
+                .cursor
+                .as_ref()
+                .map(|cursor| cursor.snapshot_id.clone());
+            if written.is_some()
+                && written != self.last_written
+                && let Some(profile) = &self.profile
+            {
+                report.wakes_sent =
+                    send_wakes(&profile.device_id, &report.outcome.peers, now_unix());
+            }
+            self.last_written = written;
             self.remember_quiet(store, report.protection);
         }
         self.last_sync = Some(match &result {
@@ -416,6 +437,20 @@ impl Desktop {
             },
         });
         result
+    }
+
+    /// Listen for wake notices on `ip` and announce it on the next sync.
+    ///
+    /// The caller owns the listener and waits on it outside the lock. `ip` should
+    /// be this machine's address on the mesh network: peers elsewhere cannot reach
+    /// it, and a LAN address would take notices from anyone on the LAN.
+    pub fn listen_for_wakes(&mut self, ip: std::net::IpAddr) -> Result<WakeListener, Error> {
+        let (listener, endpoint) = crate::wake::bind(&self.config_dir, ip)?;
+        if self.wake.as_ref() != Some(&endpoint) {
+            self.quiet = None;
+        }
+        self.wake = Some(endpoint);
+        Ok(listener)
     }
 
     /// The timer's sync. When neither the folder nor the repository's snapshot
@@ -464,10 +499,17 @@ impl Desktop {
         };
         let location = self.open_location(store)?;
         let protection = self.object_protection(store)?;
-        let outcome = sync_folder(&location, &password, &profile.device_id, &profile.folder)?;
+        let outcome = sync_folder_announcing(
+            &location,
+            &password,
+            &profile.device_id,
+            &profile.folder,
+            self.wake.clone(),
+        )?;
         Ok(PublishReport {
             outcome,
             protection,
+            wakes_sent: 0,
         })
     }
 

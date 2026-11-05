@@ -253,3 +253,123 @@ fn object_storage_needs_the_limited_credential_and_a_different_key() {
     assert!(desktop.profile().is_none());
     assert!(store.get(Account::RecoveryPassword).expect("get").is_none());
 }
+
+#[test]
+fn a_sync_that_writes_wakes_the_other_desktop_and_an_idle_one_does_not() {
+    let root = tempdir().expect("temp");
+    let repository = root.path().join("repo");
+    let first_folder = root.path().join("first");
+    let second_folder = root.path().join("second");
+    fs::create_dir_all(&first_folder).expect("first");
+    fs::create_dir_all(&second_folder).expect("second");
+    fs::write(first_folder.join("note.txt"), "from-first").expect("note");
+    let first_store = MemoryStore::default();
+    let first_config = root.path().join("config-first");
+    let mut first = Desktop::open(&first_config).expect("open");
+    first
+        .create_repository(
+            &first_store,
+            first_folder.clone(),
+            StorageSetup::directory(&repository),
+            None,
+        )
+        .expect("create");
+    let loopback = "127.0.0.1".parse().expect("ip");
+    let mut first_ear = first.listen_for_wakes(loopback).expect("listen");
+    let announced = first.publish(&first_store).expect("first publish");
+    assert_eq!(announced.wakes_sent, 0, "nobody else listens yet");
+
+    let second_store = MemoryStore::default();
+    let mut second = Desktop::open(root.path().join("config-second")).expect("open");
+    pair(
+        &mut first,
+        &first_store,
+        &mut second,
+        &second_store,
+        second_folder.clone(),
+        true,
+    )
+    .expect("join");
+    let mut second_ear = second.listen_for_wakes(loopback).expect("listen");
+    let now = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_secs()
+    };
+
+    // The second desktop's first sync writes its snapshot and tells the first.
+    let joined = second.publish(&second_store).expect("second sync");
+    assert_eq!(joined.wakes_sent, 1);
+    let first_id = first
+        .profile()
+        .expect("profile")
+        .device_id
+        .as_str()
+        .to_string();
+    let second_id = second
+        .profile()
+        .expect("profile")
+        .device_id
+        .as_str()
+        .to_string();
+    assert_eq!(
+        first_ear.wait(Duration::from_secs(2), now).as_deref(),
+        Some(second_id.as_str())
+    );
+
+    // The first's timer takes the news. A snapshot it writes back may wake the
+    // second once; then both settle.
+    first.auto_sync(&first_store).expect("first wakes");
+    let _ = second_ear.wait(Duration::from_millis(300), now);
+    let mut rounds = 0;
+    loop {
+        let a = first.auto_sync(&first_store).expect("settle").is_some();
+        let b = second.auto_sync(&second_store).expect("settle").is_some();
+        if !a && !b {
+            break;
+        }
+        rounds += 1;
+        assert!(rounds < 4, "the two desktops keep waking each other");
+    }
+    while second_ear.wait(Duration::from_millis(100), now).is_some() {}
+    while first_ear.wait(Duration::from_millis(100), now).is_some() {}
+
+    // A sync that writes nothing sends nothing.
+    let idle = second.publish(&second_store).expect("idle publish");
+    assert_eq!(idle.wakes_sent, 0);
+    assert_eq!(first_ear.wait(Duration::from_millis(300), now), None);
+
+    // A new file on the first desktop wakes the second.
+    fs::write(first_folder.join("late.txt"), "late").expect("late");
+    let wrote = first.auto_sync(&first_store).expect("edit").expect("full");
+    assert_eq!(wrote.wakes_sent, 1);
+    assert_eq!(
+        second_ear.wait(Duration::from_secs(2), now).as_deref(),
+        Some(first_id.as_str())
+    );
+    second
+        .auto_sync(&second_store)
+        .expect("pull")
+        .expect("full");
+    assert_eq!(
+        fs::read_to_string(second_folder.join("late.txt")).expect("late"),
+        "late"
+    );
+
+    // The listening port survives a restart, so older snapshots still point at it.
+    let port = first_ear.local_addr().expect("addr").port();
+    drop(first_ear);
+    let mut again = Desktop::open(&first_config).expect("reopen");
+    let reopened = again.listen_for_wakes(loopback).expect("listen");
+    assert_eq!(reopened.local_addr().expect("addr").port(), port);
+    let saved = fs::read_to_string(first_config.join("wake.json")).expect("saved");
+    assert!(
+        !saved.contains(
+            &first_store
+                .get(Account::RecoveryPassword)
+                .expect("get")
+                .expect("pw")
+        )
+    );
+}

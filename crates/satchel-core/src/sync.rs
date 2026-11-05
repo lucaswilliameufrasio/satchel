@@ -19,6 +19,7 @@ use rustic_core::{
 
 use crate::Error;
 use crate::format::{DeviceId, Location, init, open_indexed};
+use crate::wake::{WakeEndpoint, WakePeer};
 
 const STATE_VERSION: u32 = 1;
 const CONFLICT_MARK: &str = ".satchel-conflict-";
@@ -108,6 +109,8 @@ pub struct SyncOutcome {
     pub cursor: Option<Cursor>,
     /// Conflicts created by this call.
     pub conflicts: Vec<MarkedConflict>,
+    /// Other devices whose latest snapshot says where they listen for a wake notice.
+    pub peers: Vec<WakePeer>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -124,6 +127,9 @@ struct StateDoc {
     /// Name and system this device published. Absent on older snapshots.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     intro: Option<DeviceIntro>,
+    /// Where this device listens for a wake notice. Absent when it does not listen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    wake: Option<WakeEndpoint>,
 }
 
 /// Chosen label stored inside the encrypted snapshot, not in `keys/`.
@@ -220,6 +226,8 @@ pub struct Client {
     tombstones: BTreeSet<String>,
     published: Option<StateDoc>,
     intro: Option<IntroDraft>,
+    /// `None` until a caller says; then kept, or cleared with `Some(None)`.
+    wake: Option<Option<WakeEndpoint>>,
 }
 
 impl Client {
@@ -255,6 +263,7 @@ impl Client {
             tombstones: BTreeSet::new(),
             published: None,
             intro: None,
+            wake: None,
         })
     }
 
@@ -272,6 +281,13 @@ impl Client {
             enrolled_unix,
         });
         Ok(())
+    }
+
+    /// Publish where this device listens for a wake notice, or `None` to stop.
+    ///
+    /// Without a call, the endpoint on this device's last snapshot is kept.
+    pub fn announce_wake(&mut self, endpoint: Option<WakeEndpoint>) {
+        self.wake = Some(endpoint);
     }
 
     /// Set the controlled clock used as the snapshot time.
@@ -469,6 +485,9 @@ impl Client {
                 });
             }
         }
+        if self.wake.is_none() {
+            self.wake = Some(our.state.wake.clone());
+        }
         self.published = Some(published_doc(our));
         let empty = work_is_empty(&self.work)?;
         for (path, meta) in &our.files {
@@ -648,6 +667,7 @@ impl Client {
             return Ok(SyncOutcome {
                 cursor: self.last_cursor.clone(),
                 conflicts: Vec::new(),
+                peers: self.wake_peers(latest),
             });
         }
 
@@ -751,7 +771,24 @@ impl Client {
         Ok(SyncOutcome {
             cursor: Some(cursor),
             conflicts,
+            peers: self.wake_peers(latest),
         })
+    }
+
+    fn wake_peers(&self, latest: &BTreeMap<String, Snap>) -> Vec<WakePeer> {
+        let mut peers = Vec::new();
+        for snap in latest.values() {
+            if snap.device_id == self.device_id.as_str() {
+                continue;
+            }
+            if let Some(endpoint) = &snap.state.wake {
+                peers.push(WakePeer {
+                    device_id: snap.device_id.clone(),
+                    endpoint: endpoint.clone(),
+                });
+            }
+        }
+        peers
     }
 
     fn state_doc(&self, extras: &[StoredConflict]) -> StateDoc {
@@ -766,6 +803,7 @@ impl Client {
             once: self.once_done.clone(),
             conflicts,
             intro: self.stored_intro(),
+            wake: self.wake.clone().flatten(),
         }
     }
 
@@ -931,6 +969,29 @@ pub fn sync_folder(
     device_id: &DeviceId,
     folder: &Path,
 ) -> Result<SyncOutcome, Error> {
+    sync_folder_inner(location, password, device_id, folder, None)
+}
+
+/// [`sync_folder`], and publish where this device listens for a wake notice.
+///
+/// `None` stops announcing. The outcome lists the peers that announce one.
+pub fn sync_folder_announcing(
+    location: &Location,
+    password: &str,
+    device_id: &DeviceId,
+    folder: &Path,
+    wake: Option<WakeEndpoint>,
+) -> Result<SyncOutcome, Error> {
+    sync_folder_inner(location, password, device_id, folder, Some(wake))
+}
+
+fn sync_folder_inner(
+    location: &Location,
+    password: &str,
+    device_id: &DeviceId,
+    folder: &Path,
+    wake: Option<Option<WakeEndpoint>>,
+) -> Result<SyncOutcome, Error> {
     if !folder.is_dir() {
         return Err(Error::SourceDirectory {
             path: folder.to_path_buf(),
@@ -940,6 +1001,9 @@ pub fn sync_folder(
         init(location, password, device_id)?;
     }
     let mut client = Client::open(device_id.clone(), folder, password)?;
+    if let Some(wake) = wake {
+        client.announce_wake(wake);
+    }
     for entry in client.catalog(location)? {
         if !entry.is_directory {
             client.follow(&entry.path, Follow::Always)?;
@@ -1352,6 +1416,7 @@ fn published_doc(snap: &Snap) -> StateDoc {
         once: snap.state.once.clone(),
         conflicts: resolve_conflicts(&snap.state.conflicts, &snap.id),
         intro: snap.state.intro.clone(),
+        wake: snap.state.wake.clone(),
     }
 }
 

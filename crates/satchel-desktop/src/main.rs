@@ -6,7 +6,6 @@ use std::net::SocketAddr;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-#[cfg(target_os = "linux")]
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -80,7 +79,7 @@ fn linux_tray(
         quit: Arc::clone(&quit),
     };
     let handle = tray.spawn().map_err(|_| satchel_desktop::Error::Tray)?;
-    let mut auto = AutoSync::new();
+    let mut auto = AutoSync::new(&tray_desktop);
     while !quit.load(Ordering::SeqCst) {
         thread::sleep(Duration::from_millis(200));
         auto.tick(&tray_desktop, &tray_secrets);
@@ -156,7 +155,7 @@ fn macos_tray(
     let mut shown: Option<TrayView> = None;
     let mut commands: BTreeMap<String, TrayCommand> = BTreeMap::new();
     let events = MenuEvent::receiver();
-    let mut auto = AutoSync::new();
+    let mut auto = AutoSync::new(&desktop);
     while !quit.load(Ordering::SeqCst) {
         auto.tick(&desktop, &secrets);
         let view = {
@@ -306,23 +305,32 @@ unsafe extern "C" {
 }
 
 /// Both roles sync on their own once a folder is set up. A pairing screen pauses it.
+///
+/// A wake notice from a peer on the mesh runs the cycle early, at most once
+/// every [`WAKE_GAP`].
 struct AutoSync {
     last: Instant,
+    woken: Arc<AtomicBool>,
 }
 
 const AUTO_SYNC_EVERY: Duration = Duration::from_secs(120);
+const WAKE_GAP: Duration = Duration::from_secs(5);
 
 impl AutoSync {
-    fn new() -> Self {
+    fn new(desktop: &Mutex<Desktop>) -> Self {
         Self {
             last: Instant::now(),
+            woken: listen_for_wakes(desktop),
         }
     }
 
     fn tick(&mut self, desktop: &Mutex<Desktop>, secrets: &KeyringStore) {
-        if self.last.elapsed() < AUTO_SYNC_EVERY {
+        let elapsed = self.last.elapsed();
+        let woken = self.woken.load(Ordering::SeqCst) && elapsed >= WAKE_GAP;
+        if elapsed < AUTO_SYNC_EVERY && !woken {
             return;
         }
+        self.woken.store(false, Ordering::SeqCst);
         self.last = Instant::now();
         let mut desktop = lock_desktop(desktop);
         if desktop.profile().is_none() || desktop.add_device_open() {
@@ -332,6 +340,40 @@ impl AutoSync {
             eprintln!("satchel-desktop: {err}");
         }
     }
+}
+
+/// Listen on the mesh address, when there is one. The flag turns on at each valid notice.
+fn listen_for_wakes(desktop: &Mutex<Desktop>) -> Arc<AtomicBool> {
+    let woken = Arc::new(AtomicBool::new(false));
+    let Some(ip) = satchel_pair::mesh_ip() else {
+        return woken;
+    };
+    let mut listener = match lock_desktop(desktop).listen_for_wakes(ip) {
+        Ok(listener) => listener,
+        Err(err) => {
+            eprintln!("satchel-desktop: wake notices off: {err}");
+            return woken;
+        }
+    };
+    let flag = Arc::clone(&woken);
+    thread::spawn(move || {
+        loop {
+            let now = || {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|elapsed| elapsed.as_secs())
+                    .unwrap_or(0)
+            };
+            let started = Instant::now();
+            if listener.wait(Duration::from_secs(60), now).is_some() {
+                flag.store(true, Ordering::SeqCst);
+            } else if started.elapsed() < Duration::from_secs(1) {
+                // A socket error returns at once; do not spin on it.
+                thread::sleep(Duration::from_secs(1));
+            }
+        }
+    });
+    woken
 }
 
 static SETUP: OnceLock<SetupPage> = OnceLock::new();

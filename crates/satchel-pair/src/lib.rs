@@ -21,4 +21,4 @@ pub use protocol::{
     PairingOutcome, PairingSession, join,
 };
 pub use qr::invite_qr_png;
-pub use util::preferred_bind_ip;
+pub use util::{mesh_ip, preferred_bind_ip};

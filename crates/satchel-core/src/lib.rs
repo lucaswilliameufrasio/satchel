@@ -8,6 +8,7 @@ mod probe;
 mod setup;
 mod storage;
 mod sync;
+mod wake;
 
 pub use credential::{phone_credential_policy, phone_may_delete};
 pub use error::Error;
@@ -25,4 +26,9 @@ pub use storage::{SetupCheck, StorageKind, Versioning, check_setup};
 pub use sync::{
     CatalogEntry, Client, Cursor, DeviceCard, Follow, MarkedConflict, QuietMark, SyncOutcome,
     cursors, publish_folder, quiet_mark, read_followed, read_version, restore_latest, sync_folder,
+    sync_folder_announcing,
+};
+pub use wake::{
+    WAKE_WINDOW_SECS, WakeCheck, WakeEndpoint, WakeListener, WakePeer, generate_wake_key,
+    send_wakes, wake_datagram,
 };

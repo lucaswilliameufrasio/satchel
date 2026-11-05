@@ -3,6 +3,10 @@ use std::path::PathBuf;
 /// Failure from the repository core.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// A wake key is not 32 bytes of hex, or a wake socket could not be opened.
+    #[error("wake notice setup failed")]
+    Wake,
+
     /// The device id is not 32 lowercase hexadecimal characters.
     #[error("device id must be 32 lowercase hexadecimal characters")]
     DeviceId,
