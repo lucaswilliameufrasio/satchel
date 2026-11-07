@@ -22,6 +22,18 @@ pub enum Error {
         /// Path that is missing.
         path: PathBuf,
     },
+    /// The device access key and secret were left empty.
+    #[error("the device access key is missing")]
+    DeviceKeyMissing,
+    /// The device access key is the maintenance key, which would hand every device full control.
+    #[error("the device access key is the maintenance key")]
+    DeviceKeySameAsMaintenance,
+    /// The typed recovery password does not open this repository.
+    #[error("the recovery password does not open this repository")]
+    NotTheRecovery,
+    /// The typed maintenance key was refused by the storage.
+    #[error("the storage refused the maintenance key")]
+    MaintenanceRefused,
     /// The repository is a folder on this computer, which other devices cannot reach.
     #[error("the repository is a folder on this computer")]
     LocalRepository,

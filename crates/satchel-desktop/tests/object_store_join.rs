@@ -142,6 +142,146 @@ fn second_desktop_joins_a_bucket_and_both_sync() {
         fs::read(restored.join("satchel/reply.txt")).expect("restored"),
         b"from-second"
     );
+
+    // Each device says who it is, and the one that joined knows which is main.
+    let main_name = first.profile().expect("profile").name.clone();
+    assert_eq!(second.profile().expect("profile").name, "second");
+    second
+        .publish(&second_store)
+        .expect("second reads the devices");
+    assert_eq!(
+        second.main_device_name().as_deref(),
+        Some(main_name.as_str())
+    );
+    let view = second.tray_view();
+    assert!(
+        view.items
+            .iter()
+            .any(|item| item.label == format!("Main device: {main_name}")),
+        "{:?}",
+        view.items
+            .iter()
+            .map(|item| &item.label)
+            .collect::<Vec<_>>()
+    );
+    let add = view
+        .items
+        .iter()
+        .find(|item| item.label == "Add device…")
+        .expect("a member adds devices too");
+    assert!(add.enabled);
+
+    // The device that joined adds a third one, without the main device.
+    let offer = second
+        .open_add_device(ListenConfig {
+            bind: "127.0.0.1:0".parse().expect("bind"),
+            timeout: Duration::from_secs(90),
+            advertise: false,
+        })
+        .expect("screen on the member");
+    let target = JoinTarget::from_invite(&offer.invite, "third", "test").expect("invite");
+    let grant = thread::spawn(move || request_grant(target, Duration::from_secs(90)));
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while second.pending().is_none() {
+        second.poll();
+        assert!(Instant::now() < deadline, "no approval request");
+        thread::sleep(Duration::from_millis(30));
+    }
+    second
+        .approve_pending(&second_store)
+        .expect("member approves");
+    let granted = grant.join().expect("thread").expect("grant");
+    let third_folder = root.0.join("third");
+    fs::create_dir_all(&third_folder).expect("third");
+    let third_store = MemoryStore::default();
+    let mut third = Desktop::open(root.0.join("config-third"))
+        .expect("open")
+        .with_language(Language::En);
+    third
+        .join_with_grant(&third_store, third_folder.clone(), granted)
+        .expect("third joins through the member");
+    third.publish(&third_store).expect("third syncs");
+    assert_eq!(
+        fs::read_to_string(third_folder.join("note.txt")).expect("pulled"),
+        "from-first"
+    );
+    // What the member sent is the limited key, never more.
+    let sent = third_store
+        .get(Account::BucketCredential)
+        .expect("get")
+        .expect("credential");
+    assert!(sent.contains("device-key"));
+    assert!(!sent.contains(ACCESS_KEY));
+
+    // With the main device gone, the member becomes main: both secrets are checked first.
+    let wrong = second.become_main(
+        &second_store,
+        "not-the-recovery-password",
+        Some(AccessPair {
+            access_key_id: ACCESS_KEY.to_string(),
+            secret_access_key: SECRET_KEY.to_string(),
+        }),
+    );
+    assert!(
+        matches!(wrong, Err(satchel_desktop::Error::NotTheRecovery)),
+        "{wrong:?}"
+    );
+    assert_eq!(second.profile().expect("profile").role, Role::Member);
+    second
+        .become_main(
+            &second_store,
+            &recovery,
+            Some(AccessPair {
+                access_key_id: ACCESS_KEY.to_string(),
+                secret_access_key: SECRET_KEY.to_string(),
+            }),
+        )
+        .expect("become main");
+    assert_eq!(second.profile().expect("profile").role, Role::Maintainer);
+    second
+        .load_device_keys(&second_store)
+        .expect("now lists devices to remove");
+    second.publish(&second_store).expect("syncs as main");
+    let reopened = Desktop::open(root.0.join("config-second")).expect("reopen");
+    assert_eq!(reopened.profile().expect("profile").role, Role::Maintainer);
+}
+
+#[test]
+fn the_device_key_must_differ_from_the_maintenance_key() {
+    let root = TempRoot::new();
+    let folder = root.0.join("folder");
+    fs::create_dir_all(&folder).expect("folder");
+    let mut setup = StorageSetup::directory(root.0.join("unused"));
+    setup.kind = StorageKind::R2;
+    setup.endpoint = "https://example.invalid".to_string();
+    setup.bucket = "bucket".to_string();
+    setup.region = "auto".to_string();
+    setup.access_key_id = ACCESS_KEY.to_string();
+    setup.secret_access_key = SECRET_KEY.to_string();
+    let store = MemoryStore::default();
+    let mut desktop = Desktop::open(root.0.join("config")).expect("open");
+    let same = desktop.create_repository(
+        &store,
+        folder.clone(),
+        setup.clone(),
+        Some(AccessPair {
+            access_key_id: ACCESS_KEY.to_string(),
+            secret_access_key: "other".to_string(),
+        }),
+    );
+    assert!(matches!(
+        same,
+        Err(satchel_desktop::Error::DeviceKeySameAsMaintenance)
+    ));
+    let empty = desktop.create_repository(&store, folder, setup, None);
+    assert!(matches!(
+        empty,
+        Err(satchel_desktop::Error::DeviceKeyMissing)
+    ));
+    assert!(
+        store.get(Account::RecoveryPassword).expect("get").is_none(),
+        "nothing kept"
+    );
 }
 
 fn restic_restore(

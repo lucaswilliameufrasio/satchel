@@ -96,6 +96,9 @@ pub struct DeviceCard {
     /// Time of that device's latest snapshot.
     #[serde(rename = "lastUnix")]
     pub last_unix: i64,
+    /// True when that device says it is the main one.
+    #[serde(skip_serializing_if = "is_false")]
+    pub main: bool,
 }
 
 /// A conflicting version stored beside the primary path.
@@ -212,6 +215,24 @@ struct DeviceIntro {
     name: String,
     os: String,
     enrolled_unix: i64,
+    /// True on the device that keeps the maintenance credential and the recovery password.
+    #[serde(default, skip_serializing_if = "is_false")]
+    main: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+/// How a device presents itself on its snapshots.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Intro {
+    /// The name people gave the device.
+    pub name: String,
+    /// Its system, such as `macOS`.
+    pub os: String,
+    /// True on the main device: the one that removes devices.
+    pub main: bool,
 }
 
 /// Label held in memory before the first snapshot seals the enrollment time.
@@ -220,6 +241,7 @@ struct IntroDraft {
     name: String,
     os: String,
     enrolled_unix: Option<i64>,
+    main: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -388,12 +410,21 @@ impl Client {
         let name = checked_label(name)?;
         let os = checked_label(os)?;
         let enrolled_unix = self.intro.as_ref().and_then(|intro| intro.enrolled_unix);
+        let main = self.intro.as_ref().is_some_and(|intro| intro.main);
         self.intro = Some(IntroDraft {
             name,
             os,
             enrolled_unix,
+            main,
         });
         Ok(())
+    }
+
+    /// Publish whether this is the main device. Takes effect with [`Client::introduce`].
+    pub fn mark_main(&mut self, main: bool) {
+        if let Some(intro) = &mut self.intro {
+            intro.main = main;
+        }
     }
 
     /// Publish where this device listens for a wake notice, or `None` to stop.
@@ -630,6 +661,7 @@ impl Client {
                     name: previous.name.clone(),
                     os: previous.os.clone(),
                     enrolled_unix: Some(previous.enrolled_unix),
+                    main: previous.main,
                 });
             }
         }
@@ -1012,6 +1044,7 @@ impl Client {
             name: intro.name.clone(),
             os: intro.os.clone(),
             enrolled_unix,
+            main: intro.main,
         })
     }
 
@@ -1254,7 +1287,45 @@ pub fn sync_folder_in(
     lane: &Lane,
     wake: Option<Option<WakeEndpoint>>,
 ) -> Result<SyncOutcome, Error> {
-    sync_lane(location, password, device_id, folder, Some(lane), wake)
+    sync_lane(
+        location,
+        password,
+        device_id,
+        folder,
+        Some(lane),
+        wake,
+        None,
+    )
+}
+
+/// [`sync_folder_in`], and say who this device is on its snapshot.
+pub fn sync_folder_introduced(
+    location: &Location,
+    password: &str,
+    device_id: &DeviceId,
+    folder: &Path,
+    lane: &Lane,
+    wake: Option<Option<WakeEndpoint>>,
+    intro: &Intro,
+) -> Result<SyncOutcome, Error> {
+    sync_lane(
+        location,
+        password,
+        device_id,
+        folder,
+        Some(lane),
+        wake,
+        Some(intro),
+    )
+}
+
+/// Every device with a snapshot, as its newest snapshot in any folder presents it.
+pub fn devices(location: &Location, password: &str) -> Result<Vec<DeviceCard>, Error> {
+    let repo = open_indexed(location, password)?;
+    let snaps = load_snaps(&repo, Lanes::All)?;
+    let latest = latest_by_device(&snaps);
+    let ids: Vec<String> = latest.keys().cloned().collect();
+    Ok(cards_for(&latest, &ids))
 }
 
 /// The folders this repository holds, from every snapshot's state.
@@ -1306,7 +1377,7 @@ fn sync_folder_inner(
     folder: &Path,
     wake: Option<Option<WakeEndpoint>>,
 ) -> Result<SyncOutcome, Error> {
-    sync_lane(location, password, device_id, folder, None, wake)
+    sync_lane(location, password, device_id, folder, None, wake, None)
 }
 
 fn sync_lane(
@@ -1316,6 +1387,7 @@ fn sync_lane(
     folder: &Path,
     lane: Option<&Lane>,
     wake: Option<Option<WakeEndpoint>>,
+    intro: Option<&Intro>,
 ) -> Result<SyncOutcome, Error> {
     if !folder.is_dir() {
         return Err(Error::SourceDirectory {
@@ -1328,6 +1400,10 @@ fn sync_lane(
     let mut client = Client::open(device_id.clone(), folder, password)?;
     if let Some(lane) = lane {
         client = client.in_lane(lane.clone());
+    }
+    if let Some(intro) = intro {
+        client.introduce(&intro.name, &intro.os)?;
+        client.mark_main(intro.main);
     }
     if let Some(wake) = wake {
         client.announce_wake(wake);
@@ -1753,14 +1829,17 @@ fn cards_for(latest: &BTreeMap<String, Snap>, ids: &[String]) -> Vec<DeviceCard>
         let name;
         let os;
         let enrolled_unix;
+        let main;
         if let Some(intro) = &snap.state.intro {
             name = Some(intro.name.clone());
             os = Some(intro.os.clone());
             enrolled_unix = Some(intro.enrolled_unix);
+            main = intro.main;
         } else {
             name = None;
             os = None;
             enrolled_unix = None;
+            main = false;
         }
         cards.push(DeviceCard {
             id: id.clone(),
@@ -1768,6 +1847,7 @@ fn cards_for(latest: &BTreeMap<String, Snap>, ids: &[String]) -> Vec<DeviceCard>
             os,
             enrolled_unix,
             last_unix: snap.time_unix,
+            main,
         });
     }
     cards

@@ -9,7 +9,7 @@ use satchel_core::{
     StorageKind, StorageSetup, SyncOutcome, WakeEndpoint, WakeListener, change_recovery_password,
     check_setup, create_repository, folders, generate_recovery_password, list_other_device_keys,
     probe_object_protection, provision_device_key, quiet_mark, remove_device_key, send_wakes,
-    sync_folder_in,
+    sync_folder_introduced,
 };
 use satchel_pair::{
     ApprovalRequest, Decision, DeviceSecrets, Invite, ListenConfig, Offer, PairingSession,
@@ -130,11 +130,14 @@ impl JoinTarget {
 pub struct Granted {
     device_id: DeviceId,
     secrets: DeviceSecrets,
+    /// The name this device asked to join with.
+    name: String,
 }
 
 /// Pair with the device that holds the repository. Touches no desktop state.
 pub fn request_grant(target: JoinTarget, timeout: Duration) -> Result<Granted, Error> {
     let device_id = DeviceId::generate();
+    let name = target.device_name.clone();
     let secrets = satchel_pair::join(satchel_pair::JoinRequest {
         address: target.address,
         code: target.code,
@@ -146,7 +149,11 @@ pub fn request_grant(target: JoinTarget, timeout: Duration) -> Result<Granted, E
         claimed_interface: String::new(),
         timeout,
     })?;
-    Ok(Granted { device_id, secrets })
+    Ok(Granted {
+        device_id,
+        secrets,
+        name,
+    })
 }
 
 /// Placeholder stored where a folder repository has no bucket credential.
@@ -190,6 +197,8 @@ pub struct Desktop {
     unreachable: BTreeSet<Option<String>>,
     /// The repository's folders, read on the last sync.
     repository_folders: Vec<FolderSummary>,
+    /// The repository's devices as their snapshots present them, read on the last sync.
+    devices: Vec<satchel_core::DeviceCard>,
     /// Where this desktop listens for wake notices, while it does.
     wake: Option<WakeEndpoint>,
     /// The language of the tray, from the system unless set.
@@ -256,11 +265,10 @@ fn clock_label(unix: u64, now: u64, zone: &TimeZone) -> String {
     }
 }
 
-fn local_clock(unix: u64) -> String {
+pub(crate) fn local_clock(unix: u64) -> String {
     clock_label(unix, now_unix(), &TimeZone::system())
 }
 
-/// The folder with the home directory written as `~`.
 /// How Add device listens: on the mesh address when there is one, else the LAN.
 pub fn add_device_config() -> ListenConfig {
     // An unspecified address in the invite cannot be dialed from another device.
@@ -281,6 +289,18 @@ fn quiet_marks(location: &Location, profile: &Profile) -> Option<Vec<QuietMark>>
     Some(marks)
 }
 
+/// The system name this desktop publishes.
+fn system_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macOS"
+    } else if cfg!(target_os = "linux") {
+        "Linux"
+    } else {
+        "Desktop"
+    }
+}
+
+/// The folder with the home directory written as `~`.
 fn folder_label(folder: &std::path::Path) -> String {
     if let Some(home) = std::env::var_os("HOME")
         && let Ok(rest) = folder.strip_prefix(&home)
@@ -316,6 +336,7 @@ impl Desktop {
             quiet: None,
             unreachable: BTreeSet::new(),
             repository_folders: Vec::new(),
+            devices: Vec::new(),
             wake: None,
             problem: None,
             language: Language::detect(),
@@ -401,18 +422,19 @@ impl Desktop {
             object_store,
             kind: setup.kind,
             role: Role::Maintainer,
+            name: crate::profile::computer_name(),
         };
         profile::check_new(&self.config_dir, &candidate)?;
         let (maintenance, limited) = if setup.is_object_store() {
             let Some(device_access) = device_access else {
-                return Err(Error::MissingPhoneCredential);
+                return Err(Error::DeviceKeyMissing);
             };
             if device_access.access_key_id.is_empty() || device_access.secret_access_key.is_empty()
             {
-                return Err(Error::PhoneCredential);
+                return Err(Error::DeviceKeyMissing);
             }
             if device_access.access_key_id == setup.access_key_id {
-                return Err(Error::PhoneCredential);
+                return Err(Error::DeviceKeySameAsMaintenance);
             }
             (
                 access_json(&setup.access_key_id, &setup.secret_access_key)?,
@@ -481,9 +503,16 @@ impl Desktop {
         if self.profile.is_some() {
             return Err(Error::ProfileExists);
         }
-        let Granted { device_id, secrets } = granted;
-        let (candidate, limited) =
+        let Granted {
+            device_id,
+            secrets,
+            name,
+        } = granted;
+        let (mut candidate, limited) =
             profile_from_grant(&self.config_dir, folder, device_id, &secrets)?;
+        if !name.trim().is_empty() {
+            candidate.name = name.trim().chars().take(64).collect();
+        }
         profile::check_new(&self.config_dir, &candidate)?;
         let location = location_from(&candidate, limited.as_deref())?;
         let work = self.config_dir.join("join-check");
@@ -615,6 +644,11 @@ impl Desktop {
         let protection = self.object_protection(store)?;
         let mut outcome = SyncOutcome::default();
         let mut unreachable = BTreeSet::new();
+        let intro = satchel_core::Intro {
+            name: profile.name.clone(),
+            os: system_name().to_string(),
+            main: profile.role == Role::Maintainer,
+        };
         for folder in &profile.folders {
             // A folder whose disk is away is skipped. Syncing it would read it as
             // empty and delete every file on the other devices.
@@ -623,13 +657,14 @@ impl Desktop {
                 continue;
             }
             let lane = folder.lane()?;
-            let round = sync_folder_in(
+            let round = sync_folder_introduced(
                 &location,
                 &password,
                 &profile.device_id,
                 &folder.path,
                 &lane,
                 Some(self.wake.clone()),
+                &intro,
             )?;
             outcome.wrote |= round.wrote;
             outcome.conflicts.extend(round.conflicts);
@@ -642,6 +677,7 @@ impl Desktop {
         }
         self.unreachable = unreachable;
         self.repository_folders = folders(&location, &password).unwrap_or_default();
+        self.devices = satchel_core::devices(&location, &password).unwrap_or_default();
         Ok(PublishReport {
             outcome,
             protection,
@@ -746,6 +782,88 @@ impl Desktop {
         let password = self.sync_password(store)?;
         let location = self.open_location(store)?;
         self.repository_folders = folders(&location, &password)?;
+        self.devices = satchel_core::devices(&location, &password)?;
+        Ok(())
+    }
+
+    /// The repository's devices as the last sync or refresh read them.
+    pub fn devices(&self) -> &[satchel_core::DeviceCard] {
+        &self.devices
+    }
+
+    /// The main device's name when another device is the main one and said so.
+    pub fn main_device_name(&self) -> Option<String> {
+        let profile = self.profile.as_ref()?;
+        self.devices
+            .iter()
+            .find(|card| card.main && card.id != profile.device_id.as_str())
+            .and_then(|card| card.name.clone())
+    }
+
+    /// Become the main device: keep the recovery password and the maintenance
+    /// credential here. Both are checked against the repository before anything
+    /// is stored. The device's own key and folders stay as they are.
+    pub fn become_main(
+        &mut self,
+        store: &dyn SecretStore,
+        recovery_password: &str,
+        maintenance: Option<AccessPair>,
+    ) -> Result<(), Error> {
+        let Some(mut profile) = self.profile.clone() else {
+            return Err(Error::Profile);
+        };
+        if profile.role == Role::Maintainer {
+            return Ok(());
+        }
+        let (maintenance_json, limited) = match (&profile.object_store, maintenance) {
+            (Some(_), Some(pair)) => {
+                if pair.access_key_id.is_empty() || pair.secret_access_key.is_empty() {
+                    return Err(Error::Field {
+                        field: "access_key_id",
+                    });
+                }
+                let limited = store
+                    .get(Account::BucketCredential)?
+                    .ok_or(Error::MissingSecret)?;
+                (
+                    access_json(&pair.access_key_id, &pair.secret_access_key)?,
+                    limited,
+                )
+            }
+            (Some(_), None) => {
+                return Err(Error::Field {
+                    field: "access_key_id",
+                });
+            }
+            (None, _) => (LOCAL_FOLDER.to_string(), LOCAL_FOLDER.to_string()),
+        };
+        // The recovery password must open this repository through the access this
+        // device already has, and then the maintenance key must open it too.
+        let current = self.open_location(store)?;
+        let check = self.config_dir.join("main-check");
+        let open_with = |location: &Location| {
+            Client::open(profile.device_id.clone(), &check, recovery_password)
+                .and_then(|client| client.catalog(location))
+                .map(|_| ())
+        };
+        let recovery = open_with(&current);
+        let maintained = match (&recovery, &profile.object_store) {
+            (Ok(()), Some(_)) => {
+                let location = location_from(&profile, Some(&maintenance_json))?;
+                open_with(&location)
+            }
+            _ => Ok(()),
+        };
+        let _ = std::fs::remove_dir_all(&check);
+        recovery.map_err(|_| Error::NotTheRecovery)?;
+        maintained.map_err(|_| Error::MaintenanceRefused)?;
+        store.put(Account::RecoveryPassword, recovery_password)?;
+        store.put(Account::BucketCredential, &maintenance_json)?;
+        store.put(Account::PhoneCredential, &limited)?;
+        profile.role = Role::Maintainer;
+        profile::save(&self.config_dir, &profile)?;
+        self.profile = Some(profile);
+        self.quiet = None;
         Ok(())
     }
 
@@ -909,17 +1027,34 @@ impl Desktop {
         let Some(profile) = self.profile.clone() else {
             return Err(Error::Profile);
         };
-        let Some(recovery_password) = store.get(Account::RecoveryPassword)? else {
-            return Err(Error::MissingRecovery);
-        };
-        let Some(maintenance) = store.get(Account::BucketCredential)? else {
-            return Err(Error::MissingSecret);
-        };
-        if maintenance.is_empty() {
-            return Err(Error::MissingSecret);
-        }
-        let Some(phone_secret) = store.get(Account::PhoneCredential)? else {
-            return Err(Error::MissingPhoneCredential);
+        // Any key opens the repository to add one more: the main device uses the
+        // recovery password, another device its own key. What a new device gets for
+        // the bucket is the limited credential, which every device already holds.
+        let (recovery_password, phone_secret) = match profile.role {
+            Role::Maintainer => {
+                let Some(recovery_password) = store.get(Account::RecoveryPassword)? else {
+                    return Err(Error::MissingRecovery);
+                };
+                let Some(maintenance) = store.get(Account::BucketCredential)? else {
+                    return Err(Error::MissingSecret);
+                };
+                if maintenance.is_empty() {
+                    return Err(Error::MissingSecret);
+                }
+                let Some(phone_secret) = store.get(Account::PhoneCredential)? else {
+                    return Err(Error::MissingPhoneCredential);
+                };
+                (recovery_password, phone_secret)
+            }
+            Role::Member => {
+                let Some(own) = store.get(Account::DeviceKeyPassword)? else {
+                    return Err(Error::MissingSecret);
+                };
+                let Some(limited) = store.get(Account::BucketCredential)? else {
+                    return Err(Error::MissingSecret);
+                };
+                (own, limited)
+            }
         };
         let device_id = DeviceId::parse(&self.pending.as_ref().expect("pending").device_id)?;
         let location = self.open_location(store)?;
@@ -933,7 +1068,10 @@ impl Desktop {
             device_key_password,
         };
         if let Err(err) = self.finish(Decision::Approve(secrets)) {
-            if let Err(remove_err) = remove_device_key(&location, &recovery_password, &key_id) {
+            // A device key cannot always delete keys; the main device can remove it later.
+            if let Err(remove_err) = remove_device_key(&location, &recovery_password, &key_id)
+                && profile.role == Role::Maintainer
+            {
                 return Err(remove_err.into());
             }
             return Err(err);
@@ -991,6 +1129,14 @@ impl Desktop {
                 }
                 .to_string(),
             ));
+            if profile.role == Role::Member {
+                items.push(info(match (self.language, self.main_device_name()) {
+                    (Language::En, Some(name)) => format!("Main device: {name}"),
+                    (Language::PtBr, Some(name)) => format!("Aparelho principal: {name}"),
+                    (Language::En, None) => "Main device: not seen yet".to_string(),
+                    (Language::PtBr, None) => "Aparelho principal: ainda não visto".to_string(),
+                }));
+            }
             match &self.last_sync {
                 None => items.push(info(
                     t("Not synced yet", "Ainda não sincronizado").to_string(),
@@ -1140,22 +1286,23 @@ impl Desktop {
                 true,
                 TrayCommand::OpenSetup,
             ));
-            if profile.role == Role::Maintainer {
-                let reachable = profile.object_store.is_some();
-                items.push(item(
-                    t("Add device…", "Adicionar aparelho…").to_string(),
-                    reachable,
-                    TrayCommand::OpenAddDevice,
+            // Any device adds devices; only the main one removes them.
+            let reachable = profile.object_store.is_some();
+            items.push(item(
+                t("Add device…", "Adicionar aparelho…").to_string(),
+                reachable,
+                TrayCommand::OpenAddDevice,
+            ));
+            if !reachable {
+                items.push(info(
+                    t(
+                        "Other devices can't reach a folder on this computer",
+                        "Outros aparelhos não alcançam uma pasta deste computador",
+                    )
+                    .to_string(),
                 ));
-                if !reachable {
-                    items.push(info(
-                        t(
-                            "Other devices can't reach a folder on this computer",
-                            "Outros aparelhos não alcançam uma pasta deste computador",
-                        )
-                        .to_string(),
-                    ));
-                }
+            }
+            if profile.role == Role::Maintainer {
                 items.push(item(
                     t("Show devices", "Mostrar aparelhos").to_string(),
                     true,
@@ -1315,6 +1462,7 @@ fn profile_from_grant(
             }),
             kind: StorageKind::S3,
             role: Role::Member,
+            name: crate::profile::computer_name(),
         };
         return Ok((profile, Some(limited)));
     }
@@ -1328,6 +1476,7 @@ fn profile_from_grant(
         object_store: None,
         kind: StorageKind::Directory,
         role: Role::Member,
+        name: crate::profile::computer_name(),
     };
     Ok((profile, None))
 }

@@ -142,7 +142,7 @@ fn serve<S: SecretStore>(mut stream: TcpStream, shared: &Shared<S>) -> std::io::
         ("POST", "create") => create(shared, language, &parse_form(&request.body)),
         ("POST", "recovery") => change_recovery(shared, language),
         ("POST", "join") => join(shared, language, &parse_form(&request.body)),
-        ("POST", "folders/add" | "folders/receive" | "folders/stop" | "disconnect") => {
+        ("POST", "folders/add" | "folders/receive" | "folders/stop" | "disconnect" | "main") => {
             manage(shared, language, route, &parse_form(&request.body))
         }
         _ => return not_found(&mut stream, language),
@@ -191,6 +191,28 @@ fn manage<S: SecretStore>(
                     })
                     .map_err(|err| describe(language, &err))
             }),
+            "main" => {
+                let maintenance = if field(form, "access_key_id").is_empty() {
+                    None
+                } else {
+                    Some(AccessPair {
+                        access_key_id: field(form, "access_key_id").to_string(),
+                        secret_access_key: field(form, "secret_access_key").to_string(),
+                    })
+                };
+                desktop
+                    .become_main(&*shared.secrets, field(form, "recovery"), maintenance)
+                    .map(|()| {
+                        t(
+                            "This is now a main device: it removes devices and changes the \
+                             recovery password.",
+                            "Agora este é um aparelho principal: ele remove aparelhos e troca a \
+                             senha de recuperação.",
+                        )
+                        .to_string()
+                    })
+                    .map_err(|err| describe(language, &err))
+            }
             "folders/stop" => desktop
                 .stop_folder(lane().as_deref())
                 .map(|()| {
@@ -292,14 +314,21 @@ fn dashboard<S: SecretStore>(
         .collect();
     let place = desktop.storage_place().unwrap_or_default();
     let local = desktop.storage_is_local_folder();
+    let devices = desktop.devices().to_vec();
     drop(desktop);
 
     let notice = match notice {
         Some(Notice::Done(text)) => {
-            format!("<p class=\"done\" role=\"status\">{}</p>", escape(&text))
+            format!(
+                "<p class=\"done\" role=\"status\" data-toast=\"ok\">{}</p>",
+                escape(&text)
+            )
         }
         Some(Notice::Failed(text)) => {
-            format!("<p class=\"error\" role=\"alert\">{}</p>", escape(&text))
+            format!(
+                "<p class=\"error\" role=\"alert\" data-toast=\"error\">{}</p>",
+                escape(&text)
+            )
         }
         None => String::new(),
     };
@@ -440,17 +469,30 @@ fn dashboard<S: SecretStore>(
 <button>{add}</button></form></section>
 <section class=\"card\"><h2>{storage_title}</h2><p><code>{place}</code></p>{local_note}</section>
 {recovery}
+{devices_card}{main_card}
 <section class=\"card\"><h2>{leave_title}</h2><p class=\"hint\">{leave_hint}</p>
-<form method=\"post\" action=\"{base}disconnect\" onsubmit=\"return confirm('{leave_confirm}')\">{saved}
-<button class=\"danger\">{leave}</button></form></section>
+<button type=\"button\" class=\"secondary\" id=\"leave-open\" aria-expanded=\"false\" aria-controls=\"leave-confirm\">{leave_ask}</button>
+<form method=\"post\" action=\"{base}disconnect\" id=\"leave-confirm\" hidden>
+<p class=\"warn\">{leave_confirm}</p>{saved}
+<button class=\"danger\">{leave}</button>
+<button type=\"button\" class=\"secondary\" id=\"leave-cancel\">{cancel}</button></form></section>
 <script>
 function busy(f,t){{const b=f.querySelector('button:not(.pick)');b.disabled=true;b.textContent=t;b.setAttribute('aria-busy','true');}}
 for(const b of document.querySelectorAll('button.pick')){{b.addEventListener('click',async()=>{{
 const label=b.textContent;b.disabled=true;b.textContent='{choosing}';
 try{{const r=await fetch('{base}pick',{{method:'POST',headers:{{'Content-Type':'application/x-www-form-urlencoded'}},body:'for='+b.dataset.for}});
 if(r.status===200){{const i=document.getElementById(b.dataset.target);i.value=await r.text();i.focus();}}}}
+else if(r.status!==204){{toast('{pick_failed}','error');}}}}
 finally{{b.disabled=false;b.textContent=label;}}}});}}
+const leaveOpen=document.getElementById('leave-open'),leaveBox=document.getElementById('leave-confirm');
+leaveOpen.addEventListener('click',()=>{{leaveBox.hidden=false;leaveOpen.hidden=true;leaveOpen.setAttribute('aria-expanded','true');leaveBox.querySelector('button.danger').focus();}});
+document.getElementById('leave-cancel').addEventListener('click',()=>{{leaveBox.hidden=true;leaveOpen.hidden=false;leaveOpen.setAttribute('aria-expanded','false');leaveOpen.focus();}});
 </script>",
+            devices_card = devices_card(language, &profile, &devices),
+            main_card = main_card(shared, language, &profile),
+            leave_ask = t("Disconnect…", "Desconectar…"),
+            cancel = t("Cancel", "Cancelar"),
+            pick_failed = t("The folder chooser didn't open. Type the path.", "O seletor de pastas não abriu. Digite o caminho."),
             title = t("This device", "Este aparelho"),
             folders_title = t("Folders on this computer", "Pastas neste computador"),
             add_title = t("Add a folder", "Adicionar uma pasta"),
@@ -475,11 +517,119 @@ finally{{b.disabled=false;b.textContent=label;}}}});}}
                  repositório ficam. Para usar outro armazenamento, desconecte e configure de novo.",
             ),
             leave_confirm = t(
-                "Disconnect this device from the repository?",
-                "Desconectar este aparelho do repositório?",
+                "This device stops syncing every folder and forgets its keys.",
+                "Este aparelho para de sincronizar todas as pastas e esquece as chaves.",
             ),
             leave = t("Disconnect", "Desconectar"),
             choosing = t("Choosing…", "Escolhendo…"),
+        ),
+    )
+}
+
+/// The repository's devices: who each is, when it last synced, and which is main.
+fn devices_card(
+    language: Language,
+    profile: &crate::Profile,
+    devices: &[satchel_core::DeviceCard],
+) -> String {
+    let t = |en: &'static str, pt: &'static str| language.pick(en, pt);
+    let mut rows = String::new();
+    for card in devices {
+        let name = card.name.clone().unwrap_or_else(|| {
+            t("A device with no name yet", "Um aparelho ainda sem nome").to_string()
+        });
+        let mut badges = String::new();
+        if card.main {
+            badges.push_str(&format!(
+                "<span class=\"badge\">{}</span>",
+                t("main", "principal")
+            ));
+        }
+        if card.id == profile.device_id.as_str() {
+            badges.push_str(&format!(
+                "<span class=\"badge quiet\">{}</span>",
+                t("this one", "este")
+            ));
+        }
+        let os = card.os.clone().unwrap_or_default();
+        let seen = crate::app::local_clock(u64::try_from(card.last_unix).unwrap_or(0));
+        rows.push_str(&format!(
+            "<div class=\"folder\"><h3>{} {badges}</h3><p class=\"hint\">{}{}{} {}</p></div>",
+            escape(&name),
+            escape(&os),
+            if os.is_empty() { "" } else { " · " },
+            t("last sync", "última sincronização"),
+            escape(&seen),
+        ));
+    }
+    if rows.is_empty() {
+        rows = format!(
+            "<p class=\"hint\">{}</p>",
+            t(
+                "No device has synced yet.",
+                "Nenhum aparelho sincronizou ainda."
+            )
+        );
+    }
+    let hint = match profile.role {
+        Role::Maintainer => t(
+            "This is a main device: it removes devices, from the tray, and changes the recovery \
+             password. Any device adds devices.",
+            "Este é um aparelho principal: ele remove aparelhos, pela bandeja, e troca a senha \
+             de recuperação. Qualquer aparelho adiciona aparelhos.",
+        ),
+        Role::Member => t(
+            "Any device adds devices. Removing one, or changing the recovery password, is done \
+             on a main device.",
+            "Qualquer aparelho adiciona aparelhos. Remover um, ou trocar a senha de recuperação, \
+             se faz num aparelho principal.",
+        ),
+    };
+    format!(
+        "<section class=\"card\"><h2>{}</h2><p class=\"hint\">{hint}</p>{rows}</section>",
+        t("Devices", "Aparelhos")
+    )
+}
+
+/// On a device that joined: become a main device with the recovery password and,
+/// for a bucket, the maintenance key. For when the main device is gone.
+fn main_card<S>(shared: &Shared<S>, language: Language, profile: &crate::Profile) -> String {
+    let t = |en: &'static str, pt: &'static str| language.pick(en, pt);
+    if profile.role == Role::Maintainer {
+        return String::new();
+    }
+    let base = format!("/{}/", shared.token);
+    let keys = if profile.object_store.is_some() {
+        format!(
+            "<label>{} <input name=\"access_key_id\" autocomplete=\"off\" required></label>\
+             <label>{} <input name=\"secret_access_key\" type=\"password\" autocomplete=\"off\" required></label>",
+            t("Maintenance access key", "Chave de acesso de manutenção"),
+            t("Maintenance secret", "Segredo de manutenção"),
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "<section class=\"card\"><h2>{title}</h2><p class=\"hint\">{hint}</p>\
+         <form method=\"post\" action=\"{base}main\" onsubmit=\"busy(this,'{checking}')\">\
+         <label>{recovery} <input name=\"recovery\" type=\"password\" autocomplete=\"off\" required></label>{keys}\
+         <button class=\"secondary\">{make}</button></form></section>",
+        title = t(
+            "Make this a main device",
+            "Tornar este um aparelho principal"
+        ),
+        hint = t(
+            "For when the main device is lost or far away. Type the recovery password and the \
+             maintenance key; both are checked against the repository before anything is kept.",
+            "Para quando o aparelho principal se perdeu ou está longe. Digite a senha de \
+             recuperação e a chave de manutenção; as duas são conferidas no repositório antes \
+             de qualquer coisa ser guardada.",
+        ),
+        checking = t("Checking…", "Conferindo…"),
+        recovery = t("Recovery password", "Senha de recuperação"),
+        make = t(
+            "Make this a main device",
+            "Tornar este um aparelho principal"
         ),
     )
 }
@@ -516,18 +666,10 @@ fn add_page<S: SecretStore>(shared: &Shared<S>, language: Language) -> String {
             ),
         )
     };
-    let Some(profile) = desktop.profile() else {
+    if desktop.profile().is_none() {
         return refuse(t(
             "Set up this device first: choose Create or join in the Satchel menu.",
             "Configure este aparelho primeiro: escolha Criar ou entrar no menu do Satchel.",
-        ));
-    };
-    if profile.role != Role::Maintainer {
-        return refuse(t(
-            "Only the main device adds devices. Open Add device on the computer that \
-             created the repository.",
-            "Só o aparelho principal adiciona aparelhos. Abra Adicionar aparelho no \
-             computador que criou o repositório.",
         ));
     }
     if desktop.offer().is_none() {
@@ -1178,7 +1320,7 @@ fn secret_block(language: Language, secret: &str) -> String {
     format!(
         "<div class=\"secret\"><code id=\"secret\">{}</code>\
          <button type=\"button\" class=\"quiet\" onclick=\"navigator.clipboard.writeText(\
-         document.getElementById('secret').textContent).then(()=>{{this.textContent='{}'}})\">\
+         document.getElementById('secret').textContent).then(()=>{{toast('{}','ok')}})\">\
          {}</button></div>",
         escape(secret),
         language.pick("Copied", "Copiada"),
@@ -1215,6 +1357,14 @@ button:disabled{{opacity:.6;cursor:progress}}\
 .row{{display:flex;gap:.5rem;align-items:center}}.row input{{flex:1;min-width:0}}\
 button.pick{{width:auto;flex:none;min-height:44px;margin-top:.3rem;padding:0 1rem;background:var(--field);\
 color:var(--ink);border:1px solid var(--line)}}\
+.toasts{{position:fixed;right:1rem;bottom:1rem;left:1rem;display:flex;flex-direction:column;align-items:flex-end;gap:.5rem;pointer-events:none;z-index:10}}\
+.toast{{pointer-events:auto;display:flex;gap:.75rem;align-items:flex-start;max-width:24rem;padding:.75rem 1rem;border-radius:14px;\
+background:var(--ink);color:var(--canvas);box-shadow:0 8px 24px rgba(0,0,0,.2);opacity:0;transform:translateY(.5rem);\
+transition:opacity .2s,transform .2s;font-size:.94rem}}.toast.in{{opacity:1;transform:none}}.toast.bad{{background:var(--danger);color:var(--card)}}\
+.toast .close{{display:inline;width:auto;min-height:0;margin:0 0 0 auto;padding:0 .25rem;background:none;color:inherit;font-size:1.1rem;line-height:1}}\
+@media (prefers-reduced-motion:reduce){{.toast{{transition:none}}}}\
+.badge{{display:inline-block;margin-left:.35rem;padding:.05rem .5rem;border-radius:999px;background:var(--accent);color:var(--card);font-size:.75rem;font-weight:600;vertical-align:middle}}\
+.badge.quiet{{background:var(--field);color:var(--secondary)}}\
 button.danger{{background:var(--danger);color:var(--card)}}\
 .folder{{border-top:1px solid var(--line);padding:.75rem 0 0;margin-top:.75rem}}.folder:first-of-type{{border-top:0;margin-top:0}}\
 h3{{font-size:1rem;font-weight:600;margin:0}}.done{{color:var(--accent);font-weight:600}}\
@@ -1230,8 +1380,18 @@ button.quiet{{display:inline;width:auto;min-height:0;margin:0;padding:.25rem 0;b
 .secret code{{display:block;font:1.05rem/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}}\
 code{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}}\
 </style></head><body><main><div class=\"brand\"><img src=\"mark.png\" alt=\"\">Satchel</div>\
-{body}</main></body></html>",
-        language.html_tag()
+{body}</main><div class=\"toasts\" id=\"toasts\"></div><script>\
+function toast(text,kind){{const box=document.getElementById('toasts');const t=document.createElement('div');\
+t.className='toast'+(kind==='error'?' bad':'');t.setAttribute('role',kind==='error'?'alert':'status');\
+t.textContent=text;const x=document.createElement('button');x.type='button';x.className='close';\
+x.setAttribute('aria-label','{close}');x.textContent='×';x.onclick=()=>t.remove();t.appendChild(x);box.appendChild(t);\
+requestAnimationFrame(()=>t.classList.add('in'));\
+if(kind!=='error'){{setTimeout(()=>{{t.classList.remove('in');setTimeout(()=>t.remove(),250);}},4500);}}}}\
+for(const e of document.querySelectorAll('[data-toast]')){{toast(e.textContent,e.dataset.toast);\
+if(e.dataset.toast!=='error'){{e.hidden=true;}}}}\
+</script></body></html>",
+        language.html_tag(),
+        close = language.pick("Close", "Fechar"),
     )
 }
 

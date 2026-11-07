@@ -60,6 +60,26 @@ pub struct Profile {
     pub kind: StorageKind,
     /// Maintainer when this device created the repository, member when it joined.
     pub role: Role,
+    /// What this device is called on the other devices' screens.
+    pub name: String,
+}
+
+/// This computer's name: the one the system shows, else its host name, else `Desktop`.
+pub fn computer_name() -> String {
+    let asked = if cfg!(target_os = "macos") {
+        std::process::Command::new("/usr/sbin/scutil")
+            .args(["--get", "ComputerName"])
+            .output()
+            .ok()
+    } else {
+        std::process::Command::new("hostname").output().ok()
+    };
+    asked
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|name| !name.is_empty() && !name.chars().any(char::is_control))
+        .map(|name| name.chars().take(64).collect())
+        .unwrap_or_else(|| "Desktop".to_string())
 }
 
 /// Bucket coordinates. The access key stays in the keystore.
@@ -90,6 +110,8 @@ struct ProfileDoc {
     storage: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -158,6 +180,7 @@ pub(crate) fn load(config_dir: &Path) -> Result<Option<Profile>, Error> {
         object_store,
         kind,
         role,
+        name: doc.name.unwrap_or_else(computer_name),
     }))
 }
 
@@ -183,6 +206,7 @@ pub(crate) fn create(
         object_store: None,
         kind: StorageKind::Directory,
         role: Role::Maintainer,
+        name: computer_name(),
     };
     write_profile(config_dir, &profile)?;
     Ok(profile)
@@ -259,6 +283,11 @@ pub(crate) fn remove_folder(
     Ok(updated)
 }
 
+/// Write a changed profile, such as a device that became the main one.
+pub(crate) fn save(config_dir: &Path, profile: &Profile) -> Result<(), Error> {
+    write_profile(config_dir, profile)
+}
+
 /// Forget this device's profile. Nothing else is removed.
 pub(crate) fn forget(config_dir: &Path) -> Result<(), Error> {
     match fs::remove_file(profile_path(config_dir)) {
@@ -305,6 +334,7 @@ fn write_profile(config_dir: &Path, profile: &Profile) -> Result<(), Error> {
             }
             .to_string(),
         ),
+        name: Some(profile.name.clone()),
     };
     let bytes = serde_json::to_vec_pretty(&doc).map_err(|_| Error::Profile)?;
     let temporary = config_dir.join("profile.json.tmp");

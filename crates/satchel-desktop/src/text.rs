@@ -151,6 +151,28 @@ pub fn describe(language: Language, err: &Error) -> String {
             ),
             path.display()
         ),
+        Error::DeviceKeyMissing => l(
+            "Fill in the device access key and its secret. It is a second key you create at the \
+             storage provider, allowed only to list, read and write.",
+            "Preencha a chave de acesso dos aparelhos e o segredo dela. É uma segunda chave que \
+             você cria no provedor, só com permissão de listar, ler e gravar.",
+        ),
+        Error::DeviceKeySameAsMaintenance => l(
+            "The device key is the same as the maintenance key. Create a second key at the \
+             storage provider, allowed only to list, read and write, and use it here: every \
+             device you add receives this one.",
+            "A chave dos aparelhos é a mesma da manutenção. Crie no provedor uma segunda chave, \
+             só com permissão de listar, ler e gravar, e use aqui: todo aparelho que você \
+             adicionar recebe esta.",
+        ),
+        Error::NotTheRecovery => l(
+            "This recovery password doesn't open the repository. Check it in your password manager.",
+            "Esta senha de recuperação não abre o repositório. Confira no seu gerenciador de senhas.",
+        ),
+        Error::MaintenanceRefused => l(
+            "The storage refused this maintenance key. Check the key and its secret.",
+            "O armazenamento recusou esta chave de manutenção. Confira a chave e o segredo.",
+        ),
         Error::LocalRepository => l(
             "The encrypted copies are in a folder on this computer, which phones and other \
              computers can't reach. To add devices, create the repository on S3, R2 or B2.",

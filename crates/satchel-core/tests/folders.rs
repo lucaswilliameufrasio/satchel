@@ -123,3 +123,51 @@ fn a_folder_id_is_short_and_plain() {
     assert_eq!(id.len(), 16);
     assert_ne!(id, Lane::new_id());
 }
+
+#[test]
+fn devices_say_who_they_are_and_which_one_is_main() {
+    use satchel_core::{Intro, devices, sync_folder_introduced};
+    let root = tempdir().expect("temp");
+    let repository = root.path().join("repository");
+    fs::create_dir_all(&repository).expect("repository");
+    let location = Location::Directory(repository);
+    let device_a = DeviceId::parse(DEVICE_A).expect("a");
+    let device_b = DeviceId::parse(DEVICE_B).expect("b");
+    init(&location, PASSWORD, &device_a).expect("init");
+    let docs = Lane::first("Documentos").expect("lane");
+    let photos = Lane::named("f0705", "Fotos").expect("lane");
+    let a_dir = root.path().join("a");
+    let b_dir = root.path().join("b");
+    fs::create_dir_all(&a_dir).expect("a");
+    fs::create_dir_all(&b_dir).expect("b");
+    let main = Intro {
+        name: "MacBook de casa".to_string(),
+        os: "macOS".to_string(),
+        main: true,
+    };
+    sync_folder_introduced(&location, PASSWORD, &device_a, &a_dir, &docs, None, &main).expect("a");
+    let other = Intro {
+        name: "Notebook do trabalho".to_string(),
+        os: "Linux".to_string(),
+        main: false,
+    };
+    // Only in the second folder: it still counts as a device of the repository.
+    sync_folder_introduced(
+        &location, PASSWORD, &device_b, &b_dir, &photos, None, &other,
+    )
+    .expect("b");
+    let cards = devices(&location, PASSWORD).expect("devices");
+    assert_eq!(cards.len(), 2, "{cards:?}");
+    let a = cards
+        .iter()
+        .find(|card| card.id == DEVICE_A)
+        .expect("a card");
+    assert_eq!(a.name.as_deref(), Some("MacBook de casa"));
+    assert!(a.main);
+    let b = cards
+        .iter()
+        .find(|card| card.id == DEVICE_B)
+        .expect("b card");
+    assert_eq!(b.os.as_deref(), Some("Linux"));
+    assert!(!b.main);
+}

@@ -91,6 +91,7 @@ fn one_folder_is_stored_without_secrets() {
         vec![
             "device_id".to_string(),
             "folders".to_string(),
+            "name".to_string(),
             "repository".to_string(),
             "role".to_string(),
             "storage".to_string()

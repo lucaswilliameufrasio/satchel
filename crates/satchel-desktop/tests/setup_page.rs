@@ -618,7 +618,7 @@ fn add_device_page_shows_the_invite_and_takes_the_decision() {
         thread::sleep(Duration::from_millis(50));
     }
 
-    // The member cannot add devices; a wrong address gets a page, not plain text.
+    // A folder repository opens no invite on any device; a wrong address gets a page, not plain text.
     let (member_host, member_base) = split_url(second_page.url());
     let member = http(
         &member_host,
@@ -627,11 +627,7 @@ fn add_device_page_shows_the_invite_and_takes_the_decision() {
         &format!("{member_base}add"),
         "",
     );
-    assert!(
-        member.body.contains("Only the main device"),
-        "{}",
-        member.body
-    );
+    assert!(member.body.contains("can&#39;t reach"), "{}", member.body);
     let gone = http(&host, &host, "GET", &format!("{add}/nothing"), "");
     assert_eq!(gone.status, 404);
     assert!(gone.body.contains("This page is gone"), "{}", gone.body);
@@ -700,6 +696,25 @@ fn the_device_page_adds_stops_and_disconnects() {
         "{}",
         added.body
     );
+    // A change that worked is a toast; the inline line stays only for a page without script.
+    assert!(added.body.contains("data-toast=\"ok\""));
+    assert!(added.body.contains("function toast("));
+    desktop
+        .lock()
+        .expect("lock")
+        .publish(&*store)
+        .expect("sync");
+    let listed = http(&host, &host, "GET", &base, "");
+    assert!(listed.body.contains("<h2>Devices</h2>"), "{}", listed.body);
+    assert!(listed.body.contains("class=\"badge\">main"));
+    assert!(listed.body.contains("class=\"badge quiet\">this one"));
+    // Leaving is confirmed inside the page, not by a browser dialog.
+    assert!(!listed.body.contains("confirm("));
+    assert!(listed.body.contains("id=\"leave-confirm\" hidden"));
+    assert!(
+        !listed.body.contains("Make this a main device"),
+        "already main"
+    );
     let nested = http(
         &host,
         &host,
@@ -707,7 +722,11 @@ fn the_device_page_adds_stops_and_disconnects() {
         &format!("{base}folders/add"),
         &form(&[("path", docs.to_str().expect("path"))]),
     );
-    assert!(nested.body.contains("role=\"alert\""), "{}", nested.body);
+    assert!(
+        nested.body.contains("role=\"alert\" data-toast=\"error\""),
+        "{}",
+        nested.body
+    );
     let lane = desktop
         .lock()
         .expect("lock")
