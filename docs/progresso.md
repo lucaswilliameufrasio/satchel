@@ -1,6 +1,6 @@
 # Progresso do desenvolvimento
 
-Atualizado: 2026-11-05
+Atualizado: 2026-11-07
 
 O plano está em [plano.md](plano.md). Os passos 1 a 7 estão concluídos neste Mac. O corte do catálogo Android e o corte da superfície de produto no iOS e na bandeja, separados desses passos, estão nas notas de 2026-11-02. O catálogo do iOS neste checkout é uma rolagem de cartões com a marca sem texto. O desenho da tela está em [catalogo-telefone.md](catalogo-telefone.md). Na prova dos passos 1 a 7, `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings` e `cargo test -- --test-threads=1` saíram 0. O daemon é o OrbStack, contexto `orbstack`, rootful (`name=seccomp` e `name=cgroupns`), sem contexto chamado `rootless`, com socket local. `desktop_publishes_and_the_phone_reads_metadata_only` passou nessa suíte e uma segunda vez sozinho: o log mostrou o container em `127.0.0.1`, a imagem `floci/floci:2.3.0` já local, sem pull, e a remoção do container. `tray_binary_follows_the_connected_display` passou de novo com o display ligado; o stderr não citou a senha de recuperação. Os títulos do menu não foram lidos. `gradle -p android test` saiu 0, sem emulador. A abertura nos dois aparelhos, decidida em 2026-11-02, foi feita no mesmo dia; o que ficou provado e o que não está em “Abertura nos dois aparelhos”. O que permanece está em “Aberto”.
 
@@ -9,6 +9,9 @@ O plano está em [plano.md](plano.md). Os passos 1 a 7 estão concluídos neste 
 Fora dos passos numerados:
 
 - Provedor de documentos do iOS, o que sobrou (nota “provedor de documentos do iOS”): escrever pelo Arquivos e o comportamento só leitura num iPhone de verdade (a build assinada já existe; falta instalar e abrir no aparelho).
+- Desktop, o que sobrou das notas de 2026-11-07 (página clara, Adicionar aparelho, várias pastas, aparelho principal, R2): a página nova e os avisos não foram vistos num navegador; o seletor de pastas do macOS não foi aberto por teste; o R2 não foi testado num bucket de verdade; as suítes de interface do iOS e do Android não rodaram depois das várias pastas; a pasta escolhida no celular continua ligada só à primeira pasta do repositório; um build antigo que abra um repositório com mais de uma pasta mistura as pastas.
+- Chave dos aparelhos única: todos os aparelhos recebem a mesma chave do bucket, então um aparelho removido perde a chave do repositório mas continua com acesso ao bucket (no R2 e no B2, inclusive para apagar). Falta uma chave de bucket por aparelho, ou trocar a chave dos aparelhos ao remover alguém.
+- Testes do Floci em paralelo: às vezes um contêiner não sobe na rodada completa; um de cada vez, passam.
 - YubiKey no iPhone.
 - OAuth, relay de push e apagamento remoto.
 - Pasta grande, o que sobrou (notas “pasta grande” e “pasta do celular sem o arquivo inteiro na memória”): 100 mil arquivos não foram medidos, e o pico de uns 500 MB numa rodada que move GBs vem do rustic.
