@@ -67,7 +67,8 @@ fn second_desktop_joins_a_bucket_and_both_sync() {
             }),
         )
         .expect("create on the bucket");
-    assert_eq!(created.protection, satchel_core::SetupCheck::Ready);
+    // R2 has no object versioning: it is accepted with the warning.
+    assert_eq!(created.protection, satchel_core::SetupCheck::Unprotected);
     assert_eq!(first.profile().expect("profile").kind, StorageKind::R2);
     first.publish(&first_store).expect("first publishes");
 

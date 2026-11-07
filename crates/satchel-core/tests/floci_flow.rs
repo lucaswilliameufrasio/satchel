@@ -144,8 +144,8 @@ fn setup_refuses_unprotected_buckets_before_writing_and_accepts_a_protected_one(
     );
     let device = DeviceId::parse(DESKTOP).expect("device");
 
-    // Versioning never turned on.
-    for kind in [StorageKind::S3, StorageKind::R2, StorageKind::B2] {
+    // Versioning never turned on. R2 has no versioning, so it is tested on its own bucket below.
+    for kind in [StorageKind::S3, StorageKind::B2] {
         let setup = object_setup(kind, &bucket, endpoint);
         let refused = create_repository(&setup, &device, PASSWORD);
         assert!(
@@ -212,6 +212,15 @@ fn setup_refuses_unprotected_buckets_before_writing_and_accepts_a_protected_one(
         create_repository(&setup, &device, PASSWORD),
         Err(satchel_core::Error::ObjectProtection)
     ));
+    // R2 too: a rule that deletes objects would eat the repository.
+    assert!(matches!(
+        create_repository(
+            &object_setup(StorageKind::R2, &bucket, endpoint),
+            &device,
+            PASSWORD
+        ),
+        Err(satchel_core::Error::ObjectProtection)
+    ));
     assert!(!config_object_exists(endpoint, &bucket));
     aws(
         endpoint,
@@ -244,6 +253,22 @@ fn setup_refuses_unprotected_buckets_before_writing_and_accepts_a_protected_one(
         fs::read(restored.join("satchel/made.txt")).expect("restored"),
         b"made-bytes"
     );
+}
+
+#[test]
+fn r2_has_no_versioning_so_it_is_created_with_a_warning() {
+    let floci = LocalFloci::start();
+    let endpoint = floci.endpoint();
+    let bucket = format!("satchel-r2-{}", std::process::id());
+    aws(
+        endpoint,
+        &["s3api", "create-bucket", "--bucket", bucket.as_str()],
+    );
+    let device = DeviceId::parse(DESKTOP).expect("device");
+    let setup = object_setup(StorageKind::R2, &bucket, endpoint);
+    let made = create_repository(&setup, &device, PASSWORD).expect("R2 without versioning");
+    assert_eq!(made.protection, SetupCheck::Unprotected);
+    assert!(config_object_exists(endpoint, &bucket));
 }
 
 fn row_snapshot(location: &Location) -> String {

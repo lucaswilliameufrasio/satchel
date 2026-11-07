@@ -41,16 +41,58 @@ pub fn probe_object_protection(
         secret_access_key,
     };
     let versioning_body = request(endpoint, "GET", bucket, "", "versioning", &auth)?;
+    probed(endpoint, bucket, &auth, versioning_body)
+}
+
+/// The probe for a storage kind. R2 has no object versioning at all, so it is
+/// not asked; only its lifecycle rules are read, and versioning is `None`.
+pub fn probe_storage(
+    kind: crate::StorageKind,
+    endpoint: &str,
+    bucket: &str,
+    region: &str,
+    access_key_id: &str,
+    secret_access_key: &str,
+) -> Result<ObjectProtection, Error> {
+    if kind != crate::StorageKind::R2 {
+        return probe_object_protection(endpoint, bucket, region, access_key_id, secret_access_key);
+    }
+    let auth = ProbeAuth {
+        region,
+        access_key_id,
+        secret_access_key,
+    };
+    let lifecycle = request(endpoint, "GET", bucket, "", "lifecycle", &auth)?;
+    let lifecycle_deletes_objects = match lifecycle.status {
+        200 => lifecycle_deletes(&lifecycle.body),
+        // No rule, or no lifecycle API on this endpoint: nothing deletes objects on a timer.
+        404 | 501 => false,
+        401 | 403 => return Err(Error::ProbeDenied),
+        _ => return Err(Error::Probe),
+    };
+    Ok(ObjectProtection {
+        versioning: None,
+        lifecycle_deletes_objects,
+    })
+}
+
+fn probed(
+    endpoint: &str,
+    bucket: &str,
+    auth: &ProbeAuth<'_>,
+    versioning_body: HttpResponse,
+) -> Result<ObjectProtection, Error> {
     if matches!(versioning_body.status, 401 | 403) {
         return Err(Error::ProbeDenied);
     }
     if versioning_body.status != 200 {
         return Err(Error::Probe);
     }
-    let lifecycle = request(endpoint, "GET", bucket, "", "lifecycle", &auth)?;
+    let lifecycle = request(endpoint, "GET", bucket, "", "lifecycle", auth)?;
     let lifecycle_deletes_objects = match lifecycle.status {
         200 => lifecycle_deletes(&lifecycle.body),
         404 => false,
+        401 | 403 => return Err(Error::ProbeDenied),
         _ => return Err(Error::Probe),
     };
     Ok(ObjectProtection {

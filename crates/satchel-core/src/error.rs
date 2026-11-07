@@ -75,9 +75,9 @@ pub enum Error {
     #[error("this storage kind has no setup yet")]
     UnsupportedStorage,
 
-    /// The storage refused the key when it asked about versioning (HTTP 401 or 403).
+    /// The storage refused the key when it read the bucket's settings (HTTP 401 or 403).
     #[error(
-        "the storage would not let this key read the bucket's versioning; give it bucket permissions (R2 does not offer versioning over the S3 API and will always be refused)"
+        "the storage would not let this key read the bucket's versioning and lifecycle settings"
     )]
     ProbeDenied,
 

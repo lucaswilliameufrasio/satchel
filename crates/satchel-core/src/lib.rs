@@ -17,7 +17,7 @@ pub use format::{
     change_recovery_password, init, list_other_device_keys, remove_device_key,
 };
 pub use mirror::{DirectoryTree, FolderTree, MirrorReport, TreeFile, sync_mirrored};
-pub use probe::{ObjectProtection, probe_object_protection};
+pub use probe::{ObjectProtection, probe_object_protection, probe_storage};
 pub use setup::{
     CreatedRepository, ProvisionedKey, StorageSetup, check_storage, create_repository,
     generate_recovery_password, provision_device_key,

@@ -1275,14 +1275,21 @@ finally{{b.disabled=false;b.textContent=label;}}}});}}
                  objetos, então uma cópia sobrescrita não volta.",
             ),
             bucket_hint = t(
-                "The bucket needs versioning on and no lifecycle rule that deletes objects. The \
-                 device key must differ from the maintenance key. It is limited to deleting its \
-                 own locks only when the store applies per-key policy (AWS S3, MinIO, RustFS); \
-                 on R2 and B2 it can delete everything.",
-                "O bucket precisa de versionamento ligado e de nenhuma regra de ciclo de vida que \
-                 apague objetos. A chave dos aparelhos tem de ser diferente da de manutenção. Ela \
-                 só fica limitada a apagar os próprios locks quando o armazenamento aplica política \
-                 por chave (AWS S3, MinIO, RustFS); no R2 e no B2 ela pode apagar tudo.",
+                "On S3 and B2 the bucket needs versioning on and no lifecycle rule that deletes \
+                 objects. R2 has no versioning: Satchel accepts it and warns that an overwritten \
+                 copy can't come back, and still refuses a rule that deletes objects. The \
+                 maintenance key manages the bucket (on R2, an API token with Admin Read & \
+                 Write). The device key is a second one, limited to listing, reading and \
+                 writing; it can only delete its own locks where the store applies per-key \
+                 policy (AWS S3, MinIO, RustFS). On R2 and B2 it can delete everything.",
+                "No S3 e no B2, o bucket precisa de versionamento ligado e de nenhuma regra de \
+                 ciclo de vida que apague objetos. O R2 não tem versionamento: o Satchel aceita, \
+                 avisa que uma cópia sobrescrita não volta, e continua recusando uma regra que \
+                 apague objetos. A chave de manutenção administra o bucket (no R2, um token de \
+                 API com Admin Read & Write). A chave dos aparelhos é outra, só para listar, ler \
+                 e gravar; ela só fica limitada a apagar os próprios locks quando o armazenamento \
+                 aplica política por chave (AWS S3, MinIO, RustFS). No R2 e no B2 ela pode \
+                 apagar tudo.",
             ),
             region = t("Region", "Região"),
             prefix = t("Prefix (may be empty)", "Prefixo (pode ficar vazio)"),

@@ -8,8 +8,7 @@ use satchel_core::{
     Client, DeviceId, DeviceKeyRecord, FolderSummary, Location, QuietMark, S3Store, SetupCheck,
     StorageKind, StorageSetup, SyncOutcome, WakeEndpoint, WakeListener, change_recovery_password,
     check_setup, create_repository, folders, generate_recovery_password, list_other_device_keys,
-    probe_object_protection, provision_device_key, quiet_mark, remove_device_key, send_wakes,
-    sync_folder_introduced,
+    provision_device_key, quiet_mark, remove_device_key, send_wakes, sync_folder_introduced,
 };
 use satchel_pair::{
     ApprovalRequest, Decision, DeviceSecrets, Invite, ListenConfig, Offer, PairingSession,
@@ -1574,12 +1573,18 @@ impl Desktop {
         let Some(object_store) = profile.object_store.as_ref() else {
             return check_setup(StorageKind::Directory, None, false).map_err(Error::from);
         };
+        // A device that joined holds the limited key, which may not read the bucket's
+        // settings. The main device checked them and warns; this one just syncs.
+        if profile.role == Role::Member {
+            return Ok(SetupCheck::Ready);
+        }
         let Some(maintenance) = store.get(Account::BucketCredential)? else {
             return Err(Error::MissingSecret);
         };
         let access: AccessKey =
             serde_json::from_str(&maintenance).map_err(|_| Error::MissingSecret)?;
-        let probed = probe_object_protection(
+        let probed = satchel_core::probe_storage(
+            profile.kind,
             &object_store.endpoint,
             &object_store.bucket,
             &object_store.region,
@@ -1587,7 +1592,7 @@ impl Desktop {
             &access.secret_access_key,
         )?;
         check_setup(
-            StorageKind::S3,
+            profile.kind,
             probed.versioning,
             probed.lifecycle_deletes_objects,
         )

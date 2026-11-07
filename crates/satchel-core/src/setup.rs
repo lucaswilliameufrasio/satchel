@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use rand::Rng;
 
 use crate::format::{Location, S3Store, add_device_key, init};
-use crate::probe::probe_object_protection;
 use crate::storage::{SetupCheck, StorageKind, check_setup};
 use crate::{DeviceId, Error};
 
@@ -189,7 +188,8 @@ pub fn check_storage(setup: &StorageSetup) -> Result<SetupCheck, Error> {
         return check_setup(setup.kind, None, false);
     }
     setup.location()?;
-    let probed = probe_object_protection(
+    let probed = crate::probe::probe_storage(
+        setup.kind,
         &setup.endpoint,
         &setup.bucket,
         &setup.region,

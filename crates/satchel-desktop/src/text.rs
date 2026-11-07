@@ -269,14 +269,22 @@ pub fn describe(language: Language, err: &Error) -> String {
         },
         Error::Device(core) => match core {
             Core::ObjectProtection => l(
-                "The bucket needs versioning on and no lifecycle rule that deletes objects.",
-                "O bucket precisa de versionamento ligado e de nenhuma regra de ciclo de vida que apague objetos.",
+                "The bucket needs versioning on and no lifecycle rule that deletes objects. On R2, \
+                 which has no versioning, only the lifecycle rule counts: remove the rule that \
+                 deletes objects.",
+                "O bucket precisa de versionamento ligado e de nenhuma regra de ciclo de vida que \
+                 apague objetos. No R2, que não tem versionamento, só a regra conta: tire a regra \
+                 que apaga objetos.",
             ),
             Core::ProbeDenied => l(
-                "The storage won't let this key read the bucket's versioning. Give it bucket \
-                 permissions. R2 doesn't offer versioning over the S3 API and is always refused.",
-                "O armazenamento não deixa esta chave ler o versionamento do bucket. Dê a ela \
-                 permissões no bucket. O R2 não oferece versionamento pela API S3 e sempre recusa.",
+                "The storage refused the maintenance key when it read the bucket's settings \
+                 (versioning and lifecycle rules). The maintenance key needs to manage the bucket: \
+                 on AWS, s3:GetBucketVersioning and s3:GetLifecycleConfiguration; on R2, an API \
+                 token with Admin Read & Write.",
+                "O armazenamento recusou a chave de manutenção ao ler as configurações do bucket \
+                 (versionamento e regras de ciclo de vida). A chave de manutenção precisa \
+                 administrar o bucket: no AWS, s3:GetBucketVersioning e \
+                 s3:GetLifecycleConfiguration; no R2, um token de API com Admin Read & Write.",
             ),
             Core::Probe => l(
                 "Couldn't check the bucket. Check the endpoint, the region and the network.",

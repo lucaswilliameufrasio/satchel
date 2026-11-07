@@ -52,7 +52,18 @@ pub fn check_setup(
         StorageKind::Directory | StorageKind::WebDav | StorageKind::Sftp => {
             Ok(SetupCheck::Unprotected)
         }
-        StorageKind::S3 | StorageKind::R2 | StorageKind::B2 => {
+        // R2 has no object versioning: like a folder it warns, and a lifecycle
+        // rule that deletes objects still refuses, because it would eat the repository.
+        StorageKind::R2 => {
+            if lifecycle_deletes_objects {
+                Err(Error::ObjectProtection)
+            } else if versioning == Some(Versioning::Enabled) {
+                Ok(SetupCheck::Ready)
+            } else {
+                Ok(SetupCheck::Unprotected)
+            }
+        }
+        StorageKind::S3 | StorageKind::B2 => {
             if versioning == Some(Versioning::Enabled) && !lifecycle_deletes_objects {
                 Ok(SetupCheck::Ready)
             } else {
@@ -67,8 +78,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn r2_has_no_versioning_so_it_warns_and_still_refuses_a_deleting_lifecycle() {
+        assert_eq!(
+            check_setup(StorageKind::R2, None, false).expect("warning"),
+            SetupCheck::Unprotected
+        );
+        assert!(check_setup(StorageKind::R2, None, true).is_err());
+    }
+
+    #[test]
     fn object_storage_requires_versioning_without_a_deleting_lifecycle() {
-        for kind in [StorageKind::S3, StorageKind::R2, StorageKind::B2] {
+        for kind in [StorageKind::S3, StorageKind::B2] {
             let ready = check_setup(kind, Some(Versioning::Enabled), false).expect("ready");
             assert_eq!(ready, SetupCheck::Ready);
             assert!(check_setup(kind, Some(Versioning::Off), false).is_err());
