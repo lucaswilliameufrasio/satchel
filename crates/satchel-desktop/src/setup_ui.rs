@@ -17,6 +17,7 @@ use rand::Rng;
 use satchel_core::{SetupCheck, StorageKind, StorageSetup};
 
 use crate::Role;
+use crate::picker::{FolderPicker, PickFor, native_picker, overlaps};
 use crate::secrets::SecretStore;
 use crate::text::{Language, describe};
 use crate::{AccessPair, Desktop, Error, JoinTarget, request_grant};
@@ -36,8 +37,21 @@ impl SetupPage {
     }
 }
 
-/// Start listening on a free loopback port.
+/// Start listening on a free loopback port, with the system's folder chooser.
 pub fn start<S>(desktop: Arc<Mutex<Desktop>>, secrets: Arc<S>) -> std::io::Result<SetupPage>
+where
+    S: SecretStore + Send + Sync + 'static,
+{
+    start_with_picker(desktop, secrets, native_picker())
+}
+
+/// Start listening with a given chooser. `None` hides the Choose buttons, and
+/// the folders are typed.
+pub fn start_with_picker<S>(
+    desktop: Arc<Mutex<Desktop>>,
+    secrets: Arc<S>,
+    picker: Option<FolderPicker>,
+) -> std::io::Result<SetupPage>
 where
     S: SecretStore + Send + Sync + 'static,
 {
@@ -51,6 +65,7 @@ where
         secrets,
         token,
         host,
+        picker,
     });
     thread::spawn(move || {
         for stream in listener.incoming() {
@@ -71,6 +86,7 @@ struct Shared<S> {
     secrets: Arc<S>,
     token: String,
     host: String,
+    picker: Option<FolderPicker>,
 }
 
 struct Request {
@@ -98,6 +114,9 @@ fn serve<S: SecretStore>(mut stream: TcpStream, shared: &Shared<S>) -> std::io::
     }
     let language = Language::from_accept_language(&request.accept_language)
         .unwrap_or_else(|| lock(&shared.desktop).language());
+    if request.method == "POST" && route == "pick" {
+        return pick(&mut stream, shared, language, &parse_form(&request.body));
+    }
     let page = match (request.method.as_str(), route) {
         ("GET", "") => form_page(shared, language, None, &BTreeMap::new()),
         ("POST", "create") => create(shared, language, &parse_form(&request.body)),
@@ -106,6 +125,28 @@ fn serve<S: SecretStore>(mut stream: TcpStream, shared: &Shared<S>) -> std::io::
         _ => return respond(&mut stream, 404, "text/plain", "not found"),
     };
     respond(&mut stream, 200, "text/html; charset=utf-8", &page)
+}
+
+/// Opens the chooser and answers with the folder: 200 and the path, 204 when
+/// the person cancelled, 404 when this desktop has no chooser.
+fn pick<S>(
+    stream: &mut TcpStream,
+    shared: &Shared<S>,
+    language: Language,
+    form: &BTreeMap<String, String>,
+) -> std::io::Result<()> {
+    let (Some(picker), Some(target)) = (&shared.picker, PickFor::parse(field(form, "for"))) else {
+        return respond(stream, 404, "text/plain", "not found");
+    };
+    match picker(language, target) {
+        Some(path) => respond(
+            stream,
+            200,
+            "text/plain; charset=utf-8",
+            &path.to_string_lossy(),
+        ),
+        None => respond(stream, 204, "text/plain", ""),
+    }
 }
 
 fn change_recovery<S: SecretStore>(shared: &Shared<S>, language: Language) -> String {
@@ -182,6 +223,15 @@ fn create_from_form<S: SecretStore>(
     setup.kind = kind;
     let device_access = if kind == StorageKind::Directory {
         setup.directory = required_path(language, form, "repository")?;
+        if overlaps(&folder, &setup.directory) {
+            return Err(t(
+                "The folder for the encrypted copies can't be inside the folder to sync, \
+                 nor the other way round. Choose another one.",
+                "A pasta das cópias cifradas não pode ficar dentro da pasta para sincronizar, \
+                 nem o contrário. Escolha outra.",
+            )
+            .to_string());
+        }
         None
     } else {
         setup.endpoint = field(form, "endpoint").to_string();
@@ -319,8 +369,8 @@ fn required_path(
     if value.is_empty() || !value.starts_with('/') {
         return Err(language
             .pick(
-                "Folders must be absolute paths, like /Users/you/Satchel.",
-                "As pastas precisam de caminho absoluto, como /Users/voce/Satchel.",
+                "Choose a folder, or type its full path, like /Users/you/Satchel.",
+                "Escolha uma pasta ou digite o caminho completo, como /Users/voce/Satchel.",
             )
             .to_string());
     }
@@ -404,6 +454,21 @@ fn form_page<S: SecretStore>(
     let (k_s3, k_r2, k_b2) = (chosen("s3"), chosen("r2"), chosen("b2"));
     let base = format!("/{}/", shared.token);
     let folder_example = t("/Users/you/Satchel", "/Users/voce/Satchel");
+    let has_picker = shared.picker.is_some();
+    let choose = t("Choose…", "Escolher…");
+    // A field for a folder: typed, or filled by the system chooser when there is one.
+    let folder_field = |name: &str, value: &str, placeholder: &str, target: PickFor| {
+        let input =
+            format!("<input id=\"{name}\" name=\"{name}\"{value} placeholder=\"{placeholder}\">");
+        if !has_picker {
+            return input;
+        }
+        format!(
+            "<div class=\"row\">{input}<button type=\"button\" class=\"pick\" \
+             data-for=\"{}\" data-target=\"{name}\">{choose}</button></div>",
+            target.key()
+        )
+    };
     page(
         language,
         &format!(
@@ -412,11 +477,12 @@ fn form_page<S: SecretStore>(
 <section class=\"card\"><h2>{create_title}</h2>
 <p class=\"hint\">{create_hint}</p>
 <form method=\"post\" action=\"{base}create\" onsubmit=\"busy(this,'{checking}')\">
-<label>{synced} <input name=\"folder\"{v_folder} placeholder=\"{folder_example}\"></label>
+<label for=\"folder\">{synced}</label>{pick_folder}
+<p class=\"hint\">{synced_hint}</p>
 <label>{storage} <select name=\"kind\">
 <option value=\"folder\">{local}</option><option value=\"s3\"{k_s3}>S3</option>
 <option value=\"r2\"{k_r2}>Cloudflare R2</option><option value=\"b2\"{k_b2}>Backblaze B2</option></select></label>
-<div id=\"fol\"><label>{repo_folder} <input name=\"repository\"{v_repository}></label>
+<div id=\"fol\"><label for=\"repository\">{repo_folder}</label>{pick_repository}
 <p class=\"hint\">{local_hint}</p></div>
 <div id=\"obj\" hidden><p class=\"hint\">{bucket_hint}</p>
 <label>Endpoint <input name=\"endpoint\"{v_endpoint} placeholder=\"https://s3.us-east-1.amazonaws.com\"></label>
@@ -431,7 +497,8 @@ fn form_page<S: SecretStore>(
 <section class=\"card\"><h2>{join_title}</h2>
 <p class=\"hint\">{join_hint}</p>
 <form method=\"post\" action=\"{base}join\" onsubmit=\"busy(this,'{waiting}')\">
-<label>{synced} <input name=\"join_folder\"{v_join_folder} placeholder=\"{folder_example}\"></label>
+<label for=\"join_folder\">{synced}</label>{pick_join}
+<p class=\"hint\">{join_synced_hint}</p>
 <label>{device_name} <input name=\"device_name\"{v_device_name} placeholder=\"Desktop\"></label>
 <label>{address} <input name=\"address\"{v_address} placeholder=\"100.64.0.2:4000\"></label>
 <label>{code} <input name=\"code\"{v_code} inputmode=\"numeric\"></label>
@@ -442,28 +509,54 @@ fn form_page<S: SecretStore>(
 const kind=document.querySelector('select[name=kind]');
 function show(){{const o=kind.value!=='folder';document.getElementById('obj').hidden=!o;document.getElementById('fol').hidden=o;}}
 kind.addEventListener('change',show);show();
-function busy(f,t){{const b=f.querySelector('button');b.disabled=true;b.textContent=t;b.setAttribute('aria-busy','true');}}
+function busy(f,t){{const b=f.querySelector('button:not(.pick)');b.disabled=true;b.textContent=t;b.setAttribute('aria-busy','true');}}
+for(const b of document.querySelectorAll('button.pick')){{b.addEventListener('click',async()=>{{
+const label=b.textContent;b.disabled=true;b.textContent='{choosing}';
+try{{const r=await fetch('{base}pick',{{method:'POST',headers:{{'Content-Type':'application/x-www-form-urlencoded'}},body:'for='+b.dataset.for}});
+if(r.status===200){{const i=document.getElementById(b.dataset.target);i.value=await r.text();i.focus();}}}}
+finally{{b.disabled=false;b.textContent=label;}}}});}}
 </script>",
+            pick_folder = folder_field("folder", &v_folder, folder_example, PickFor::Synced),
+            pick_repository = folder_field("repository", &v_repository, "", PickFor::Repository),
+            pick_join = folder_field("join_folder", &v_join_folder, folder_example, PickFor::Synced),
+            choosing = t("Choosing…", "Escolhendo…"),
             title = t("Set up this device", "Configurar este aparelho"),
             lead = t(
-                "Create a repository here, or join one another device already holds.",
-                "Crie um repositório aqui ou entre num que outro aparelho já mantém.",
+                "Satchel keeps one folder the same on all your devices. Every version goes, \
+                 encrypted, to a storage you choose, and only your devices open it.",
+                "O Satchel mantém uma pasta igual em todos os seus aparelhos. Cada versão vai, \
+                 cifrada, para um armazenamento que você escolhe, e só os seus aparelhos abrem.",
             ),
-            create_title = t("Create a repository", "Criar um repositório"),
+            create_title = t("First device: create the repository", "Primeiro aparelho: criar o repositório"),
             create_hint = t(
-                "This device keeps the recovery password and the maintenance credential. \
-                 Other devices join with a code and never type the account.",
-                "Este aparelho guarda a senha de recuperação e a credencial de manutenção. \
-                 Os outros entram com um código e nunca digitam a conta.",
+                "Do this once, on one computer. It keeps the recovery password and the \
+                 storage account. Your other devices join with a code and never type the account.",
+                "Faça isto uma vez, num computador. Ele guarda a senha de recuperação e a \
+                 conta do armazenamento. Os outros aparelhos entram com um código e nunca \
+                 digitam a conta.",
+            ),
+            synced_hint = t(
+                "The files in this folder show up on your other devices. It can already have files.",
+                "Os arquivos desta pasta aparecem nos seus outros aparelhos. Ela pode já ter arquivos.",
+            ),
+            join_synced_hint = t(
+                "The files from your other devices arrive in this folder.",
+                "Os arquivos dos seus outros aparelhos chegam nesta pasta.",
             ),
             checking = t("Checking the storage…", "Conferindo o armazenamento…"),
-            synced = t("Synced folder", "Pasta sincronizada"),
-            storage = t("Storage", "Armazenamento"),
-            local = t("Local folder", "Pasta local"),
-            repo_folder = t("Repository folder", "Pasta do repositório"),
+            synced = t("Folder to sync", "Pasta para sincronizar"),
+            storage = t("Where to keep the encrypted copies", "Onde guardar as cópias cifradas"),
+            local = t("A folder on this computer", "Uma pasta neste computador"),
+            repo_folder = t("Folder for the encrypted copies", "Pasta das cópias cifradas"),
             local_hint = t(
-                "A local folder has no object versioning: an overwritten file cannot be brought back.",
-                "Uma pasta local não tem versionamento de objetos: um arquivo sobrescrito não volta.",
+                "Pick an empty folder outside the folder to sync, ideally on another disk. \
+                 Phones can't reach a folder on this computer: to use Satchel on a phone, \
+                 choose S3, R2 or B2. A folder also has no object versioning, so an \
+                 overwritten copy can't be brought back.",
+                "Escolha uma pasta vazia fora da pasta para sincronizar, de preferência noutro \
+                 disco. Celulares não alcançam uma pasta deste computador: para usar o Satchel \
+                 no celular, escolha S3, R2 ou B2. Uma pasta também não tem versionamento de \
+                 objetos, então uma cópia sobrescrita não volta.",
             ),
             bucket_hint = t(
                 "The bucket needs versioning on and no lifecycle rule that deletes objects. The \
@@ -485,7 +578,7 @@ function busy(f,t){{const b=f.querySelector('button');b.disabled=true;b.textCont
             ),
             device_secret = t("Device secret", "Segredo dos aparelhos"),
             create = t("Create", "Criar"),
-            join_title = t("Join with a code", "Entrar com um código"),
+            join_title = t("Another device: join with a code", "Outro aparelho: entrar com um código"),
             join_hint = t(
                 "Open Add device on the device that holds the repository, then copy its \
                  address, code and fingerprint, or paste the whole invite.",
@@ -545,6 +638,9 @@ input:focus,select:focus,textarea:focus,button:focus-visible{{outline:2px solid 
 button{{display:block;width:100%;min-height:48px;margin-top:1rem;border:0;border-radius:14px;\
 background:var(--accent);color:var(--card);font:inherit;font-weight:600;cursor:pointer}}\
 button:disabled{{opacity:.6;cursor:progress}}\
+.row{{display:flex;gap:.5rem;align-items:center}}.row input{{flex:1;min-width:0}}\
+button.pick{{width:auto;flex:none;min-height:44px;margin-top:.3rem;padding:0 1rem;background:var(--field);\
+color:var(--ink);border:1px solid var(--line)}}\
 button.quiet{{display:inline;width:auto;min-height:0;margin:0;padding:.25rem 0;background:none;color:var(--accent)}}\
 .error,.warn{{color:var(--danger);font-weight:600}}\
 .secret{{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:1rem;margin:.75rem 0}}\
@@ -649,6 +745,7 @@ Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\
 fn respond(stream: &mut TcpStream, status: u16, kind: &str, body: &str) -> std::io::Result<()> {
     let reason = match status {
         200 => "OK",
+        204 => "No Content",
         400 => "Bad Request",
         403 => "Forbidden",
         _ => "Not Found",

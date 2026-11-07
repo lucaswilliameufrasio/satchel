@@ -8,7 +8,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use satchel_desktop::{
-    Account, Desktop, Language, MemoryStore, Role, SecretStore, start_setup_page,
+    Account, Desktop, FolderPicker, Language, MemoryStore, PickFor, Role, SecretStore,
+    start_setup_page, start_setup_page_with_picker,
 };
 use satchel_pair::ListenConfig;
 use tempfile::tempdir;
@@ -108,7 +109,7 @@ fn page_creates_and_joins_and_refuses_strangers() {
         &form(&[("kind", "folder"), ("folder", "relative/path")]),
     );
     assert_eq!(refused.status, 200);
-    assert!(refused.body.contains("absolute"));
+    assert!(refused.body.contains("full path"));
     assert!(first.lock().expect("lock").profile().is_none());
     assert!(
         refused.body.contains("value=\"relative/path\""),
@@ -301,7 +302,7 @@ fn the_page_speaks_the_browser_language_and_falls_back_to_the_desktop() {
     let form_pt = http_with(&host, &host, "GET", &base, "", portuguese);
     assert!(form_pt.body.contains("<html lang=\"pt-BR\">"));
     assert!(form_pt.body.contains("Configurar este aparelho"));
-    assert!(form_pt.body.contains("Entrar com um código"));
+    assert!(form_pt.body.contains("entrar com um código"));
     assert!(!form_pt.body.contains("Set up this device"));
 
     let refused = http_with(
@@ -313,7 +314,7 @@ fn the_page_speaks_the_browser_language_and_falls_back_to_the_desktop() {
         portuguese,
     );
     assert!(
-        refused.body.contains("caminho absoluto"),
+        refused.body.contains("caminho completo"),
         "{}",
         refused.body
     );
@@ -323,6 +324,119 @@ fn the_page_speaks_the_browser_language_and_falls_back_to_the_desktop() {
     desktop.lock().expect("lock").set_language(Language::PtBr);
     let fallback = http_with(&host, &host, "GET", &base, "", "Accept-Language: fr-FR\r\n");
     assert!(fallback.body.contains("Configurar este aparelho"));
+}
+
+#[test]
+fn choose_fills_a_folder_from_the_system_chooser() {
+    let root = tempdir().expect("temp");
+    let synced = root.path().join("Satchel");
+    fs::create_dir(&synced).expect("synced");
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let picked = synced.clone();
+    let seen = Arc::clone(&asked);
+    let picker: FolderPicker = Arc::new(move |language, target| {
+        seen.lock().expect("lock").push((language, target));
+        match target {
+            PickFor::Synced => Some(picked.clone()),
+            PickFor::Repository => None,
+        }
+    });
+    let desktop = Arc::new(Mutex::new(
+        Desktop::open(root.path().join("config"))
+            .expect("open")
+            .with_language(Language::En),
+    ));
+    let store = Arc::new(MemoryStore::default());
+    let page = start_setup_page_with_picker(Arc::clone(&desktop), Arc::clone(&store), Some(picker))
+        .expect("page");
+    let (host, base) = split_url(page.url());
+    let portuguese = "Accept-Language: pt-BR\r\n";
+
+    let form_pt = http_with(&host, &host, "GET", &base, "", portuguese);
+    assert_eq!(form_pt.body.matches("class=\"pick\"").count(), 3);
+    assert!(form_pt.body.contains("Escolher…"));
+    assert!(form_pt.body.contains("Pasta para sincronizar"));
+    assert!(form_pt.body.contains("Pasta das cópias cifradas"));
+    assert!(form_pt.body.contains("Celulares não alcançam"));
+
+    let chosen = http_with(
+        &host,
+        &host,
+        "POST",
+        &format!("{base}pick"),
+        "for=synced",
+        portuguese,
+    );
+    assert_eq!(chosen.status, 200);
+    assert_eq!(chosen.body, synced.to_string_lossy());
+    let cancelled = http(
+        &host,
+        &host,
+        "POST",
+        &format!("{base}pick"),
+        "for=repository",
+    );
+    assert_eq!(cancelled.status, 204);
+    assert_eq!(cancelled.body, "");
+    let unknown = http(
+        &host,
+        &host,
+        "POST",
+        &format!("{base}pick"),
+        "for=elsewhere",
+    );
+    assert_eq!(unknown.status, 404);
+    let stranger = http(
+        &host,
+        "evil.example",
+        "POST",
+        &format!("{base}pick"),
+        "for=synced",
+    );
+    assert_eq!(stranger.status, 403);
+    assert_eq!(
+        *asked.lock().expect("lock"),
+        vec![
+            (Language::PtBr, PickFor::Synced),
+            (Language::En, PickFor::Repository)
+        ]
+    );
+
+    // The encrypted copies never go inside the folder they protect.
+    let inside = http_with(
+        &host,
+        &host,
+        "POST",
+        &format!("{base}create"),
+        &form(&[
+            ("kind", "folder"),
+            ("folder", &synced.to_string_lossy()),
+            ("repository", &synced.join("copies").to_string_lossy()),
+        ]),
+        portuguese,
+    );
+    assert!(
+        inside.body.contains("não pode ficar dentro"),
+        "{}",
+        inside.body
+    );
+    assert!(!synced.join("copies").exists());
+    assert!(desktop.lock().expect("lock").profile().is_none());
+
+    // Without a chooser the fields are typed, and the endpoint is not there.
+    let plain = start_setup_page_with_picker(desktop, store, None).expect("page");
+    let (plain_host, plain_base) = split_url(plain.url());
+    let typed = http(&plain_host, &plain_host, "GET", &plain_base, "");
+    assert!(!typed.body.contains("class=\"pick\""));
+    assert!(typed.body.contains("id=\"folder\" name=\"folder\""));
+    let missing = http(
+        &plain_host,
+        &plain_host,
+        "POST",
+        &format!("{plain_base}pick"),
+        "for=synced",
+    );
+    assert_eq!(missing.status, 404);
 }
 
 /// Serves the page for a person or a browser tool. `SATCHEL_URL_FILE` receives the address.
