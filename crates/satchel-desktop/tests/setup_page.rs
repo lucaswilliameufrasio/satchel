@@ -439,6 +439,199 @@ fn choose_fills_a_folder_from_the_system_chooser() {
     assert_eq!(missing.status, 404);
 }
 
+#[test]
+fn add_device_page_shows_the_invite_and_takes_the_decision() {
+    let root = tempdir().expect("temp");
+    let first_folder = root.path().join("first");
+    let second_folder = root.path().join("second");
+    fs::create_dir_all(&first_folder).expect("first");
+    fs::create_dir_all(&second_folder).expect("second");
+    let first_store = Arc::new(MemoryStore::default());
+    let first = Arc::new(Mutex::new(
+        Desktop::open(root.path().join("config-first"))
+            .expect("open")
+            .with_language(Language::En),
+    ));
+    let page = start_setup_page_with_picker(Arc::clone(&first), Arc::clone(&first_store), None)
+        .expect("page");
+    let (host, base) = split_url(page.url());
+    let add = format!("{base}add");
+
+    // Before a folder is set up, the page says what to do first.
+    let early = http(&host, &host, "GET", &add, "");
+    assert!(
+        early.body.contains("Set up this device first"),
+        "{}",
+        early.body
+    );
+
+    let repository = root.path().join("repo");
+    let created = http(
+        &host,
+        &host,
+        "POST",
+        &format!("{base}create"),
+        &form(&[
+            ("kind", "folder"),
+            ("folder", first_folder.to_str().expect("path")),
+            ("repository", repository.to_str().expect("path")),
+        ]),
+    );
+    assert!(created.body.contains("Repository created"));
+
+    // The tray would open the invite on the mesh; the test keeps it on loopback.
+    let offer = first
+        .lock()
+        .expect("lock")
+        .open_add_device(ListenConfig {
+            bind: "127.0.0.1:0".parse().expect("bind"),
+            timeout: Duration::from_secs(90),
+            advertise: false,
+        })
+        .expect("screen");
+    let shown = http(&host, &host, "GET", &add, "");
+    assert_eq!(shown.status, 200);
+    assert!(shown.body.contains(&offer.code), "the code, large");
+    assert!(shown.body.contains(&offer.address.to_string()));
+    assert!(shown.body.contains(&offer.fingerprint[..4]));
+    assert!(shown.body.contains("add/qr.png"));
+    // A folder repository is named, and the phone problem is said before anyone joins.
+    assert!(
+        shown.body.contains("a folder on this computer"),
+        "{}",
+        shown.body
+    );
+    assert!(shown.body.contains("A phone can't reach it"));
+    let mut qr = TcpStream::connect(&host).expect("connect");
+    write!(
+        qr,
+        "GET {add}/qr.png HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    )
+    .expect("write");
+    let mut png = Vec::new();
+    qr.read_to_end(&mut png).expect("read");
+    assert!(png.starts_with(b"HTTP/1.1 200"));
+    assert!(png.windows(4).any(|window| window == b"\x89PNG"), "a PNG");
+    let waiting = http(&host, &host, "GET", &format!("{add}/state"), "");
+    assert!(waiting.body.contains("\"waiting\""), "{}", waiting.body);
+
+    let second_store = Arc::new(MemoryStore::default());
+    let second = Arc::new(Mutex::new(
+        Desktop::open(root.path().join("config-second"))
+            .expect("open")
+            .with_language(Language::En),
+    ));
+    let second_page =
+        start_setup_page_with_picker(Arc::clone(&second), Arc::clone(&second_store), None)
+            .expect("page");
+    let (second_host, second_base) = split_url(second_page.url());
+    let join_body = form(&[
+        ("join_folder", second_folder.to_str().expect("path")),
+        ("device_name", "Second"),
+        ("address", &offer.address.to_string()),
+        ("code", &offer.code),
+        ("fingerprint", &offer.fingerprint),
+    ]);
+    let joiner = thread::spawn(move || {
+        http(
+            &second_host,
+            &second_host,
+            "POST",
+            &format!("{second_base}join"),
+            &join_body,
+        )
+    });
+    // The tray loop polls; here the test does, and reads what the page reads.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        first.lock().expect("lock").poll();
+        let state = http(&host, &host, "GET", &format!("{add}/state"), "");
+        if state.body.contains("\"pending\"") {
+            assert!(state.body.contains("\"Second\""), "{}", state.body);
+            assert!(state.body.contains(&offer.code));
+            break;
+        }
+        assert!(Instant::now() < deadline, "no approval request arrived");
+        thread::sleep(Duration::from_millis(30));
+    }
+    let approved = http(&host, &host, "POST", &format!("{add}/approve"), "");
+    assert!(approved.body.contains("\"ok\":true"), "{}", approved.body);
+    let joined = joiner.join().expect("thread");
+    assert!(joined.body.contains("Joined"), "{}", joined.body);
+    let closed = http(&host, &host, "GET", &format!("{add}/state"), "");
+    assert!(closed.body.contains("\"closed\""), "{}", closed.body);
+
+    // A second approval has nothing to approve, and says so in words.
+    let again = http(&host, &host, "POST", &format!("{add}/approve"), "");
+    assert!(again.body.contains("\"ok\":false"), "{}", again.body);
+    assert!(again.body.contains("\"message\""));
+    let view = first.lock().expect("lock").tray_view();
+    assert!(
+        view.items.iter().any(|item| item.label.starts_with("⚠ ")),
+        "the tray shows it too"
+    );
+    // After a sync, the tray names the storage that keeps no old versions.
+    first
+        .lock()
+        .expect("lock")
+        .publish(&*first_store)
+        .expect("sync");
+    let view = first.lock().expect("lock").tray_view();
+    assert!(
+        view.items
+            .iter()
+            .any(|item| item.label.contains("repo keeps no old versions")),
+        "{:?}",
+        view.items
+            .iter()
+            .map(|item| &item.label)
+            .collect::<Vec<_>>()
+    );
+
+    // An invite nobody answers ends, and the page says why.
+    first
+        .lock()
+        .expect("lock")
+        .open_add_device(ListenConfig {
+            bind: "127.0.0.1:0".parse().expect("bind"),
+            timeout: Duration::from_millis(300),
+            advertise: false,
+        })
+        .expect("screen");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        first.lock().expect("lock").poll();
+        let state = http(&host, &host, "GET", &format!("{add}/state"), "");
+        if state.body.contains("\"closed\"") {
+            assert!(state.body.contains("\"problem\""), "{}", state.body);
+            break;
+        }
+        assert!(Instant::now() < deadline, "the invite never ended");
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    // The member cannot add devices; a wrong address gets a page, not plain text.
+    let (member_host, member_base) = split_url(second_page.url());
+    let member = http(
+        &member_host,
+        &member_host,
+        "GET",
+        &format!("{member_base}add"),
+        "",
+    );
+    assert!(
+        member.body.contains("Only the main device"),
+        "{}",
+        member.body
+    );
+    let gone = http(&host, &host, "GET", &format!("{add}/nothing"), "");
+    assert_eq!(gone.status, 404);
+    assert!(gone.body.contains("This page is gone"), "{}", gone.body);
+    let stranger = http(&host, "evil.example", "GET", &add, "");
+    assert_eq!(stranger.status, 403);
+    assert!(stranger.body.contains("didn't open"));
+}
+
 /// Serves the page for a person or a browser tool. `SATCHEL_URL_FILE` receives the address.
 /// Run with `--ignored`; it stays up for `SATCHEL_SERVE_SECS` (default 120).
 #[test]

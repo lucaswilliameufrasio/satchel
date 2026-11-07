@@ -188,6 +188,8 @@ pub struct Desktop {
     wake: Option<WakeEndpoint>,
     /// The language of the tray, from the system unless set.
     language: Language,
+    /// The last thing that went wrong from the menu, in words for the person.
+    problem: Option<String>,
 }
 
 /// How the last sync ended, for the tray. The error itself goes to the log, not the menu.
@@ -250,6 +252,17 @@ fn local_clock(unix: u64) -> String {
 }
 
 /// The folder with the home directory written as `~`.
+/// How Add device listens: on the mesh address when there is one, else the LAN.
+pub fn add_device_config() -> ListenConfig {
+    // An unspecified address in the invite cannot be dialed from another device.
+    let ip = satchel_pair::preferred_bind_ip().unwrap_or_else(|| [0, 0, 0, 0].into());
+    ListenConfig {
+        bind: std::net::SocketAddr::new(ip, 0),
+        timeout: satchel_pair::DEFAULT_TIMEOUT,
+        advertise: true,
+    }
+}
+
 fn folder_label(folder: &std::path::Path) -> String {
     if let Some(home) = std::env::var_os("HOME")
         && let Ok(rest) = folder.strip_prefix(&home)
@@ -284,6 +297,7 @@ impl Desktop {
             last_sync: None,
             quiet: None,
             wake: None,
+            problem: None,
             language: Language::detect(),
         })
     }
@@ -667,6 +681,40 @@ impl Desktop {
         self.session = None;
     }
 
+    /// The invite on screen while Add device is open and nobody is waiting for approval.
+    pub fn offer(&self) -> Option<&Offer> {
+        self.session.as_ref().map(PairingSession::offer)
+    }
+
+    /// Keep what went wrong, in the tray's language, until [`Desktop::clear_problem`].
+    pub fn report_problem(&mut self, err: &Error) {
+        self.problem = Some(crate::text::describe(self.language, err));
+    }
+
+    /// The last problem from the menu, if it was not cleared.
+    pub fn problem(&self) -> Option<&str> {
+        self.problem.as_deref()
+    }
+
+    /// Forget the last problem, after the next action worked.
+    pub fn clear_problem(&mut self) {
+        self.problem = None;
+    }
+
+    /// Where the repository is, for a sentence: the folder or the bucket.
+    pub fn storage_place(&self) -> Option<String> {
+        self.profile
+            .as_ref()
+            .map(|profile| storage_label(self.language, profile))
+    }
+
+    /// True when the repository is a folder on this computer, which a phone cannot reach.
+    pub fn storage_is_local_folder(&self) -> bool {
+        self.profile
+            .as_ref()
+            .is_some_and(|profile| profile.object_store.is_none())
+    }
+
     /// Pull an approval in, if the joiner has passed the code check.
     pub fn poll(&mut self) {
         let Some(session) = self.session.as_ref() else {
@@ -675,8 +723,14 @@ impl Desktop {
         if self.pending.is_some() {
             return;
         }
-        if let Ok(Some(request)) = session.try_approval() {
-            self.pending = Some(request);
+        match session.try_approval() {
+            Ok(Some(request)) => self.pending = Some(request),
+            Ok(None) => {}
+            // The attempt ended on its own: the time ran out, or the code was wrong.
+            Err(err) => {
+                self.session = None;
+                self.report_problem(&err.into());
+            }
         }
     }
 
@@ -775,13 +829,15 @@ impl Desktop {
                         local_clock(*unix)
                     )));
                     if *unprotected {
-                        items.push(info(
-                            t(
-                                "This storage keeps no old versions: an overwritten file cannot come back",
-                                "Este armazenamento não guarda versões antigas: um arquivo sobrescrito não volta",
-                            )
-                            .to_string(),
-                        ));
+                        let place = storage_label(self.language, profile);
+                        items.push(info(match self.language {
+                            Language::En => format!(
+                                "{place} keeps no old versions: an overwritten copy cannot come back"
+                            ),
+                            Language::PtBr => format!(
+                                "{place} não guarda versões antigas: uma cópia sobrescrita não volta"
+                            ),
+                        }));
                     }
                 }
                 Some(SyncStatus::Failed { unix, hint }) => {
@@ -822,6 +878,9 @@ impl Desktop {
                 true,
                 TrayCommand::OpenSetup,
             ));
+        }
+        if let Some(problem) = &self.problem {
+            items.push(info(format!("⚠ {problem}")));
         }
         let mut invite = None;
         if let Some(pending) = &self.pending {

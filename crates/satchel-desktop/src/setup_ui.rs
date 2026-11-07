@@ -20,7 +20,7 @@ use crate::Role;
 use crate::picker::{FolderPicker, PickFor, native_picker, overlaps};
 use crate::secrets::SecretStore;
 use crate::text::{Language, describe};
-use crate::{AccessPair, Desktop, Error, JoinTarget, request_grant};
+use crate::{AccessPair, Desktop, Error, JoinTarget, add_device_config, request_grant};
 
 const BODY_LIMIT: usize = 16 * 1024;
 const JOIN_TIMEOUT: Duration = Duration::from_secs(120);
@@ -103,28 +103,292 @@ fn serve<S: SecretStore>(mut stream: TcpStream, shared: &Shared<S>) -> std::io::
         return respond(&mut stream, 400, "text/plain", "bad request");
     };
     if request.host != shared.host {
-        return respond(&mut stream, 403, "text/plain", "forbidden");
+        let language = Language::from_accept_language(&request.accept_language)
+            .unwrap_or_else(|| lock(&shared.desktop).language());
+        let body = page(
+            language,
+            &format!(
+                "<h1>{}</h1><p class=\"lead\">{}</p>",
+                language.pick("This page didn't open", "Esta página não abriu"),
+                language.pick(
+                    "It opens only at the address Satchel opened. Use the Satchel menu again.",
+                    "Ela só abre no endereço que o Satchel abriu. Use o menu do Satchel de novo.",
+                ),
+            ),
+        );
+        return respond(&mut stream, 403, "text/html; charset=utf-8", &body);
     }
     let prefix = format!("/{}/", shared.token);
     let Some(route) = request.path.strip_prefix(&prefix) else {
-        return respond(&mut stream, 404, "text/plain", "not found");
+        let language = Language::from_accept_language(&request.accept_language)
+            .unwrap_or_else(|| lock(&shared.desktop).language());
+        return not_found(&mut stream, language);
     };
+    let route = route.split('?').next().unwrap_or("");
     if request.method == "GET" && route == "mark.png" {
         return respond_bytes(&mut stream, "image/png", MARK_PNG);
     }
     let language = Language::from_accept_language(&request.accept_language)
         .unwrap_or_else(|| lock(&shared.desktop).language());
+    if let Some(action) = route.strip_prefix("add/") {
+        return add_action(&mut stream, shared, language, &request.method, action);
+    }
     if request.method == "POST" && route == "pick" {
         return pick(&mut stream, shared, language, &parse_form(&request.body));
     }
     let page = match (request.method.as_str(), route) {
         ("GET", "") => form_page(shared, language, None, &BTreeMap::new()),
+        ("GET", "add") => add_page(shared, language),
         ("POST", "create") => create(shared, language, &parse_form(&request.body)),
         ("POST", "recovery") => change_recovery(shared, language),
         ("POST", "join") => join(shared, language, &parse_form(&request.body)),
-        _ => return respond(&mut stream, 404, "text/plain", "not found"),
+        _ => return not_found(&mut stream, language),
     };
     respond(&mut stream, 200, "text/html; charset=utf-8", &page)
+}
+
+/// A page for an address that is not there, in the person's language.
+fn not_found(stream: &mut TcpStream, language: Language) -> std::io::Result<()> {
+    let body = page(
+        language,
+        &format!(
+            "<h1>{}</h1><p class=\"lead\">{}</p>",
+            language.pick("This page is gone", "Esta página não existe mais"),
+            language.pick(
+                "Satchel opens a new address each time it starts. Open the page again from the \
+                 Satchel menu.",
+                "O Satchel abre um endereço novo cada vez que começa. Abra a página de novo pelo \
+                 menu do Satchel.",
+            ),
+        ),
+    );
+    respond(stream, 404, "text/html; charset=utf-8", &body)
+}
+
+/// The Add device page: opens the invite if it is not open, and shows it large.
+fn add_page<S: SecretStore>(shared: &Shared<S>, language: Language) -> String {
+    let t = |en: &'static str, pt: &'static str| language.pick(en, pt);
+    let mut desktop = lock(&shared.desktop);
+    let title = t("Add device", "Adicionar aparelho");
+    let refuse = |text: &str| {
+        page(
+            language,
+            &format!(
+                "<h1>{title}</h1><section class=\"card\"><p>{}</p></section>",
+                escape(text)
+            ),
+        )
+    };
+    let Some(profile) = desktop.profile() else {
+        return refuse(t(
+            "Set up this device first: choose Create or join in the Satchel menu.",
+            "Configure este aparelho primeiro: escolha Criar ou entrar no menu do Satchel.",
+        ));
+    };
+    if profile.role != Role::Maintainer {
+        return refuse(t(
+            "Only the main device adds devices. Open Add device on the computer that \
+             created the repository.",
+            "Só o aparelho principal adiciona aparelhos. Abra Adicionar aparelho no \
+             computador que criou o repositório.",
+        ));
+    }
+    if desktop.offer().is_none() {
+        if let Err(err) = desktop.open_add_device(add_device_config()) {
+            return refuse(&describe(language, &err));
+        }
+        desktop.clear_problem();
+    }
+    let Some(offer) = desktop.offer().cloned() else {
+        return refuse(&describe(
+            language,
+            &Error::Pair(satchel_pair::Error::Closed),
+        ));
+    };
+    let local = if desktop.storage_is_local_folder() {
+        format!(
+            "<section class=\"card\"><p class=\"warn\">{}</p><p class=\"hint\">{}</p></section>",
+            escape(&match language {
+                Language::En => format!(
+                    "The repository is a folder on this computer ({}).",
+                    desktop.storage_place().unwrap_or_default()
+                ),
+                Language::PtBr => format!(
+                    "O repositório é uma pasta deste computador ({}).",
+                    desktop.storage_place().unwrap_or_default()
+                ),
+            }),
+            t(
+                "A phone can't reach it, so the phone would join and then fail to open the \
+                 files. To use a phone, create the repository again on S3, R2 or B2.",
+                "Um celular não alcança essa pasta: ele entraria e depois não abriria os \
+                 arquivos. Para usar o celular, crie o repositório de novo em S3, R2 ou B2.",
+            ),
+        )
+    } else {
+        String::new()
+    };
+    drop(desktop);
+    let base = format!("/{}/", shared.token);
+    page(
+        language,
+        &format!(
+            "<h1>{title}</h1>{local}
+<section class=\"card\" id=\"waiting\"><h2>{scan_title}</h2>
+<p class=\"hint\">{scan_hint}</p>
+<img class=\"qr\" src=\"{base}add/qr.png?{alias}\" alt=\"{qr_alt}\">
+<p class=\"hint\">{type_hint}</p>
+<p class=\"code\" aria-label=\"{code_label}\">{code}</p>
+<p><span class=\"hint\">{address_label}</span> <code>{address}</code></p>
+<p><span class=\"hint\">{fingerprint_label}</span> <code>{fingerprint}</code></p>
+<p class=\"hint\">{expires}</p>
+<button type=\"button\" class=\"secondary\" onclick=\"act('stop')\">{stop}</button></section>
+<section class=\"card\" id=\"pending\" hidden><h2 id=\"who\"></h2>
+<p id=\"what\" class=\"hint\"></p>
+<p class=\"hint\">{check}</p>
+<button type=\"button\" onclick=\"act('approve')\">{approve}</button>
+<button type=\"button\" class=\"secondary\" onclick=\"act('deny')\">{deny}</button></section>
+<section class=\"card\" id=\"done\" hidden role=\"status\"><p id=\"result\"></p>
+<button type=\"button\" onclick=\"location.reload()\">{again}</button></section>
+<script>
+const base='{base}';let stopped=false;
+const words={{joins:'{joins}',system:'{system}',from:'{from}',typed:'{typed}',approved:'{approved}',denied:'{denied}',closed:'{closed}'}};
+function show(id){{for(const s of ['waiting','pending','done'])document.getElementById(s).hidden=s!==id;}}
+function finish(text,bad){{stopped=true;const r=document.getElementById('result');r.textContent=text;r.className=bad?'error':'';show('done');}}
+async function poll(){{if(stopped)return;try{{const r=await fetch(base+'add/state');const s=await r.json();
+if(s.state==='pending'){{document.getElementById('who').textContent=words.joins.replace('%',s.name);
+document.getElementById('what').textContent=words.system+' '+s.os+' · '+words.from+' '+s.from+' · '+words.typed+' '+s.code;show('pending');}}
+else if(s.state==='closed'){{finish(s.problem||words.closed,!!s.problem);return;}}}}catch(e){{}}setTimeout(poll,1000);}}
+async function act(what){{for(const b of document.querySelectorAll('button'))b.disabled=true;
+try{{const r=await fetch(base+'add/'+what,{{method:'POST'}});const s=await r.json();
+if(!s.ok){{finish(s.message,true);return;}}
+finish(what==='approve'?words.approved:what==='deny'?words.denied:words.closed,false);}}
+finally{{for(const b of document.querySelectorAll('button'))b.disabled=false;}}}}
+poll();
+</script>",
+            scan_title = t("On the phone: scan this code", "No celular: leia este código"),
+            scan_hint = t(
+                "Open Satchel on the phone and choose to scan the code.",
+                "Abra o Satchel no celular e escolha ler o código.",
+            ),
+            alias = escape(&offer.alias),
+            qr_alt = t("Invite code to scan", "Código do convite para ler"),
+            type_hint = t(
+                "On a computer, or without the camera, type this code:",
+                "Num computador, ou sem câmera, digite este código:",
+            ),
+            code_label = t("Code", "Código"),
+            code = escape(&offer.code),
+            address_label = t("Address:", "Endereço:"),
+            address = escape(&offer.address.to_string()),
+            fingerprint_label = t("Fingerprint:", "Impressão digital:"),
+            fingerprint = escape(&grouped_fingerprint(&offer.fingerprint)),
+            expires = t(
+                "The invite lasts 3 minutes. Both devices need to be on the same network.",
+                "O convite vale por 3 minutos. Os dois aparelhos precisam estar na mesma rede.",
+            ),
+            stop = t("Stop adding", "Parar de adicionar"),
+            check = t(
+                "Approve only if this is your device and the code matches the one above.",
+                "Aprove só se este for o seu aparelho e o código for o mesmo daqui.",
+            ),
+            approve = t("Approve", "Aprovar"),
+            deny = t("Deny", "Recusar"),
+            again = t("Add another device", "Adicionar outro aparelho"),
+            joins = t("“%” wants to join", "“%” quer entrar"),
+            system = t("System:", "Sistema:"),
+            from = t("from", "de"),
+            typed = t("code typed:", "código digitado:"),
+            approved = t(
+                "Done. The device received what it needs and is opening the repository.",
+                "Pronto. O aparelho recebeu o que precisa e está abrindo o repositório.",
+            ),
+            denied = t("Denied. Nothing was sent.", "Recusado. Nada foi enviado."),
+            closed = t("Add device is closed.", "Adicionar aparelho foi encerrado."),
+        ),
+    )
+}
+
+fn grouped_fingerprint(hex: &str) -> String {
+    let chars: Vec<char> = hex.chars().collect();
+    chars
+        .chunks(4)
+        .map(|chunk| chunk.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The live parts of the Add device page: the QR, the state, and the decisions.
+fn add_action<S: SecretStore>(
+    stream: &mut TcpStream,
+    shared: &Shared<S>,
+    language: Language,
+    method: &str,
+    action: &str,
+) -> std::io::Result<()> {
+    let json = |stream: &mut TcpStream, value: serde_json::Value| {
+        respond(stream, 200, "application/json", &value.to_string())
+    };
+    let mut desktop = lock(&shared.desktop);
+    match (method, action) {
+        ("GET", "qr.png") => {
+            let png = desktop
+                .offer()
+                .and_then(|offer| satchel_pair::Invite::decode(&offer.invite).ok())
+                .and_then(|invite| satchel_pair::invite_qr_png(&invite).ok());
+            drop(desktop);
+            match png {
+                Some(png) => respond_bytes(stream, "image/png", &png),
+                None => not_found(stream, language),
+            }
+        }
+        ("GET", "state") => {
+            let value = if let Some(pending) = desktop.pending() {
+                serde_json::json!({
+                    "state": "pending",
+                    "name": pending.device_name,
+                    "os": pending.os,
+                    "from": pending.peer_address.ip().to_string(),
+                    "code": pending.code,
+                })
+            } else if desktop.offer().is_some() {
+                serde_json::json!({ "state": "waiting" })
+            } else {
+                match desktop.problem() {
+                    Some(problem) => serde_json::json!({ "state": "closed", "problem": problem }),
+                    None => serde_json::json!({ "state": "closed" }),
+                }
+            };
+            drop(desktop);
+            json(stream, value)
+        }
+        ("POST", "approve" | "deny" | "stop") => {
+            let result = match action {
+                "approve" => desktop.approve_pending(&*shared.secrets),
+                "deny" => desktop.deny_pending(),
+                _ => {
+                    desktop.close_add_device();
+                    Ok(())
+                }
+            };
+            let value = match result {
+                Ok(()) => {
+                    desktop.clear_problem();
+                    serde_json::json!({ "ok": true })
+                }
+                Err(err) => {
+                    desktop.report_problem(&err);
+                    serde_json::json!({ "ok": false, "message": describe(language, &err) })
+                }
+            };
+            drop(desktop);
+            json(stream, value)
+        }
+        _ => {
+            drop(desktop);
+            not_found(stream, language)
+        }
+    }
 }
 
 /// Opens the chooser and answers with the folder: 200 and the path, 204 when
@@ -641,6 +905,10 @@ button:disabled{{opacity:.6;cursor:progress}}\
 .row{{display:flex;gap:.5rem;align-items:center}}.row input{{flex:1;min-width:0}}\
 button.pick{{width:auto;flex:none;min-height:44px;margin-top:.3rem;padding:0 1rem;background:var(--field);\
 color:var(--ink);border:1px solid var(--line)}}\
+button.secondary{{background:var(--field);color:var(--ink);border:1px solid var(--line)}}\
+img.qr{{display:block;width:min(100%,18rem);aspect-ratio:1;margin:1rem auto;image-rendering:pixelated;\
+background:#fff;border-radius:12px;padding:.75rem}}\
+.code{{font:600 2.25rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;margin:.25rem 0 .75rem}}\
 button.quiet{{display:inline;width:auto;min-height:0;margin:0;padding:.25rem 0;background:none;color:var(--accent)}}\
 .error,.warn{{color:var(--danger);font-weight:600}}\
 .secret{{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:1rem;margin:.75rem 0}}\

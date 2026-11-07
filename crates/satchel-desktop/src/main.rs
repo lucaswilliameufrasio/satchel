@@ -2,7 +2,6 @@
 use std::collections::BTreeMap;
 #[cfg(target_os = "macos")]
 use std::ffi::c_void;
-use std::net::SocketAddr;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -14,7 +13,6 @@ use satchel_desktop::TrayView;
 use satchel_desktop::{
     Desktop, KeyringStore, SetupPage, TrayCommand, default_config_dir, start_setup_page,
 };
-use satchel_pair::{DEFAULT_TIMEOUT, ListenConfig};
 
 #[cfg(target_os = "linux")]
 use ksni::Tray;
@@ -378,7 +376,8 @@ fn listen_for_wakes(desktop: &Mutex<Desktop>) -> Arc<AtomicBool> {
 
 static SETUP: OnceLock<SetupPage> = OnceLock::new();
 
-fn open_setup(desktop: &Arc<Mutex<Desktop>>, secrets: &Arc<KeyringStore>) {
+/// Open the setup page, or one of its pages such as `add`, in the browser.
+fn open_setup(desktop: &Arc<Mutex<Desktop>>, secrets: &Arc<KeyringStore>, route: &str) {
     if SETUP.get().is_none() {
         match start_setup_page(Arc::clone(desktop), Arc::clone(secrets)) {
             Ok(page) => {
@@ -386,6 +385,7 @@ fn open_setup(desktop: &Arc<Mutex<Desktop>>, secrets: &Arc<KeyringStore>) {
             }
             Err(_) => {
                 eprintln!("satchel-desktop: the setup page did not start");
+                lock_desktop(desktop).report_problem(&satchel_desktop::Error::Io);
                 return;
             }
         }
@@ -399,7 +399,7 @@ fn open_setup(desktop: &Arc<Mutex<Desktop>>, secrets: &Arc<KeyringStore>) {
         "xdg-open"
     };
     if std::process::Command::new(opener)
-        .arg(page.url())
+        .arg(format!("{}{route}", page.url()))
         .spawn()
         .is_err()
     {
@@ -414,58 +414,63 @@ fn apply_command(
     command: TrayCommand,
 ) {
     match command {
-        TrayCommand::OpenSetup => open_setup(desktop, secrets),
+        TrayCommand::OpenSetup => open_setup(desktop, secrets, ""),
         TrayCommand::None => {}
         TrayCommand::Quit => quit.store(true, Ordering::SeqCst),
-        TrayCommand::OpenAddDevice => {
-            let mut desktop = lock_desktop(desktop);
-            // An unspecified address in the invite cannot be dialed from another device.
-            let ip = satchel_pair::preferred_bind_ip().unwrap_or_else(|| [0, 0, 0, 0].into());
-            let config = ListenConfig {
-                bind: SocketAddr::new(ip, 0),
-                timeout: DEFAULT_TIMEOUT,
-                advertise: true,
-            };
-            if let Err(err) = desktop.open_add_device(config) {
-                eprintln!("satchel-desktop: {err}");
-            }
-        }
+        // The page opens the invite and shows it large, with the approval.
+        TrayCommand::OpenAddDevice => open_setup(desktop, secrets, "add"),
         TrayCommand::CloseAddDevice => {
             lock_desktop(desktop).close_add_device();
         }
         TrayCommand::Approve => {
             let mut desktop = lock_desktop(desktop);
-            if let Err(err) = desktop.approve_pending(&**secrets) {
-                eprintln!("satchel-desktop: {err}");
+            match desktop.approve_pending(&**secrets) {
+                Ok(_) => desktop.clear_problem(),
+                Err(err) => {
+                    eprintln!("satchel-desktop: {err}");
+                    desktop.report_problem(&err);
+                }
             }
         }
         TrayCommand::Deny => {
             let mut desktop = lock_desktop(desktop);
-            if let Err(err) = desktop.deny_pending() {
-                eprintln!("satchel-desktop: {err}");
+            match desktop.deny_pending() {
+                Ok(_) => desktop.clear_problem(),
+                Err(err) => {
+                    eprintln!("satchel-desktop: {err}");
+                    desktop.report_problem(&err);
+                }
             }
         }
         TrayCommand::Publish => {
             let mut desktop = lock_desktop(desktop);
+            // The tray shows the outcome, and names the storage when it keeps no versions.
             match desktop.publish(&**secrets) {
-                Ok(report) => {
-                    if report.protection == satchel_core::SetupCheck::Unprotected {
-                        eprintln!("satchel-desktop: this folder has no object versioning");
-                    }
+                Ok(_) => desktop.clear_problem(),
+                Err(err) => {
+                    eprintln!("satchel-desktop: {err}");
+                    desktop.report_problem(&err);
                 }
-                Err(err) => eprintln!("satchel-desktop: {err}"),
             }
         }
         TrayCommand::LoadDevices => {
             let mut desktop = lock_desktop(desktop);
-            if let Err(err) = desktop.load_device_keys(&**secrets) {
-                eprintln!("satchel-desktop: {err}");
+            match desktop.load_device_keys(&**secrets) {
+                Ok(_) => desktop.clear_problem(),
+                Err(err) => {
+                    eprintln!("satchel-desktop: {err}");
+                    desktop.report_problem(&err);
+                }
             }
         }
         TrayCommand::Revoke(key_id) => {
             let mut desktop = lock_desktop(desktop);
-            if let Err(err) = desktop.revoke_device_key(&**secrets, &key_id) {
-                eprintln!("satchel-desktop: {err}");
+            match desktop.revoke_device_key(&**secrets, &key_id) {
+                Ok(_) => desktop.clear_problem(),
+                Err(err) => {
+                    eprintln!("satchel-desktop: {err}");
+                    desktop.report_problem(&err);
+                }
             }
         }
     }
