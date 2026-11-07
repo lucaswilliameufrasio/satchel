@@ -15,12 +15,42 @@ pub enum Role {
     Member,
 }
 
-/// One folder and one repository. Secrets stay in the keystore.
+/// A folder of the repository that this device keeps on its disk.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SyncedFolder {
+    /// The folder's id in the repository: `None` for its first folder.
+    pub lane: Option<String>,
+    /// What people call it.
+    pub name: String,
+    /// Where it is on this device.
+    pub path: PathBuf,
+}
+
+impl SyncedFolder {
+    /// The repository side of this folder, for the core.
+    pub fn lane(&self) -> Result<satchel_core::Lane, Error> {
+        let lane = match &self.lane {
+            None => satchel_core::Lane::first(&self.name),
+            Some(id) => satchel_core::Lane::named(id, &self.name),
+        };
+        lane.map_err(|_| Error::Profile)
+    }
+}
+
+/// The name a folder gets from its path: its last part, or `Satchel`.
+pub fn folder_name(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().chars().take(64).collect::<String>())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "Satchel".to_string())
+}
+
+/// One repository and the folders of it this device keeps. Secrets stay in the keystore.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Profile {
-    /// Directory the person syncs.
-    pub folder: PathBuf,
-    /// Local restic repository. Not inside `folder`.
+    /// Folders this device syncs. May be empty after the person stops them all.
+    pub folders: Vec<SyncedFolder>,
+    /// Local restic repository. Not inside any folder.
     pub repository: PathBuf,
     /// Opaque device id.
     pub device_id: DeviceId,
@@ -47,7 +77,11 @@ pub struct ObjectStore {
 
 #[derive(Serialize, Deserialize)]
 struct ProfileDoc {
-    folder: String,
+    /// The one folder of a profile written before folders existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    folder: Option<String>,
+    #[serde(default)]
+    folders: Vec<FolderDoc>,
     repository: String,
     device_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -56,6 +90,14 @@ struct ProfileDoc {
     storage: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     role: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct FolderDoc {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    name: String,
+    path: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -73,7 +115,22 @@ pub(crate) fn load(config_dir: &Path) -> Result<Option<Profile>, Error> {
     }
     let bytes = fs::read(&path).map_err(|_| Error::Io)?;
     let doc: ProfileDoc = serde_json::from_slice(&bytes).map_err(|_| Error::Profile)?;
-    let folder = PathBuf::from(doc.folder);
+    let mut folders = Vec::new();
+    if let Some(folder) = doc.folder {
+        let path = PathBuf::from(folder);
+        folders.push(SyncedFolder {
+            lane: None,
+            name: folder_name(&path),
+            path,
+        });
+    }
+    for folder in doc.folders {
+        folders.push(SyncedFolder {
+            lane: folder.id,
+            name: folder.name,
+            path: PathBuf::from(folder.path),
+        });
+    }
     let repository = PathBuf::from(doc.repository);
     let device_id = DeviceId::parse(&doc.device_id)?;
     let object_store = match doc.object_store {
@@ -95,7 +152,7 @@ pub(crate) fn load(config_dir: &Path) -> Result<Option<Profile>, Error> {
         Some(_) => return Err(Error::Profile),
     };
     Ok(Some(Profile {
-        folder,
+        folders,
         repository,
         device_id,
         object_store,
@@ -114,9 +171,13 @@ pub(crate) fn create(
     if profile_path(config_dir).exists() {
         return Err(Error::ProfileExists);
     }
-    validate(config_dir, &folder, &repository)?;
+    validate(config_dir, std::slice::from_ref(&folder), &repository)?;
     let profile = Profile {
-        folder,
+        folders: vec![SyncedFolder {
+            lane: None,
+            name: folder_name(&folder),
+            path: folder,
+        }],
         repository,
         device_id,
         object_store: None,
@@ -129,7 +190,8 @@ pub(crate) fn create(
 
 /// Refuse a profile that could not be written, before anything is created for it.
 pub(crate) fn check_new(config_dir: &Path, profile: &Profile) -> Result<(), Error> {
-    validate(config_dir, &profile.folder, &profile.repository)?;
+    let paths: Vec<PathBuf> = profile.folders.iter().map(|f| f.path.clone()).collect();
+    validate(config_dir, &paths, &profile.repository)?;
     if let Some(store) = &profile.object_store {
         validate_object_store(store)?;
     }
@@ -162,9 +224,62 @@ pub(crate) fn attach_object_store(
     Ok(updated)
 }
 
+/// Add a folder to a saved profile. It must exist and not overlap another
+/// folder, the repository or the config directory.
+pub(crate) fn add_folder(
+    config_dir: &Path,
+    profile: &Profile,
+    folder: SyncedFolder,
+) -> Result<Profile, Error> {
+    let mut paths: Vec<PathBuf> = profile.folders.iter().map(|f| f.path.clone()).collect();
+    paths.push(folder.path.clone());
+    validate(config_dir, &paths, &profile.repository)?;
+    if profile.folders.iter().any(|kept| kept.lane == folder.lane) {
+        return Err(Error::FolderTaken);
+    }
+    let mut updated = profile.clone();
+    updated.folders.push(folder);
+    write_profile(config_dir, &updated)?;
+    Ok(updated)
+}
+
+/// Stop keeping one folder here. Its files stay on the disk and in the repository.
+pub(crate) fn remove_folder(
+    config_dir: &Path,
+    profile: &Profile,
+    lane: Option<&str>,
+) -> Result<Profile, Error> {
+    let mut updated = profile.clone();
+    let before = updated.folders.len();
+    updated.folders.retain(|kept| kept.lane.as_deref() != lane);
+    if updated.folders.len() == before {
+        return Err(Error::Profile);
+    }
+    write_profile(config_dir, &updated)?;
+    Ok(updated)
+}
+
+/// Forget this device's profile. Nothing else is removed.
+pub(crate) fn forget(config_dir: &Path) -> Result<(), Error> {
+    match fs::remove_file(profile_path(config_dir)) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(Error::Io),
+    }
+}
+
 fn write_profile(config_dir: &Path, profile: &Profile) -> Result<(), Error> {
+    let mut folders = Vec::new();
+    for folder in &profile.folders {
+        folders.push(FolderDoc {
+            id: folder.lane.clone(),
+            name: folder.name.clone(),
+            path: path_text(&folder.path)?,
+        });
+    }
     let doc = ProfileDoc {
-        folder: path_text(&profile.folder)?,
+        folder: None,
+        folders,
         repository: path_text(&profile.repository)?,
         device_id: profile.device_id.as_str().to_string(),
         object_store: profile.object_store.as_ref().map(|store| ObjectStoreDoc {
@@ -226,34 +341,43 @@ fn validate_object_store(store: &ObjectStore) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate(config_dir: &Path, folder: &Path, repository: &Path) -> Result<(), Error> {
-    if !folder.is_absolute() {
-        return Err(Error::Path {
-            path: folder.to_path_buf(),
-        });
-    }
+fn validate(config_dir: &Path, folders: &[PathBuf], repository: &Path) -> Result<(), Error> {
     if !repository.is_absolute() {
         return Err(Error::Path {
             path: repository.to_path_buf(),
         });
     }
-    if folder == repository || repository.starts_with(folder) {
-        return Err(Error::Path {
-            path: repository.to_path_buf(),
-        });
-    }
-    if config_dir.starts_with(folder) {
-        return Err(Error::Path {
-            path: config_dir.to_path_buf(),
-        });
-    }
-    let metadata = fs::metadata(folder).map_err(|_| Error::Path {
-        path: folder.to_path_buf(),
-    })?;
-    if !metadata.is_dir() {
-        return Err(Error::Path {
+    for (index, folder) in folders.iter().enumerate() {
+        if !folder.is_absolute() {
+            return Err(Error::Path {
+                path: folder.to_path_buf(),
+            });
+        }
+        if crate::picker::overlaps(folder, repository) {
+            return Err(Error::Nested {
+                path: repository.to_path_buf(),
+            });
+        }
+        if config_dir.starts_with(folder) {
+            return Err(Error::Path {
+                path: config_dir.to_path_buf(),
+            });
+        }
+        for other in &folders[..index] {
+            if crate::picker::overlaps(folder, other) {
+                return Err(Error::Nested {
+                    path: folder.to_path_buf(),
+                });
+            }
+        }
+        let metadata = fs::metadata(folder).map_err(|_| Error::Path {
             path: folder.to_path_buf(),
-        });
+        })?;
+        if !metadata.is_dir() {
+            return Err(Error::Path {
+                path: folder.to_path_buf(),
+            });
+        }
     }
     Ok(())
 }

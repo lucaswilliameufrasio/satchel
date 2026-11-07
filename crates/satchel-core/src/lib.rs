@@ -24,9 +24,10 @@ pub use setup::{
 };
 pub use storage::{SetupCheck, StorageKind, Versioning, check_setup};
 pub use sync::{
-    CatalogEntry, Client, Cursor, DeviceCard, Follow, MarkedConflict, QuietMark, SyncOutcome,
-    cursors, publish_folder, quiet_mark, read_followed, read_version, restore_latest, sync_folder,
-    sync_folder_announcing, write_latest,
+    CatalogEntry, Client, Cursor, DeviceCard, FolderSummary, Follow, Lane, MarkedConflict,
+    QuietMark, SyncOutcome, cursors, folders, publish_folder, quiet_mark, read_followed,
+    read_followed_in, read_version, restore_latest, sync_folder, sync_folder_announcing,
+    sync_folder_in, write_latest, write_latest_in,
 };
 pub use wake::{
     WAKE_WINDOW_SECS, WakeCheck, WakeEndpoint, WakeListener, WakePeer, bind_saved_wake,

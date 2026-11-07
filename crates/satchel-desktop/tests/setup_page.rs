@@ -160,7 +160,11 @@ fn page_creates_and_joins_and_refuses_strangers() {
     // The form is gone once a folder exists, and the password is not repeated.
     let again = http(&host, &host, "GET", &base, "");
     assert!(!again.body.contains(&password));
-    assert!(again.body.contains("already set up"));
+    assert!(
+        again.body.contains("Folders on this computer"),
+        "{}",
+        again.body
+    );
 
     // A second desktop joins through its own page, typing only the code.
     let second_store = Arc::new(MemoryStore::default());
@@ -357,7 +361,11 @@ fn choose_fills_a_folder_from_the_system_chooser() {
     assert!(form_pt.body.contains("Escolher…"));
     assert!(form_pt.body.contains("Pasta para sincronizar"));
     assert!(form_pt.body.contains("Pasta das cópias cifradas"));
-    assert!(form_pt.body.contains("Celulares não alcançam"));
+    assert!(
+        form_pt
+            .body
+            .contains("Celulares e outros computadores não alcançam")
+    );
 
     let chosen = http_with(
         &host,
@@ -630,6 +638,127 @@ fn add_device_page_shows_the_invite_and_takes_the_decision() {
     let stranger = http(&host, "evil.example", "GET", &add, "");
     assert_eq!(stranger.status, 403);
     assert!(stranger.body.contains("didn't open"));
+}
+
+#[test]
+fn the_device_page_adds_stops_and_disconnects() {
+    let root = tempdir().expect("temp");
+    let docs = root.path().join("Documentos");
+    let photos = root.path().join("Fotos");
+    fs::create_dir_all(&docs).expect("docs");
+    fs::create_dir_all(&photos).expect("photos");
+    let store = Arc::new(MemoryStore::default());
+    let desktop = Arc::new(Mutex::new(
+        Desktop::open(root.path().join("config"))
+            .expect("open")
+            .with_language(Language::En),
+    ));
+    let page =
+        start_setup_page_with_picker(Arc::clone(&desktop), Arc::clone(&store), None).expect("page");
+    let (host, base) = split_url(page.url());
+    let created = http(
+        &host,
+        &host,
+        "POST",
+        &format!("{base}create"),
+        &form(&[
+            ("kind", "folder"),
+            ("folder", docs.to_str().expect("path")),
+            (
+                "repository",
+                root.path().join("copies").to_str().expect("path"),
+            ),
+        ]),
+    );
+    assert!(created.body.contains("Repository created"));
+
+    let shown = http(&host, &host, "GET", &base, "");
+    assert!(shown.body.contains("Folders on this computer"));
+    assert!(shown.body.contains("Documentos"));
+    assert!(
+        shown.body.contains("Add device is off"),
+        "a folder repository says why"
+    );
+
+    // A folder repository opens no invite from the page.
+    let add = http(&host, &host, "GET", &format!("{base}add"), "");
+    assert!(add.body.contains("can&#39;t reach"), "{}", add.body);
+    assert!(desktop.lock().expect("lock").offer().is_none());
+
+    let added = http(
+        &host,
+        &host,
+        "POST",
+        &format!("{base}folders/add"),
+        &form(&[
+            ("path", photos.to_str().expect("path")),
+            ("name", "Fotos da família"),
+        ]),
+    );
+    assert!(
+        added.body.contains("“Fotos da família” syncs from now on."),
+        "{}",
+        added.body
+    );
+    let nested = http(
+        &host,
+        &host,
+        "POST",
+        &format!("{base}folders/add"),
+        &form(&[("path", docs.to_str().expect("path"))]),
+    );
+    assert!(nested.body.contains("role=\"alert\""), "{}", nested.body);
+    let lane = desktop
+        .lock()
+        .expect("lock")
+        .profile()
+        .expect("profile")
+        .folders[1]
+        .lane
+        .clone()
+        .expect("id");
+    let stopped = http(
+        &host,
+        &host,
+        "POST",
+        &format!("{base}folders/stop"),
+        &form(&[("lane", &lane)]),
+    );
+    assert!(stopped.body.contains("Stopped."), "{}", stopped.body);
+    assert_eq!(
+        desktop
+            .lock()
+            .expect("lock")
+            .profile()
+            .expect("profile")
+            .folders
+            .len(),
+        1
+    );
+
+    // The creator must say the recovery password is saved before leaving.
+    let refused = http(&host, &host, "POST", &format!("{base}disconnect"), "");
+    assert!(
+        refused.body.contains("recovery password is saved"),
+        "{}",
+        refused.body
+    );
+    assert!(desktop.lock().expect("lock").profile().is_some());
+    let left = http(
+        &host,
+        &host,
+        "POST",
+        &format!("{base}disconnect"),
+        "saved=yes",
+    );
+    assert!(left.body.contains("Disconnected"), "{}", left.body);
+    assert!(desktop.lock().expect("lock").profile().is_none());
+    assert!(store.get(Account::RecoveryPassword).expect("get").is_none());
+    assert!(
+        http(&host, &host, "GET", &base, "")
+            .body
+            .contains("Set up this device")
+    );
 }
 
 /// Serves the page for a person or a browser tool. `SATCHEL_URL_FILE` receives the address.

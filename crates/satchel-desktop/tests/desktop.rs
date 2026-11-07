@@ -55,7 +55,7 @@ fn one_folder_is_stored_without_secrets() {
     assert!(matches!(again, Err(satchel_desktop::Error::ProfileExists)));
 
     let inside = fresh_create_inside(root.path());
-    assert!(matches!(inside, Err(satchel_desktop::Error::Path { .. })));
+    assert!(matches!(inside, Err(satchel_desktop::Error::Nested { .. })));
 
     let store = MemoryStore::default();
     let recovery = "recovery-canary";
@@ -90,7 +90,7 @@ fn one_folder_is_stored_without_secrets() {
         keys,
         vec![
             "device_id".to_string(),
-            "folder".to_string(),
+            "folders".to_string(),
             "repository".to_string(),
             "role".to_string(),
             "storage".to_string()
@@ -99,7 +99,7 @@ fn one_folder_is_stored_without_secrets() {
     let loaded = Desktop::open(&config)
         .expect("reload")
         .with_language(Language::En);
-    assert_eq!(loaded.profile().expect("profile").folder, folder);
+    assert_eq!(loaded.profile().expect("profile").folders[0].path, folder);
     assert_eq!(loaded.profile().expect("profile").device_id, device);
 }
 
@@ -633,13 +633,18 @@ fn tray_view_is_the_product_surface() {
         .expect("profile");
     let ready = desktop.tray_view();
     let ready_labels: Vec<&str> = ready.items.iter().map(|item| item.label.as_str()).collect();
-    assert!(
-        ready_labels
-            .iter()
-            .any(|label| label.starts_with("Folder: "))
-    );
+    // Each folder is a row: its name, then where it is.
+    assert!(ready_labels.iter().any(|label| label.contains(" · ")));
     assert!(ready_labels.contains(&"Sync now"));
-    assert!(ready_labels.contains(&"Add device…"));
+    assert!(ready_labels.contains(&"Folders and this device…"));
+    // The copies are in a folder here: nobody else could reach them, so Add device is off.
+    let add = ready
+        .items
+        .iter()
+        .find(|item| item.label == "Add device…")
+        .expect("add device row");
+    assert!(!add.enabled);
+    assert!(ready_labels.contains(&"Other devices can't reach a folder on this computer"));
     assert!(ready_labels.contains(&"Show devices"));
     assert!(ready_labels.contains(&"Quit Satchel"));
     assert!(
@@ -746,7 +751,7 @@ fn the_tray_speaks_portuguese_when_asked() {
         .into_iter()
         .map(|item| item.label)
         .collect();
-    assert!(ready.iter().any(|label| label.starts_with("Pasta: ")));
+    assert!(ready.contains(&"Pastas e este aparelho…".to_string()));
     assert!(
         ready
             .iter()
@@ -756,5 +761,8 @@ fn the_tray_speaks_portuguese_when_asked() {
     assert!(ready.contains(&"Ainda não sincronizado".to_string()));
     assert!(ready.contains(&"Sincronizar agora".to_string()));
     assert!(ready.contains(&"Adicionar aparelho…".to_string()));
+    assert!(
+        ready.contains(&"Outros aparelhos não alcançam uma pasta deste computador".to_string())
+    );
     assert!(ready.iter().all(|label| !label.contains("Sync")));
 }

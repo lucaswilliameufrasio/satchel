@@ -142,9 +142,346 @@ fn serve<S: SecretStore>(mut stream: TcpStream, shared: &Shared<S>) -> std::io::
         ("POST", "create") => create(shared, language, &parse_form(&request.body)),
         ("POST", "recovery") => change_recovery(shared, language),
         ("POST", "join") => join(shared, language, &parse_form(&request.body)),
+        ("POST", "folders/add" | "folders/receive" | "folders/stop" | "disconnect") => {
+            manage(shared, language, route, &parse_form(&request.body))
+        }
         _ => return not_found(&mut stream, language),
     };
     respond(&mut stream, 200, "text/html; charset=utf-8", &page)
+}
+
+/// What a change on the dashboard did, shown at the top of it.
+enum Notice {
+    Done(String),
+    Failed(String),
+}
+
+/// The dashboard's forms: add, receive and stop a folder, and disconnect.
+fn manage<S: SecretStore>(
+    shared: &Shared<S>,
+    language: Language,
+    route: &str,
+    form: &BTreeMap<String, String>,
+) -> String {
+    let t = |en: &'static str, pt: &'static str| language.pick(en, pt);
+    let lane = || match field(form, "lane") {
+        "" => None,
+        id => Some(id.to_string()),
+    };
+    let result = {
+        let mut desktop = lock(&shared.desktop);
+        match route {
+            "folders/add" => required_path(language, form, "path").and_then(|path| {
+                let name = folder_name_of(&path, field(form, "name"));
+                desktop
+                    .add_folder(path, field(form, "name"))
+                    .map(|()| match language {
+                        Language::En => format!("“{name}” syncs from now on."),
+                        Language::PtBr => format!("“{name}” sincroniza a partir de agora."),
+                    })
+                    .map_err(|err| describe(language, &err))
+            }),
+            "folders/receive" => required_path(language, form, "path").and_then(|path| {
+                let name = field(form, "name").to_string();
+                desktop
+                    .receive_folder(lane(), &name, path)
+                    .map(|()| match language {
+                        Language::En => format!("“{name}” arrives here on the next sync."),
+                        Language::PtBr => format!("“{name}” chega aqui na próxima sincronização."),
+                    })
+                    .map_err(|err| describe(language, &err))
+            }),
+            "folders/stop" => desktop
+                .stop_folder(lane().as_deref())
+                .map(|()| {
+                    t(
+                        "Stopped. The files stay in the folder and in the repository, and other \
+                         devices keep syncing it.",
+                        "Parou. Os arquivos ficam na pasta e no repositório, e os outros aparelhos \
+                         continuam sincronizando.",
+                    )
+                    .to_string()
+                })
+                .map_err(|err| describe(language, &err)),
+            _ => {
+                let maintainer = desktop
+                    .profile()
+                    .is_some_and(|profile| profile.role == Role::Maintainer);
+                if maintainer && field(form, "saved") != "yes" {
+                    Err(t(
+                        "Confirm that the recovery password is saved somewhere else first.",
+                        "Confirme antes que a senha de recuperação está guardada em outro lugar.",
+                    )
+                    .to_string())
+                } else {
+                    match desktop.disconnect(&*shared.secrets) {
+                        Ok(()) => {
+                            drop(desktop);
+                            return page(
+                                language,
+                                &format!(
+                                    "<h1>{}</h1><p class=\"lead\">{}</p>\
+                                     <p><a href=\"/{}/\">{}</a></p>",
+                                    t("Disconnected", "Desconectado"),
+                                    t(
+                                        "This device forgot the repository. The folders and their \
+                                         files are where they were, and so is the repository.",
+                                        "Este aparelho esqueceu o repositório. As pastas e os \
+                                         arquivos continuam onde estavam, e o repositório também.",
+                                    ),
+                                    shared.token,
+                                    t("Set up again", "Configurar de novo"),
+                                ),
+                            );
+                        }
+                        Err(err) => Err(describe(language, &err)),
+                    }
+                }
+            }
+        }
+    };
+    let notice = match result {
+        Ok(text) => Notice::Done(text),
+        Err(text) => Notice::Failed(text),
+    };
+    dashboard(shared, language, Some(notice))
+}
+
+fn folder_name_of(path: &std::path::Path, typed: &str) -> String {
+    match typed.trim() {
+        "" => crate::folder_name(path),
+        name => name.to_string(),
+    }
+}
+
+/// A folder field: typed, or filled by the system chooser when there is one.
+fn folder_input<S>(shared: &Shared<S>, language: Language, id: &str, target: PickFor) -> String {
+    let input = format!("<input id=\"{id}\" name=\"path\">");
+    if shared.picker.is_none() {
+        return input;
+    }
+    format!(
+        "<div class=\"row\">{input}<button type=\"button\" class=\"pick\" \
+         data-for=\"{}\" data-target=\"{id}\">{}</button></div>",
+        target.key(),
+        language.pick("Choose…", "Escolher…")
+    )
+}
+
+/// The page of a device that is set up: its folders, the repository's other
+/// folders, the recovery password and the way out.
+fn dashboard<S: SecretStore>(
+    shared: &Shared<S>,
+    language: Language,
+    notice: Option<Notice>,
+) -> String {
+    let t = |en: &'static str, pt: &'static str| language.pick(en, pt);
+    let base = format!("/{}/", shared.token);
+    let mut desktop = lock(&shared.desktop);
+    let _ = desktop.refresh_folders(&*shared.secrets);
+    let Some(profile) = desktop.profile().cloned() else {
+        drop(desktop);
+        return form_page(shared, language, None, &BTreeMap::new());
+    };
+    let unreachable = desktop.unreachable_folders().clone();
+    let others: Vec<satchel_core::FolderSummary> = desktop
+        .repository_folders()
+        .iter()
+        .filter(|folder| !profile.folders.iter().any(|kept| kept.lane == folder.id))
+        .cloned()
+        .collect();
+    let place = desktop.storage_place().unwrap_or_default();
+    let local = desktop.storage_is_local_folder();
+    drop(desktop);
+
+    let notice = match notice {
+        Some(Notice::Done(text)) => {
+            format!("<p class=\"done\" role=\"status\">{}</p>", escape(&text))
+        }
+        Some(Notice::Failed(text)) => {
+            format!("<p class=\"error\" role=\"alert\">{}</p>", escape(&text))
+        }
+        None => String::new(),
+    };
+    let lane_value = |lane: &Option<String>| escape(lane.as_deref().unwrap_or(""));
+    let mut kept = String::new();
+    if profile.folders.is_empty() {
+        kept.push_str(&format!(
+            "<p class=\"hint\">{}</p>",
+            t(
+                "No folder syncs on this device now.",
+                "Nenhuma pasta sincroniza neste aparelho agora."
+            )
+        ));
+    }
+    for folder in &profile.folders {
+        let status = if unreachable.contains(&folder.lane) {
+            format!(
+                "<p class=\"warn\">{}</p>",
+                t(
+                    "Not connected: paused. Connect the disk and it syncs again; nothing is deleted meanwhile.",
+                    "Não está conectada: pausada. Conecte o disco e ela volta a sincronizar; nada é apagado enquanto isso.",
+                )
+            )
+        } else {
+            String::new()
+        };
+        kept.push_str(&format!(
+            "<div class=\"folder\"><h3>{name}</h3><p class=\"hint\"><code>{path}</code></p>{status}\
+             <form method=\"post\" action=\"{base}folders/stop\">\
+             <input type=\"hidden\" name=\"lane\" value=\"{lane}\">\
+             <button class=\"secondary\">{stop}</button></form></div>",
+            name = escape(&folder.name),
+            path = escape(&folder.path.display().to_string()),
+            lane = lane_value(&folder.lane),
+            stop = t("Stop syncing here", "Parar de sincronizar aqui"),
+        ));
+    }
+    let mut elsewhere = String::new();
+    for (index, folder) in others.iter().enumerate() {
+        let name = folder
+            .name
+            .clone()
+            .unwrap_or_else(|| t("Satchel", "Satchel").to_string());
+        let id = format!("receive-{index}");
+        let count = folder.devices.len();
+        let devices = match (language, count) {
+            (Language::En, 1) => "kept on 1 device".to_string(),
+            (Language::En, n) => format!("kept on {n} devices"),
+            (Language::PtBr, 1) => "mantida em 1 aparelho".to_string(),
+            (Language::PtBr, n) => format!("mantida em {n} aparelhos"),
+        };
+        elsewhere.push_str(&format!(
+            "<div class=\"folder\"><h3>{name_html}</h3><p class=\"hint\">{devices}</p>\
+             <form method=\"post\" action=\"{base}folders/receive\">\
+             <input type=\"hidden\" name=\"lane\" value=\"{lane}\">\
+             <input type=\"hidden\" name=\"name\" value=\"{name_html}\">\
+             <label for=\"{id}\">{where_label}</label>{field}\
+             <button>{receive}</button></form></div>",
+            name_html = escape(&name),
+            lane = lane_value(&folder.id),
+            where_label = t(
+                "Where to keep it on this computer",
+                "Onde manter neste computador"
+            ),
+            field = folder_input(shared, language, &id, PickFor::Synced),
+            receive = t("Receive on this computer", "Receber neste computador"),
+        ));
+    }
+    let elsewhere = if elsewhere.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "<section class=\"card\"><h2>{}</h2><p class=\"hint\">{}</p>{elsewhere}</section>",
+            t(
+                "Other folders of the repository",
+                "Outras pastas do repositório"
+            ),
+            t(
+                "Other devices sync these. Choose where each one goes to receive it here too.",
+                "Outros aparelhos sincronizam estas. Escolha onde cada uma fica para receber aqui também.",
+            ),
+        )
+    };
+    let recovery = if profile.role == Role::Maintainer {
+        format!(
+            "<section class=\"card\"><h2>{}</h2><p class=\"hint\">{}</p>\
+             <form method=\"post\" action=\"{base}recovery\" \
+             onsubmit=\"busy(this,'{}')\"><button class=\"secondary\">{}</button></form></section>",
+            t("Recovery password", "Senha de recuperação"),
+            t(
+                "Replace it if it leaked or you lost track of it. Devices keep working. \
+                 You get the new one once.",
+                "Troque se ela vazou ou se você perdeu o controle dela. Os aparelhos continuam \
+                 funcionando. Você vê a nova uma vez só.",
+            ),
+            t("Changing…", "Trocando…"),
+            t("Change recovery password", "Trocar senha de recuperação"),
+        )
+    } else {
+        String::new()
+    };
+    let saved = if profile.role == Role::Maintainer {
+        format!(
+            "<label class=\"check\"><input type=\"checkbox\" name=\"saved\" value=\"yes\" required> {}</label>",
+            t(
+                "The recovery password is saved somewhere else. Without it, nobody adds devices \
+                 or restores the repository.",
+                "A senha de recuperação está guardada em outro lugar. Sem ela, ninguém adiciona \
+                 aparelhos nem restaura o repositório.",
+            )
+        )
+    } else {
+        String::new()
+    };
+    let local_note = if local {
+        format!(
+            "<p class=\"hint\">{}</p>",
+            t(
+                "The encrypted copies are in a folder on this computer, so Add device is off: \
+                 phones and other computers can't reach it.",
+                "As cópias cifradas ficam numa pasta deste computador, então Adicionar aparelho \
+                 está desligado: celulares e outros computadores não alcançam essa pasta.",
+            )
+        )
+    } else {
+        String::new()
+    };
+    page(
+        language,
+        &format!(
+            "<h1>{title}</h1>{notice}
+<section class=\"card\"><h2>{folders_title}</h2>{kept}</section>
+{elsewhere}
+<section class=\"card\"><h2>{add_title}</h2><p class=\"hint\">{add_hint}</p>
+<form method=\"post\" action=\"{base}folders/add\">
+<label for=\"new-folder\">{folder_label}</label>{new_field}
+<label>{name_label} <input name=\"name\" placeholder=\"{name_hint}\"></label>
+<button>{add}</button></form></section>
+<section class=\"card\"><h2>{storage_title}</h2><p><code>{place}</code></p>{local_note}</section>
+{recovery}
+<section class=\"card\"><h2>{leave_title}</h2><p class=\"hint\">{leave_hint}</p>
+<form method=\"post\" action=\"{base}disconnect\" onsubmit=\"return confirm('{leave_confirm}')\">{saved}
+<button class=\"danger\">{leave}</button></form></section>
+<script>
+function busy(f,t){{const b=f.querySelector('button:not(.pick)');b.disabled=true;b.textContent=t;b.setAttribute('aria-busy','true');}}
+for(const b of document.querySelectorAll('button.pick')){{b.addEventListener('click',async()=>{{
+const label=b.textContent;b.disabled=true;b.textContent='{choosing}';
+try{{const r=await fetch('{base}pick',{{method:'POST',headers:{{'Content-Type':'application/x-www-form-urlencoded'}},body:'for='+b.dataset.for}});
+if(r.status===200){{const i=document.getElementById(b.dataset.target);i.value=await r.text();i.focus();}}}}
+finally{{b.disabled=false;b.textContent=label;}}}});}}
+</script>",
+            title = t("This device", "Este aparelho"),
+            folders_title = t("Folders on this computer", "Pastas neste computador"),
+            add_title = t("Add a folder", "Adicionar uma pasta"),
+            add_hint = t(
+                "It goes to the same repository, with the same keys. Your other devices see it \
+                 and choose whether to receive it.",
+                "Ela vai para o mesmo repositório, com as mesmas chaves. Os outros aparelhos a \
+                 veem e escolhem se querem recebê-la.",
+            ),
+            folder_label = t("Folder to sync", "Pasta para sincronizar"),
+            new_field = folder_input(shared, language, "new-folder", PickFor::Synced),
+            name_label = t("Name (optional)", "Nome (opcional)"),
+            name_hint = t("The folder's own name", "O nome da própria pasta"),
+            add = t("Add folder", "Adicionar pasta"),
+            storage_title = t("Encrypted copies", "Cópias cifradas"),
+            place = escape(&place),
+            leave_title = t("Disconnect this device", "Desconectar este aparelho"),
+            leave_hint = t(
+                "This device forgets the repository and its keys. The folders, their files and \
+                 the repository stay. To use another storage, disconnect and set up again.",
+                "Este aparelho esquece o repositório e as chaves. As pastas, os arquivos e o \
+                 repositório ficam. Para usar outro armazenamento, desconecte e configure de novo.",
+            ),
+            leave_confirm = t(
+                "Disconnect this device from the repository?",
+                "Desconectar este aparelho do repositório?",
+            ),
+            leave = t("Disconnect", "Desconectar"),
+            choosing = t("Choosing…", "Escolhendo…"),
+        ),
+    )
 }
 
 /// A page for an address that is not there, in the person's language.
@@ -194,6 +531,10 @@ fn add_page<S: SecretStore>(shared: &Shared<S>, language: Language) -> String {
         ));
     }
     if desktop.offer().is_none() {
+        // Nobody else reaches a folder on this computer: no invite is opened for it.
+        if desktop.storage_is_local_folder() {
+            return refuse(&describe(language, &Error::LocalRepository));
+        }
         if let Err(err) = desktop.open_add_device(add_device_config()) {
             return refuse(&describe(language, &err));
         }
@@ -662,41 +1003,9 @@ fn form_page<S: SecretStore>(
     };
     let invite = escape(typed.get("invite").map(String::as_str).unwrap_or(""));
     let desktop = lock(&shared.desktop);
-    if let Some(profile) = desktop.profile()
-        && error.is_none()
-    {
-        let base = format!("/{}/", shared.token);
-        let change = if profile.role == Role::Maintainer {
-            format!(
-                "<section class=\"card\"><h2>{}</h2><p class=\"hint\">{}</p>\
-                 <form method=\"post\" action=\"{base}recovery\" \
-                 onsubmit=\"busy(this,'{}')\"><button>{}</button></form></section>",
-                t("Recovery password", "Senha de recuperação"),
-                t(
-                    "Replace it if it leaked or you lost track of it. Devices keep working. \
-                     You get the new one once.",
-                    "Troque se ela vazou ou se você perdeu o controle dela. Os aparelhos continuam \
-                     funcionando. Você vê a nova uma vez só.",
-                ),
-                t("Changing…", "Trocando…"),
-                t("Change recovery password", "Trocar senha de recuperação"),
-            )
-        } else {
-            String::new()
-        };
-        return page(
-            language,
-            &format!(
-                "<h1>{}</h1><section class=\"card\"><p>{}</p></section>{change}",
-                t("This device", "Este aparelho"),
-                t(
-                    "A folder is already set up on this device. It syncs on its own; use the \
-                     tray menu to sync now or add a device.",
-                    "Este aparelho já tem uma pasta configurada. Ela sincroniza sozinha; use o \
-                     menu da bandeja para sincronizar agora ou adicionar um aparelho.",
-                ),
-            ),
-        );
+    if desktop.profile().is_some() && error.is_none() {
+        drop(desktop);
+        return dashboard(shared, language, None);
     }
     let notice = match error {
         Some(message) => format!("<p class=\"error\" role=\"alert\">{}</p>", escape(message)),
@@ -814,12 +1123,13 @@ finally{{b.disabled=false;b.textContent=label;}}}});}}
             repo_folder = t("Folder for the encrypted copies", "Pasta das cópias cifradas"),
             local_hint = t(
                 "Pick an empty folder outside the folder to sync, ideally on another disk. \
-                 Phones can't reach a folder on this computer: to use Satchel on a phone, \
-                 choose S3, R2 or B2. A folder also has no object versioning, so an \
+                 Phones and other computers can't reach a folder on this computer, so Add \
+                 device stays off: to use Satchel on a phone, choose S3, R2 or B2. A folder also has no object versioning, so an \
                  overwritten copy can't be brought back.",
                 "Escolha uma pasta vazia fora da pasta para sincronizar, de preferência noutro \
-                 disco. Celulares não alcançam uma pasta deste computador: para usar o Satchel \
-                 no celular, escolha S3, R2 ou B2. Uma pasta também não tem versionamento de \
+                 disco. Celulares e outros computadores não alcançam uma pasta deste computador, \
+                 então Adicionar aparelho fica desligado: para usar o Satchel no celular, \
+                 escolha S3, R2 ou B2. Uma pasta também não tem versionamento de \
                  objetos, então uma cópia sobrescrita não volta.",
             ),
             bucket_hint = t(
@@ -905,6 +1215,11 @@ button:disabled{{opacity:.6;cursor:progress}}\
 .row{{display:flex;gap:.5rem;align-items:center}}.row input{{flex:1;min-width:0}}\
 button.pick{{width:auto;flex:none;min-height:44px;margin-top:.3rem;padding:0 1rem;background:var(--field);\
 color:var(--ink);border:1px solid var(--line)}}\
+button.danger{{background:var(--danger);color:var(--card)}}\
+.folder{{border-top:1px solid var(--line);padding:.75rem 0 0;margin-top:.75rem}}.folder:first-of-type{{border-top:0;margin-top:0}}\
+h3{{font-size:1rem;font-weight:600;margin:0}}.done{{color:var(--accent);font-weight:600}}\
+label.check{{display:flex;gap:.5rem;align-items:flex-start;font-weight:400;color:var(--ink);font-size:.94rem}}\
+label.check input{{width:auto;margin:.2rem 0 0}}\
 button.secondary{{background:var(--field);color:var(--ink);border:1px solid var(--line)}}\
 img.qr{{display:block;width:min(100%,18rem);aspect-ratio:1;margin:1rem auto;image-rendering:pixelated;\
 background:#fff;border-radius:12px;padding:.75rem}}\

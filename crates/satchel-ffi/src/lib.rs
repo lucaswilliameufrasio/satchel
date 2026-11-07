@@ -343,13 +343,115 @@ fn open_grant(spec: &GrantSpec) -> Result<Location, CatalogFailure> {
     Ok(Location::Directory(PathBuf::from(&spec.endpoint)))
 }
 
+/// One folder of the repository as the phone shows it.
+struct View {
+    /// `None` is the repository's first folder.
+    lane: Option<String>,
+    /// The top-level name it gets when the repository has several. Empty when it has one.
+    label: String,
+    /// Name the core publishes for it.
+    name: String,
+}
+
+/// The repository's folders. With one folder the catalog stays as it always
+/// was; with several, each one is a top-level directory named after it.
+fn views(location: &Location, password: &str) -> Result<Vec<View>, CatalogFailure> {
+    let mut listed = satchel_core::folders(location, password).map_err(|_| CatalogFailure)?;
+    // The first folder first, then by name.
+    listed.sort_by(|left, right| {
+        (left.id.is_some(), left.name.clone()).cmp(&(right.id.is_some(), right.name.clone()))
+    });
+    if listed.len() <= 1 {
+        let lane = listed.into_iter().next().and_then(|folder| folder.id);
+        return Ok(vec![View {
+            lane,
+            label: String::new(),
+            name: String::new(),
+        }]);
+    }
+    let mut views: Vec<View> = Vec::new();
+    for folder in listed {
+        let name = folder.name.unwrap_or_else(|| "Satchel".to_string());
+        let mut label = name.replace('/', "-");
+        let mut count = 2;
+        while views.iter().any(|view| view.label == label) {
+            label = format!("{} ({count})", name.replace('/', "-"));
+            count += 1;
+        }
+        views.push(View {
+            lane: folder.id,
+            label,
+            name,
+        });
+    }
+    Ok(views)
+}
+
+/// The folder a phone path belongs to, and the path inside it.
+fn split_path<'a>(views: &'a [View], path: &'a str) -> Result<(&'a View, &'a str), CatalogFailure> {
+    if let [only] = views
+        && only.label.is_empty()
+    {
+        return Ok((only, path));
+    }
+    let (head, rest) = path.split_once('/').ok_or(CatalogFailure)?;
+    let view = views
+        .iter()
+        .find(|view| view.label == head)
+        .ok_or(CatalogFailure)?;
+    Ok((view, rest))
+}
+
+/// A client for one folder. The first folder keeps the grant's work copy; each
+/// other folder gets its own beside it, never inside.
+fn lane_client(spec: &GrantSpec, device: DeviceId, view: &View) -> Result<Client, CatalogFailure> {
+    let Some(lane) = &view.lane else {
+        return Client::open(device, &spec.work, &spec.device_key_password)
+            .map_err(|_| CatalogFailure);
+    };
+    let work = PathBuf::from(format!("{}-{lane}", spec.work));
+    let lane = satchel_core::Lane::named(lane, &view.name).map_err(|_| CatalogFailure)?;
+    Ok(Client::open(device, work, &spec.device_key_password)
+        .map_err(|_| CatalogFailure)?
+        .in_lane(lane))
+}
+
 fn catalog_grant(spec_path: &Path) -> Result<String, CatalogFailure> {
     let spec = read_grant(spec_path)?;
     let location = open_grant(&spec)?;
     let device = DeviceId::parse(&spec.device_id).map_err(|_| CatalogFailure)?;
-    let client =
-        Client::open(device, &spec.work, &spec.device_key_password).map_err(|_| CatalogFailure)?;
-    let entries = client.catalog(&location).map_err(|_| CatalogFailure)?;
+    let views = views(&location, &spec.device_key_password)?;
+    let mut entries = Vec::new();
+    for view in &views {
+        let client = lane_client(&spec, device.clone(), view)?;
+        let mut rows = client.catalog(&location).map_err(|_| CatalogFailure)?;
+        if view.label.is_empty() {
+            entries.append(&mut rows);
+            continue;
+        }
+        let newest = rows.iter().map(|row| row.version_unix).max().unwrap_or(0);
+        let mut devices: Vec<String> = Vec::new();
+        for row in &rows {
+            for device in &row.devices {
+                if !devices.contains(device) {
+                    devices.push(device.clone());
+                }
+            }
+        }
+        entries.push(satchel_core::CatalogEntry {
+            path: view.label.clone(),
+            is_directory: true,
+            size: 0,
+            version_unix: newest,
+            devices,
+            holders: Vec::new(),
+            follow: Follow::See,
+        });
+        for mut row in rows {
+            row.path = format!("{}/{}", view.label, row.path);
+            entries.push(row);
+        }
+    }
     rows_json(&entries)
 }
 
@@ -364,8 +466,9 @@ fn mark_grant(
     let spec = read_grant(spec_path)?;
     let location = open_grant(&spec)?;
     let device = DeviceId::parse(&spec.device_id).map_err(|_| CatalogFailure)?;
-    let mut client = Client::open(device.clone(), &spec.work, &spec.device_key_password)
-        .map_err(|_| CatalogFailure)?;
+    let views = views(&location, &spec.device_key_password)?;
+    let (view, path) = split_path(&views, path)?;
+    let mut client = lane_client(&spec, device.clone(), view)?;
     if !name.is_empty() || !os.is_empty() {
         client.introduce(name, os).map_err(|_| CatalogFailure)?;
     }
@@ -470,15 +573,32 @@ struct FolderReportJson {
 fn fetch_grant(spec_path: &Path, path: &str, dest: &Path) -> Result<(), CatalogFailure> {
     let spec = read_grant(spec_path)?;
     let location = open_grant(&spec)?;
-    satchel_core::write_latest(&location, &spec.device_key_password, path, dest)
-        .map_err(|_| CatalogFailure)
+    let views = views(&location, &spec.device_key_password)?;
+    let (view, path) = split_path(&views, path)?;
+    satchel_core::write_latest_in(
+        &location,
+        &spec.device_key_password,
+        view.lane.as_deref(),
+        path,
+        dest,
+    )
+    .map_err(|_| CatalogFailure)
 }
 
 fn read_grant_bytes(spec_path: &Path, path: &str) -> Result<Vec<u8>, CatalogFailure> {
     let spec = read_grant(spec_path)?;
     let location = open_grant(&spec)?;
     let device = DeviceId::parse(&spec.device_id).map_err(|_| CatalogFailure)?;
-    read_followed(&location, &spec.device_key_password, &device, path).map_err(|_| CatalogFailure)
+    let views = views(&location, &spec.device_key_password)?;
+    let (view, path) = split_path(&views, path)?;
+    satchel_core::read_followed_in(
+        &location,
+        &spec.device_key_password,
+        &device,
+        view.lane.as_deref(),
+        path,
+    )
+    .map_err(|_| CatalogFailure)
 }
 
 fn join_pairing(
@@ -1570,6 +1690,58 @@ mod tests {
             )
             .is_err()
         );
+        // A second folder in the repository: each becomes a top-level directory,
+        // and every call finds its way into the right one.
+        let photos = root.0.join("photos");
+        fs::create_dir_all(&photos).expect("photos");
+        fs::write(photos.join("praia.jpg"), b"photo bytes").expect("photo");
+        let lane = satchel_core::Lane::named("f0705", "Fotos").expect("lane");
+        satchel_core::sync_folder_in(
+            &Location::Directory(repository.clone()),
+            super::PASSWORD,
+            &publisher,
+            &photos,
+            &lane,
+            None,
+        )
+        .expect("second folder");
+        let both = catalog_grant(&grant_path).expect("catalog of two");
+        assert!(
+            both.contains("\"path\":\"Fotos\",\"directory\":true"),
+            "{both}"
+        );
+        assert!(both.contains("\"Fotos/praia.jpg\""), "{both}");
+        assert!(both.contains("\"Satchel/notes/kept.txt\""), "{both}");
+        assert!(
+            !both.contains("\"notes/kept.txt\""),
+            "no row outside a folder"
+        );
+        assert_eq!(
+            super::read_grant_bytes(&grant_path, "Fotos/praia.jpg").expect("photo"),
+            b"photo bytes"
+        );
+        assert_eq!(
+            super::read_grant_bytes(&grant_path, "Satchel/notes/kept.txt").expect("note"),
+            PAYLOAD.as_bytes()
+        );
+        assert!(super::read_grant_bytes(&grant_path, "Fotos/notes/kept.txt").is_err());
+        mark_grant(&grant_path, "Fotos/praia.jpg", "once", "", "").expect("mark photo");
+        let photo_work = std::path::PathBuf::from(format!("{}-f0705", work.display()));
+        assert_eq!(
+            fs::read(photo_work.join("praia.jpg")).expect("work"),
+            b"photo bytes"
+        );
+        assert!(
+            !work.join("praia.jpg").exists(),
+            "the photo is not in the first folder's copy"
+        );
+        super::fetch_grant(
+            std::path::Path::new(&inline_grant),
+            "Fotos/praia.jpg",
+            &fetched,
+        )
+        .expect("fetch photo");
+        assert_eq!(fs::read(&fetched).expect("fetched"), b"photo bytes");
         let rejected = root.0.join("rejected.json");
         fs::write(
             &rejected,

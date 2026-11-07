@@ -112,7 +112,7 @@ pub struct MarkedConflict {
 }
 
 /// What one sync wrote.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SyncOutcome {
     /// Cursor after the sync. Absent when this device has not published yet.
     pub cursor: Option<Cursor>,
@@ -141,6 +141,69 @@ struct StateDoc {
     /// Where this device listens for a wake notice. Absent when it does not listen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     wake: Option<WakeEndpoint>,
+    /// The folder this snapshot belongs to. Absent for the first folder of a
+    /// repository, which is also every snapshot written before folders existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    folder: Option<String>,
+    /// The folder's name, as people see it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    folder_name: Option<String>,
+}
+
+/// One synced folder of a repository. A repository holds several; each one
+/// syncs on its own, as if it were alone, and shares the keys and the storage.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Lane {
+    /// `None` for the repository's first folder. Otherwise 1 to 64 of `a-z`, `0-9` and `-`.
+    pub id: Option<String>,
+    /// What people call it: `Documentos`, `Fotos`.
+    pub name: String,
+}
+
+impl Lane {
+    /// The first folder, the one older snapshots belong to.
+    pub fn first(name: &str) -> Result<Self, Error> {
+        Ok(Self {
+            id: None,
+            name: checked_label(name)?,
+        })
+    }
+
+    /// Another folder. `id` stays the same on every device that syncs it.
+    pub fn named(id: &str, name: &str) -> Result<Self, Error> {
+        let valid = !id.is_empty()
+            && id.len() <= 64
+            && id
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+        if !valid {
+            return Err(Error::Label);
+        }
+        Ok(Self {
+            id: Some(id.to_string()),
+            name: checked_label(name)?,
+        })
+    }
+
+    /// A new random id for a folder being added.
+    pub fn new_id() -> String {
+        let mut bytes = [0_u8; 8];
+        rand::fill(&mut bytes);
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+}
+
+/// A folder the repository holds, read from the snapshots.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FolderSummary {
+    /// `None` for the first folder.
+    pub id: Option<String>,
+    /// The newest name any device published, if one did.
+    pub name: Option<String>,
+    /// Devices with a snapshot of this folder.
+    pub devices: Vec<String>,
+    /// The newest snapshot time of this folder.
+    pub newest_unix: i64,
 }
 
 /// Chosen label stored inside the encrypted snapshot, not in `keys/`.
@@ -262,6 +325,9 @@ pub struct Client {
     rebase: bool,
     /// Work files the sync wrote or deleted since the last `take_touched`.
     touched: BTreeSet<String>,
+    /// The folder of the repository this client syncs. `None` is the first folder
+    /// with no name published.
+    lane: Option<Lane>,
 }
 
 impl Client {
@@ -300,7 +366,18 @@ impl Client {
             wake: None,
             rebase: false,
             touched: BTreeSet::new(),
+            lane: None,
         })
+    }
+
+    /// Sync one folder of the repository. Without a call, the first folder.
+    pub fn in_lane(mut self, lane: Lane) -> Self {
+        self.lane = Some(lane);
+        self
+    }
+
+    fn lane_id(&self) -> Option<&str> {
+        self.lane.as_ref().and_then(|lane| lane.id.as_deref())
     }
 
     /// Remember the name and system to publish on the next snapshot.
@@ -365,7 +442,7 @@ impl Client {
     /// List names, sizes, times, and devices without writing the work copy.
     pub fn catalog(&self, location: &Location) -> Result<Vec<CatalogEntry>, Error> {
         let repo = open_indexed(location, &self.password)?;
-        let snaps = load_snaps(&repo)?;
+        let snaps = load_snaps(&repo, Lanes::One(self.lane_id()))?;
         let latest = latest_by_device(&snaps);
         let follows = merged_follows(&self.follows, our_snap(&latest, self.device_id.as_str()));
         let found = winners(&latest);
@@ -407,7 +484,7 @@ impl Client {
     /// Exchange metadata and, where the follow state says so, file bytes.
     pub fn sync(&mut self, location: &Location) -> Result<SyncOutcome, Error> {
         let repo = open_indexed(location, &self.password)?;
-        let snaps = load_snaps(&repo)?;
+        let snaps = load_snaps(&repo, Lanes::One(self.lane_id()))?;
         self.adopt_clock(&snaps);
         let materialize = if self.cursor.is_none() {
             self.resume_from_repository(&snaps)?
@@ -501,7 +578,7 @@ impl Client {
     /// Conflicts recorded on the latest snapshot of every device.
     pub fn conflicts(&self, location: &Location) -> Result<Vec<MarkedConflict>, Error> {
         let repo = open_indexed(location, &self.password)?;
-        let snaps = load_snaps(&repo)?;
+        let snaps = load_snaps(&repo, Lanes::One(self.lane_id()))?;
         Ok(collect_conflicts(&latest_by_device(&snaps)))
     }
 
@@ -779,9 +856,10 @@ impl Client {
             });
         }
 
-        let stage = self
-            .stage_parent()
-            .join(format!(".satchel-stage-{}", self.device_id.as_str()));
+        let stage = self.stage_parent().join(match self.lane_id() {
+            Some(lane) => format!(".satchel-stage-{}-{lane}", self.device_id.as_str()),
+            None => format!(".satchel-stage-{}", self.device_id.as_str()),
+        });
         let _cleanup = DeleteOnDrop(stage.clone());
         fill_stage(&stage, &self.work, &self.follows, &new_marks)?;
 
@@ -913,6 +991,8 @@ impl Client {
             conflicts,
             intro: self.stored_intro(),
             wake: self.wake.clone().flatten(),
+            folder: self.lane.as_ref().and_then(|lane| lane.id.clone()),
+            folder_name: self.lane.as_ref().map(|lane| lane.name.clone()),
         }
     }
 
@@ -1163,11 +1243,78 @@ pub fn sync_folder_announcing(
     sync_folder_inner(location, password, device_id, folder, Some(wake))
 }
 
+/// Keep `folder` in step with one folder of the repository, as [`sync_folder`]
+/// does with the first. `wake` is as in [`sync_folder_announcing`]; `None` keeps
+/// what this device's last snapshot of that folder said.
+pub fn sync_folder_in(
+    location: &Location,
+    password: &str,
+    device_id: &DeviceId,
+    folder: &Path,
+    lane: &Lane,
+    wake: Option<Option<WakeEndpoint>>,
+) -> Result<SyncOutcome, Error> {
+    sync_lane(location, password, device_id, folder, Some(lane), wake)
+}
+
+/// The folders this repository holds, from every snapshot's state.
+///
+/// A repository from before folders existed holds one, with no id and no name.
+pub fn folders(location: &Location, password: &str) -> Result<Vec<FolderSummary>, Error> {
+    let repo = open_indexed(location, password)?;
+    let mut found: BTreeMap<Option<String>, (FolderSummary, i64)> = BTreeMap::new();
+    for snapshot in repo.get_all_snapshots().map_err(Error::repository)? {
+        let Some(state) = parse_state(&snapshot)? else {
+            continue;
+        };
+        let time = snapshot.time.timestamp().as_second();
+        let (summary, named_at) = found.entry(state.folder.clone()).or_insert_with(|| {
+            (
+                FolderSummary {
+                    id: state.folder.clone(),
+                    name: None,
+                    devices: Vec::new(),
+                    newest_unix: time,
+                },
+                i64::MIN,
+            )
+        });
+        summary.newest_unix = summary.newest_unix.max(time);
+        if !summary.devices.contains(&snapshot.hostname) {
+            summary.devices.push(snapshot.hostname.clone());
+        }
+        if let Some(name) = state.folder_name
+            && time >= *named_at
+        {
+            summary.name = Some(name);
+            *named_at = time;
+        }
+    }
+    Ok(found
+        .into_values()
+        .map(|(mut summary, _)| {
+            summary.devices.sort();
+            summary
+        })
+        .collect())
+}
+
 fn sync_folder_inner(
     location: &Location,
     password: &str,
     device_id: &DeviceId,
     folder: &Path,
+    wake: Option<Option<WakeEndpoint>>,
+) -> Result<SyncOutcome, Error> {
+    sync_lane(location, password, device_id, folder, None, wake)
+}
+
+fn sync_lane(
+    location: &Location,
+    password: &str,
+    device_id: &DeviceId,
+    folder: &Path,
+    lane: Option<&Lane>,
     wake: Option<Option<WakeEndpoint>>,
 ) -> Result<SyncOutcome, Error> {
     if !folder.is_dir() {
@@ -1179,6 +1326,9 @@ fn sync_folder_inner(
         init(location, password, device_id)?;
     }
     let mut client = Client::open(device_id.clone(), folder, password)?;
+    if let Some(lane) = lane {
+        client = client.in_lane(lane.clone());
+    }
     if let Some(wake) = wake {
         client.announce_wake(wake);
     }
@@ -1242,7 +1392,7 @@ pub fn quiet_mark(location: &Location, folder: &Path) -> Result<QuietMark, Error
 /// Read cursors from every satchel snapshot.
 pub fn cursors(location: &Location, password: &str) -> Result<Vec<Cursor>, Error> {
     let repo = open_indexed(location, password)?;
-    let snaps = load_snaps(&repo)?;
+    let snaps = load_snaps(&repo, Lanes::All)?;
     let mut listed = Vec::new();
     for snap in snaps {
         listed.push(cursor_from(&snap));
@@ -1260,7 +1410,7 @@ pub fn restore_latest(
     destination: &Path,
 ) -> Result<(), Error> {
     let repo = open_indexed(location, password)?;
-    let snaps = load_snaps(&repo)?;
+    let snaps = load_snaps(&repo, Lanes::All)?;
     let Some(snap) = snaps.iter().max_by(|left, right| {
         (left.time_unix, left.id.as_str()).cmp(&(right.time_unix, right.id.as_str()))
     }) else {
@@ -1288,9 +1438,20 @@ pub fn read_followed(
     device_id: &DeviceId,
     path: &str,
 ) -> Result<Vec<u8>, Error> {
+    read_followed_in(location, password, device_id, None, path)
+}
+
+/// [`read_followed`] in one folder of the repository: `None` is the first.
+pub fn read_followed_in(
+    location: &Location,
+    password: &str,
+    device_id: &DeviceId,
+    lane: Option<&str>,
+    path: &str,
+) -> Result<Vec<u8>, Error> {
     let path = normalize_path(path)?;
     let repo = open_indexed(location, password)?;
-    let snaps = load_snaps(&repo)?;
+    let snaps = load_snaps(&repo, Lanes::One(lane))?;
     let latest = latest_by_device(&snaps);
     if let Some(our) = our_snap(&latest, device_id.as_str())
         && let Some(pinned) = our.state.once.get(&path)
@@ -1318,9 +1479,20 @@ pub fn write_latest(
     path: &str,
     dest: &Path,
 ) -> Result<(), Error> {
+    write_latest_in(location, password, None, path, dest)
+}
+
+/// [`write_latest`] in one folder of the repository: `None` is the first.
+pub fn write_latest_in(
+    location: &Location,
+    password: &str,
+    lane: Option<&str>,
+    path: &str,
+    dest: &Path,
+) -> Result<(), Error> {
     let path = normalize_path(path)?;
     let repo = open_indexed(location, password)?;
-    let snaps = load_snaps(&repo)?;
+    let snaps = load_snaps(&repo, Lanes::One(lane))?;
     let latest = latest_by_device(&snaps);
     let found = winners(&latest);
     let Some(Winner::Present { snapshot_id, .. }) = found.get(&path) else {
@@ -1345,7 +1517,7 @@ pub fn read_version(
 ) -> Result<Vec<u8>, Error> {
     let path = normalize_path(path)?;
     let repo = open_indexed(location, password)?;
-    let snaps = load_snaps(&repo)?;
+    let snaps = load_snaps(&repo, Lanes::All)?;
     read_tree_at(&repo, &snaps, snapshot_id, &path)
 }
 
@@ -1379,8 +1551,28 @@ fn cursor_from(snap: &Snap) -> Cursor {
 
 /// Every satchel snapshot. Only the newest one of each device has its file list:
 /// older trees are read on demand, so a round does not grow with the history.
-fn load_snaps(repo: &Repository<IndexedFullStatus>) -> Result<Vec<Snap>, Error> {
-    let snapshots = repo.get_all_snapshots().map_err(Error::repository)?;
+/// Which folders' snapshots to load.
+#[derive(Clone, Copy)]
+enum Lanes<'a> {
+    /// Every folder. The newest-per-device file lists then mix folders, so only
+    /// callers that read a snapshot by id use this.
+    All,
+    /// One folder: `None` is the first.
+    One(Option<&'a str>),
+}
+
+fn load_snaps(repo: &Repository<IndexedFullStatus>, lanes: Lanes<'_>) -> Result<Vec<Snap>, Error> {
+    let mut snapshots = Vec::new();
+    for snapshot in repo.get_all_snapshots().map_err(Error::repository)? {
+        let keep = match (lanes, parse_state(&snapshot)?) {
+            (_, None) => false,
+            (Lanes::All, Some(_)) => true,
+            (Lanes::One(lane), Some(state)) => state.folder.as_deref() == lane,
+        };
+        if keep {
+            snapshots.push(snapshot);
+        }
+    }
     let mut newest: BTreeMap<String, (i64, String)> = BTreeMap::new();
     for snapshot in &snapshots {
         if parse_state(snapshot)?.is_none() {
@@ -1651,6 +1843,8 @@ fn published_doc(snap: &Snap) -> StateDoc {
         conflicts: resolve_conflicts(&snap.state.conflicts, &snap.id),
         intro: snap.state.intro.clone(),
         wake: snap.state.wake.clone(),
+        folder: snap.state.folder.clone(),
+        folder_name: snap.state.folder_name.clone(),
     }
 }
 

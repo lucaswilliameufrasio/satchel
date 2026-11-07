@@ -7,6 +7,24 @@ pub enum Error {
     #[error("a folder is already configured")]
     ProfileExists,
 
+    /// One folder would sit inside another, or the copies inside a folder.
+    #[error("path `{path}` is inside another folder Satchel uses")]
+    Nested {
+        /// Path that was rejected.
+        path: PathBuf,
+    },
+    /// This device already keeps that folder of the repository.
+    #[error("this folder is already kept on this device")]
+    FolderTaken,
+    /// A folder or the repository is on a disk that is not there now.
+    #[error("path `{path}` cannot be reached now")]
+    Unreachable {
+        /// Path that is missing.
+        path: PathBuf,
+    },
+    /// The repository is a folder on this computer, which other devices cannot reach.
+    #[error("the repository is a folder on this computer")]
+    LocalRepository,
     /// The folder or the repository path cannot be used.
     #[error("path `{path}` is not usable")]
     Path {

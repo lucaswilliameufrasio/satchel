@@ -1,13 +1,15 @@
+use std::collections::BTreeSet;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use jiff::{Timestamp, tz::TimeZone};
 use satchel_core::{
-    Client, DeviceId, DeviceKeyRecord, Location, QuietMark, S3Store, SetupCheck, StorageKind,
-    StorageSetup, WakeEndpoint, WakeListener, change_recovery_password, check_setup,
-    create_repository, generate_recovery_password, list_other_device_keys, probe_object_protection,
-    provision_device_key, quiet_mark, remove_device_key, send_wakes, sync_folder_announcing,
+    Client, DeviceId, DeviceKeyRecord, FolderSummary, Location, QuietMark, S3Store, SetupCheck,
+    StorageKind, StorageSetup, SyncOutcome, WakeEndpoint, WakeListener, change_recovery_password,
+    check_setup, create_repository, folders, generate_recovery_password, list_other_device_keys,
+    probe_object_protection, provision_device_key, quiet_mark, remove_device_key, send_wakes,
+    sync_folder_in,
 };
 use satchel_pair::{
     ApprovalRequest, Decision, DeviceSecrets, Invite, ListenConfig, Offer, PairingSession,
@@ -15,7 +17,7 @@ use satchel_pair::{
 use serde::Deserialize;
 
 use crate::Error;
-use crate::profile::{self, ObjectStore, Profile, Role};
+use crate::profile::{self, ObjectStore, Profile, Role, SyncedFolder, folder_name};
 use crate::secrets::{Account, SecretStore};
 use crate::text::Language;
 
@@ -183,7 +185,11 @@ pub struct Desktop {
     device_keys: Option<Vec<DeviceKeyRecord>>,
     last_sync: Option<SyncStatus>,
     /// State after the last full sync, so the timer can skip a cycle with nothing to do.
-    quiet: Option<(QuietMark, SetupCheck)>,
+    quiet: Option<(Vec<QuietMark>, SetupCheck)>,
+    /// Folders the last sync skipped because their disk was not there.
+    unreachable: BTreeSet<Option<String>>,
+    /// The repository's folders, read on the last sync.
+    repository_folders: Vec<FolderSummary>,
     /// Where this desktop listens for wake notices, while it does.
     wake: Option<WakeEndpoint>,
     /// The language of the tray, from the system unless set.
@@ -208,6 +214,8 @@ enum FailureHint {
     Storage,
     /// The synced folder is missing or unreadable.
     Folder,
+    /// The disk that holds the encrypted copies is not connected.
+    Disk,
     /// Anything else. The log has the details.
     Other,
 }
@@ -224,6 +232,7 @@ fn failure_hint(err: &Error) -> FailureHint {
         | Error::Device(Core::FolderUnavailable | Core::SourceDirectory { .. }) => {
             FailureHint::Folder
         }
+        Error::Unreachable { .. } => FailureHint::Disk,
         Error::Grant
         | Error::Device(
             Core::Repository { .. } | Core::Probe | Core::ProbeDenied | Core::ObjectProtection,
@@ -263,6 +272,15 @@ pub fn add_device_config() -> ListenConfig {
     }
 }
 
+/// One mark per folder, in profile order. `None` when the repository can't be listed.
+fn quiet_marks(location: &Location, profile: &Profile) -> Option<Vec<QuietMark>> {
+    let mut marks = Vec::new();
+    for folder in &profile.folders {
+        marks.push(quiet_mark(location, &folder.path).ok()?);
+    }
+    Some(marks)
+}
+
 fn folder_label(folder: &std::path::Path) -> String {
     if let Some(home) = std::env::var_os("HOME")
         && let Ok(rest) = folder.strip_prefix(&home)
@@ -296,6 +314,8 @@ impl Desktop {
             device_keys: None,
             last_sync: None,
             quiet: None,
+            unreachable: BTreeSet::new(),
+            repository_folders: Vec::new(),
             wake: None,
             problem: None,
             language: Language::detect(),
@@ -371,7 +391,11 @@ impl Desktop {
             None => setup.directory.clone(),
         };
         let candidate = Profile {
-            folder: folder.clone(),
+            folders: vec![SyncedFolder {
+                lane: None,
+                name: folder_name(&folder),
+                path: folder.clone(),
+            }],
             repository,
             device_id: device_id.clone(),
             object_store,
@@ -546,7 +570,7 @@ impl Desktop {
         if let (Some((previous, protection)), Some(profile)) = (&self.quiet, &self.profile) {
             let protection = *protection;
             let location = self.open_location(store)?;
-            if quiet_mark(&location, &profile.folder).ok().as_ref() == Some(previous) {
+            if quiet_marks(&location, profile).as_ref() == Some(previous) {
                 self.last_sync = Some(SyncStatus::Done {
                     unix: now_unix(),
                     unprotected: protection == SetupCheck::Unprotected,
@@ -564,12 +588,10 @@ impl Desktop {
         let Ok(location) = self.open_location(store) else {
             return;
         };
-        self.quiet = quiet_mark(&location, &profile.folder)
-            .ok()
-            .map(|mark| (mark, protection));
+        self.quiet = quiet_marks(&location, profile).map(|marks| (marks, protection));
     }
 
-    fn publish_inner(&self, store: &dyn SecretStore) -> Result<PublishReport, Error> {
+    fn publish_inner(&mut self, store: &dyn SecretStore) -> Result<PublishReport, Error> {
         let Some(profile) = self.profile.clone() else {
             return Err(Error::Profile);
         };
@@ -583,15 +605,43 @@ impl Desktop {
                 Role::Member => Error::MissingSecret,
             });
         };
+        // A repository on a disk that is not connected is not an empty repository.
+        if profile.object_store.is_none() && !profile.repository.is_dir() {
+            return Err(Error::Unreachable {
+                path: profile.repository.clone(),
+            });
+        }
         let location = self.open_location(store)?;
         let protection = self.object_protection(store)?;
-        let outcome = sync_folder_announcing(
-            &location,
-            &password,
-            &profile.device_id,
-            &profile.folder,
-            self.wake.clone(),
-        )?;
+        let mut outcome = SyncOutcome::default();
+        let mut unreachable = BTreeSet::new();
+        for folder in &profile.folders {
+            // A folder whose disk is away is skipped. Syncing it would read it as
+            // empty and delete every file on the other devices.
+            if !folder.path.is_dir() {
+                unreachable.insert(folder.lane.clone());
+                continue;
+            }
+            let lane = folder.lane()?;
+            let round = sync_folder_in(
+                &location,
+                &password,
+                &profile.device_id,
+                &folder.path,
+                &lane,
+                Some(self.wake.clone()),
+            )?;
+            outcome.wrote |= round.wrote;
+            outcome.conflicts.extend(round.conflicts);
+            for peer in round.peers {
+                if !outcome.peers.contains(&peer) {
+                    outcome.peers.push(peer);
+                }
+            }
+            outcome.cursor = round.cursor.or(outcome.cursor);
+        }
+        self.unreachable = unreachable;
+        self.repository_folders = folders(&location, &password).unwrap_or_default();
         Ok(PublishReport {
             outcome,
             protection,
@@ -679,6 +729,116 @@ impl Desktop {
     pub fn close_add_device(&mut self) {
         self.pending = None;
         self.session = None;
+    }
+
+    /// Folders the last sync skipped because their disk was not there.
+    pub fn unreachable_folders(&self) -> &BTreeSet<Option<String>> {
+        &self.unreachable
+    }
+
+    /// The repository's folders as the last sync or [`Desktop::refresh_folders`] read them.
+    pub fn repository_folders(&self) -> &[FolderSummary] {
+        &self.repository_folders
+    }
+
+    /// Read the repository's folders now.
+    pub fn refresh_folders(&mut self, store: &dyn SecretStore) -> Result<(), Error> {
+        let password = self.sync_password(store)?;
+        let location = self.open_location(store)?;
+        self.repository_folders = folders(&location, &password)?;
+        Ok(())
+    }
+
+    /// Start syncing another folder of this computer, as a new folder of the repository.
+    ///
+    /// An empty `name` takes the folder's own name.
+    pub fn add_folder(&mut self, path: PathBuf, name: &str) -> Result<(), Error> {
+        let Some(profile) = self.profile.clone() else {
+            return Err(Error::Profile);
+        };
+        let name = match name.trim() {
+            "" => folder_name(&path),
+            typed => typed.to_string(),
+        };
+        // The repository's first folder keeps no id, so older phones still see it.
+        let first_free = !profile.folders.iter().any(|folder| folder.lane.is_none())
+            && !self
+                .repository_folders
+                .iter()
+                .any(|folder| folder.id.is_none());
+        let lane = if first_free {
+            None
+        } else {
+            Some(satchel_core::Lane::new_id())
+        };
+        let folder = SyncedFolder { lane, name, path };
+        folder.lane()?;
+        self.profile = Some(profile::add_folder(&self.config_dir, &profile, folder)?);
+        self.quiet = None;
+        Ok(())
+    }
+
+    /// Keep here a folder that another device already syncs.
+    pub fn receive_folder(
+        &mut self,
+        lane: Option<String>,
+        name: &str,
+        path: PathBuf,
+    ) -> Result<(), Error> {
+        let Some(profile) = self.profile.clone() else {
+            return Err(Error::Profile);
+        };
+        let folder = SyncedFolder {
+            lane,
+            name: name.to_string(),
+            path,
+        };
+        folder.lane()?;
+        self.profile = Some(profile::add_folder(&self.config_dir, &profile, folder)?);
+        self.quiet = None;
+        Ok(())
+    }
+
+    /// Stop syncing one folder here. Its files stay on this disk and in the
+    /// repository, and other devices keep syncing it.
+    pub fn stop_folder(&mut self, lane: Option<&str>) -> Result<(), Error> {
+        let Some(profile) = self.profile.clone() else {
+            return Err(Error::Profile);
+        };
+        self.profile = Some(profile::remove_folder(&self.config_dir, &profile, lane)?);
+        self.unreachable.remove(&lane.map(str::to_string));
+        self.quiet = None;
+        Ok(())
+    }
+
+    /// Forget the repository on this device: the settings and the keychain
+    /// items. The folders, their files and the repository stay as they are.
+    pub fn disconnect(&mut self, store: &dyn SecretStore) -> Result<(), Error> {
+        self.close_add_device();
+        profile::forget(&self.config_dir)?;
+        forget_all(store);
+        self.profile = None;
+        self.device_keys = None;
+        self.last_sync = None;
+        self.quiet = None;
+        self.unreachable.clear();
+        self.repository_folders.clear();
+        self.problem = None;
+        Ok(())
+    }
+
+    fn sync_password(&self, store: &dyn SecretStore) -> Result<String, Error> {
+        let Some(profile) = self.profile.as_ref() else {
+            return Err(Error::Profile);
+        };
+        let account = match profile.role {
+            Role::Maintainer => Account::RecoveryPassword,
+            Role::Member => Account::DeviceKeyPassword,
+        };
+        store.get(account)?.ok_or(match profile.role {
+            Role::Maintainer => Error::MissingRecovery,
+            Role::Member => Error::MissingSecret,
+        })
     }
 
     /// The invite on screen while Add device is open and nobody is waiting for approval.
@@ -795,11 +955,24 @@ impl Desktop {
         let info = |label: String| item(label, false, TrayCommand::None);
         let mut items = Vec::new();
         if let Some(profile) = &self.profile {
-            items.push(info(format!(
-                "{} {}",
-                t("Folder:", "Pasta:"),
-                folder_label(&profile.folder)
-            )));
+            if profile.folders.is_empty() {
+                items.push(info(
+                    t("No folder on this device", "Nenhuma pasta neste aparelho").to_string(),
+                ));
+            }
+            for folder in &profile.folders {
+                let place = folder_label(&folder.path);
+                items.push(info(if self.unreachable.contains(&folder.lane) {
+                    match self.language {
+                        Language::En => format!("{}: {place} isn't connected, paused", folder.name),
+                        Language::PtBr => {
+                            format!("{}: {place} não está conectada, pausada", folder.name)
+                        }
+                    }
+                } else {
+                    format!("{} · {place}", folder.name)
+                }));
+            }
             items.push(info(format!(
                 "{} {}",
                 t("Storage:", "Armazenamento:"),
@@ -859,6 +1032,10 @@ impl Desktop {
                             FailureHint::Folder => t(
                                 "The folder is missing or unreadable. Check it, then sync again",
                                 "A pasta sumiu ou não pode ser lida. Confira e sincronize de novo",
+                            ),
+                            FailureHint::Disk => t(
+                                "The disk with the encrypted copies isn't connected. Nothing was deleted",
+                                "O disco das cópias cifradas não está conectado. Nada foi apagado",
                             ),
                             FailureHint::Other => t(
                                 "Sync again. If it keeps failing, see the log",
@@ -958,21 +1135,31 @@ impl Desktop {
                 true,
                 TrayCommand::Publish,
             ));
+            items.push(item(
+                t("Folders and this device…", "Pastas e este aparelho…").to_string(),
+                true,
+                TrayCommand::OpenSetup,
+            ));
             if profile.role == Role::Maintainer {
+                let reachable = profile.object_store.is_some();
                 items.push(item(
                     t("Add device…", "Adicionar aparelho…").to_string(),
-                    true,
+                    reachable,
                     TrayCommand::OpenAddDevice,
                 ));
+                if !reachable {
+                    items.push(info(
+                        t(
+                            "Other devices can't reach a folder on this computer",
+                            "Outros aparelhos não alcançam uma pasta deste computador",
+                        )
+                        .to_string(),
+                    ));
+                }
                 items.push(item(
                     t("Show devices", "Mostrar aparelhos").to_string(),
                     true,
                     TrayCommand::LoadDevices,
-                ));
-                items.push(item(
-                    t("Recovery password…", "Senha de recuperação…").to_string(),
-                    true,
-                    TrayCommand::OpenSetup,
                 ));
             }
             if let Some(keys) = &self.device_keys {
@@ -1096,6 +1283,15 @@ struct GrantAccess {
     prefix: String,
 }
 
+/// The folder a device brings when it joins: the repository's first.
+fn first_folder(path: PathBuf) -> SyncedFolder {
+    SyncedFolder {
+        lane: None,
+        name: folder_name(&path),
+        path,
+    }
+}
+
 /// Profile for a device that joined, and the access key JSON to store for it.
 fn profile_from_grant(
     config_dir: &std::path::Path,
@@ -1108,7 +1304,7 @@ fn profile_from_grant(
             serde_json::from_str(&secrets.bucket_credential).map_err(|_| Error::Grant)?;
         let limited = access_json(&access.access_key_id, &access.secret_access_key)?;
         let profile = Profile {
-            folder,
+            folders: vec![first_folder(folder)],
             repository: config_dir.join("object-store"),
             device_id,
             object_store: Some(ObjectStore {
@@ -1126,7 +1322,7 @@ fn profile_from_grant(
         return Err(Error::Grant);
     }
     let profile = Profile {
-        folder,
+        folders: vec![first_folder(folder)],
         repository: PathBuf::from(&secrets.endpoint),
         device_id,
         object_store: None,

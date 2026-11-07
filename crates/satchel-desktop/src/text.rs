@@ -99,7 +99,10 @@ fn field_name(language: Language, field: &str) -> String {
         "endpoint" => ("Endpoint", "Endpoint"),
         "region" => ("Region", "Região"),
         "prefix" => ("Prefix", "Prefixo"),
-        "directory" => ("Repository folder", "Pasta do repositório"),
+        "directory" => (
+            "Folder for the encrypted copies",
+            "Pasta das cópias cifradas",
+        ),
         "address" => ("Address", "Endereço"),
         other => (other, other),
     };
@@ -123,6 +126,37 @@ pub fn describe(language: Language, err: &Error) -> String {
                 "Não dá para usar este caminho. Confira se ele existe e se você pode gravar nele:",
             ),
             path.display()
+        ),
+        Error::Nested { path } => format!(
+            "{} {}",
+            l(
+                "A folder can't be inside another folder Satchel uses, and the encrypted copies \
+                 can't be inside a synced folder:",
+                "Uma pasta não pode ficar dentro de outra que o Satchel usa, e as cópias cifradas \
+                 não podem ficar dentro de uma pasta sincronizada:",
+            ),
+            path.display()
+        ),
+        Error::FolderTaken => l(
+            "This device already keeps that folder.",
+            "Este aparelho já mantém essa pasta.",
+        ),
+        Error::Unreachable { path } => format!(
+            "{} {}",
+            l(
+                "Satchel can't reach this folder now. If it's on an external disk or a network \
+                 share, connect it; nothing is deleted meanwhile:",
+                "O Satchel não alcança esta pasta agora. Se ela fica num disco externo ou na \
+                 rede, conecte; nada é apagado enquanto isso:",
+            ),
+            path.display()
+        ),
+        Error::LocalRepository => l(
+            "The encrypted copies are in a folder on this computer, which phones and other \
+             computers can't reach. To add devices, create the repository on S3, R2 or B2.",
+            "As cópias cifradas ficam numa pasta deste computador, que celulares e outros \
+             computadores não alcançam. Para adicionar aparelhos, crie o repositório em S3, \
+             R2 ou B2.",
         ),
         Error::Profile => l(
             "The settings file of this device can't be read.",
