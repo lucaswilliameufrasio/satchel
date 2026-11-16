@@ -108,7 +108,7 @@
     <string name="creating">Criando…</string>
     <string name="create_refused">Não foi possível criar. Confira os campos, o versionamento e o ciclo de vida.</string>
     <string name="create_failed_protection">O armazenamento recusou: ligue o versionamento do bucket e remova regras de ciclo de vida que apagam objetos.</string>
-    <string name="create_failed_denied">O armazenamento não deixou esta chave consultar o versionamento. Dê a ela permissão de administrador no bucket. O R2 não expõe versionamento pela API S3 e será sempre recusado.</string>
+    <string name="create_failed_denied">O armazenamento recusou a chave de manutenção ao ler as configurações do bucket (versionamento e regras de ciclo de vida). A chave de manutenção precisa administrar o bucket: no AWS, s3:GetBucketVersioning e s3:GetLifecycleConfiguration; no R2, um token de API com Admin Read &amp; Write.</string>
     <string name="create_failed_exists">Já existe um repositório neste lugar. Escolha outro prefixo, ou entre nele com um código.</string>
     <string name="create_failed_unreachable">Não consegui falar com o armazenamento. Confira endpoint, região e as chaves.</string>
     <string name="create_failed_fields">Confira os campos. A chave dos aparelhos precisa ser diferente da de manutenção.</string>
@@ -139,4 +139,13 @@
     <string name="approve_failed">Não foi possível aprovar. Feche o convite e abra de novo.</string>
     <string name="approve">Aprovar</string>
     <string name="deny">Negar</string>
+    <string name="scan_card_note">Aponte a câmera para o QR da tela Adicionar aparelho do outro aparelho.</string>
+    <string name="manual_title">Sem câmera? Digite o que o outro aparelho mostra</string>
+    <string name="manual_note">Código, endereço e impressão digital aparecem em Adicionar aparelho no outro aparelho. Pode digitar com os espaços.</string>
+    <string name="invite_code_typed">Código digitado: %1$s</string>
+    <string name="invite_code_here">Código desta tela: %1$s</string>
+    <string name="approve_check">Aprove só se este for o seu aparelho e o código digitado for o desta tela.</string>
+    <string name="recovery_spaces">Os espaços são só para ler. A senha não tem espaços; Copiar copia sem eles.</string>
+    <string name="sample_note">Exemplo: estes arquivos são uma amostra guardada neste celular. Os seus aparecem aqui depois de criar ou entrar num repositório.</string>
+    <string name="catalog_empty_unpaired">Os seus arquivos aparecem aqui depois de criar um repositório ou entrar num que já existe.</string>
 </resources>

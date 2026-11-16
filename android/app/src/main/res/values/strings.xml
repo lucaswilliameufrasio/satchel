@@ -119,7 +119,7 @@
     <string name="creating">Creating…</string>
     <string name="create_refused">Couldn\'t create. Check the fields, versioning and lifecycle rules.</string>
     <string name="create_failed_protection">The storage refused: turn on bucket versioning and remove lifecycle rules that delete objects.</string>
-    <string name="create_failed_denied">The storage did not let this key check versioning. Give it admin permission on the bucket. R2 does not expose versioning through the S3 API and will always be refused.</string>
+    <string name="create_failed_denied">The storage refused the maintenance key when it read the bucket\'s settings (versioning and lifecycle rules). The maintenance key needs to manage the bucket: on AWS, s3:GetBucketVersioning and s3:GetLifecycleConfiguration; on R2, an API token with Admin Read &amp; Write.</string>
     <string name="create_failed_exists">A repository already exists here. Choose another prefix, or join it with a code.</string>
     <string name="create_failed_unreachable">Couldn\'t reach the storage. Check the endpoint, region and keys.</string>
     <string name="create_failed_fields">Check the fields. The device key must be different from the maintenance key.</string>
@@ -152,4 +152,13 @@
     <string name="approve_failed">Couldn\'t approve. Close the invite and open it again.</string>
     <string name="approve">Approve</string>
     <string name="deny">Deny</string>
+    <string name="scan_card_note">Point the camera at the QR on the other device\'s Add device screen.</string>
+    <string name="manual_title">No camera? Type what the other device shows</string>
+    <string name="manual_note">Code, address and fingerprint appear under Add device on the other device. Spaces are fine.</string>
+    <string name="invite_code_typed">Code typed: %1$s</string>
+    <string name="invite_code_here">Code on this screen: %1$s</string>
+    <string name="approve_check">Approve only if this is your device and the code it typed is the one on this screen.</string>
+    <string name="recovery_spaces">The spaces are only for reading. The password has none; Copy copies it without them.</string>
+    <string name="sample_note">Example: these files are a sample kept on this phone. Yours show up here after you create or join a repository.</string>
+    <string name="catalog_empty_unpaired">Your files show up here after you create a repository or join one that already exists.</string>
 </resources>

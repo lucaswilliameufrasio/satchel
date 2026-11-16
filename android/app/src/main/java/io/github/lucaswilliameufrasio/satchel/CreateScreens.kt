@@ -157,11 +157,12 @@ internal fun RecoveryScreen(password: String, @StringRes warning: Int?, onDone: 
             }
             ProductCard {
                 Text(
-                    password,
+                    groupedHex(password),
                     fontFamily = FontFamily.Monospace,
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
+            Text(stringResource(R.string.recovery_spaces), color = satchel.secondary)
             TextButton(onClick = { copySensitive(context, clipLabel, password) }) {
                 Text(stringResource(R.string.copy))
             }
@@ -190,7 +191,7 @@ internal fun HoldScreen(
                 Text(stringResource(R.string.invite_waiting), color = satchel.secondary)
                 Text(stringResource(R.string.invite_code, offer.code), modifier = Modifier.padding(top = 12.dp))
                 Text(stringResource(R.string.invite_address, offer.address))
-                Text(stringResource(R.string.invite_fingerprint, offer.fingerprint))
+                Text(stringResource(R.string.invite_fingerprint, groupedHex(offer.fingerprint)))
                 val bitmap = qr?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
                 if (bitmap != null) {
                     Image(
@@ -204,7 +205,13 @@ internal fun HoldScreen(
                 Text(stringResource(R.string.invite_device, approval.deviceName))
                 Text(stringResource(R.string.card_system, approval.os))
                 Text(stringResource(R.string.invite_address, approval.peerAddress))
-                Text(stringResource(R.string.invite_code, approval.code))
+                Text(stringResource(R.string.invite_code_typed, approval.code))
+                Text(
+                    stringResource(R.string.invite_code_here, offer.code),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+                Text(stringResource(R.string.approve_check), color = satchel.secondary)
                 if (failed) {
                     FailureText(stringResource(R.string.approve_failed), modifier = Modifier.padding(top = 12.dp))
                 }
@@ -244,3 +251,6 @@ internal fun RecoveryChangeScreen(busy: Boolean, failed: Boolean, onChange: () -
         }
     }
 }
+
+/** Hex in groups of four, to read it back. The spaces are not part of the value. */
+internal fun groupedHex(hex: String): String = hex.chunked(4).joinToString(" ")

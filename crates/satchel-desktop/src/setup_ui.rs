@@ -124,6 +124,7 @@ fn serve<S: SecretStore>(mut stream: TcpStream, shared: &Shared<S>) -> std::io::
             .unwrap_or_else(|| lock(&shared.desktop).language());
         return not_found(&mut stream, language);
     };
+    let query = route.split_once('?').map(|(_, query)| query).unwrap_or("");
     let route = route.split('?').next().unwrap_or("");
     if request.method == "GET" && route == "mark.png" {
         return respond_bytes(&mut stream, "image/png", MARK_PNG);
@@ -139,6 +140,11 @@ fn serve<S: SecretStore>(mut stream: TcpStream, shared: &Shared<S>) -> std::io::
     let page = match (request.method.as_str(), route) {
         ("GET", "") => form_page(shared, language, None, &BTreeMap::new()),
         ("GET", "add") => add_page(shared, language),
+        ("GET", "devices") => {
+            let chosen = query.strip_prefix("remove=").unwrap_or("");
+            devices_page(shared, language, chosen, None)
+        }
+        ("POST", "devices/remove") => remove_device(shared, language, &parse_form(&request.body)),
         ("POST", "create") => create(shared, language, &parse_form(&request.body)),
         ("POST", "recovery") => change_recovery(shared, language),
         ("POST", "join") => join(shared, language, &parse_form(&request.body)),
@@ -315,6 +321,7 @@ fn dashboard<S: SecretStore>(
     let place = desktop.storage_place().unwrap_or_default();
     let local = desktop.storage_is_local_folder();
     let devices = desktop.devices().to_vec();
+    let sync_lines = desktop.sync_lines();
     drop(desktop);
 
     let notice = match notice {
@@ -414,18 +421,36 @@ fn dashboard<S: SecretStore>(
     };
     let recovery = if profile.role == Role::Maintainer {
         format!(
-            "<section class=\"card\"><h2>{}</h2><p class=\"hint\">{}</p>\
-             <form method=\"post\" action=\"{base}recovery\" \
-             onsubmit=\"busy(this,'{}')\"><button class=\"secondary\">{}</button></form></section>",
-            t("Recovery password", "Senha de recuperação"),
-            t(
+            "<section class=\"card\"><h2>{title}</h2><p class=\"hint\">{hint}</p>\
+             <button type=\"button\" class=\"secondary\" data-reveal=\"recovery-confirm\" \
+             aria-expanded=\"false\" aria-controls=\"recovery-confirm\">{ask}</button>\
+             <form method=\"post\" action=\"{base}recovery\" id=\"recovery-confirm\" hidden \
+             onsubmit=\"busy(this,'{changing}')\"><p class=\"warn\">{consequence}</p>\
+             <label class=\"check\"><input type=\"checkbox\" required> {ready}</label>\
+             <button class=\"danger\">{change}</button>\
+             <button type=\"button\" class=\"secondary\" data-hide=\"recovery-confirm\">{cancel}</button>\
+             </form></section>",
+            title = t("Recovery password", "Senha de recuperação"),
+            hint = t(
                 "Replace it if it leaked or you lost track of it. Devices keep working. \
                  You get the new one once.",
                 "Troque se ela vazou ou se você perdeu o controle dela. Os aparelhos continuam \
                  funcionando. Você vê a nova uma vez só.",
             ),
-            t("Changing…", "Trocando…"),
-            t("Change recovery password", "Trocar senha de recuperação"),
+            ask = t("Change recovery password…", "Trocar senha de recuperação…"),
+            consequence = t(
+                "The current recovery password stops opening the repository, also in the official \
+                 restic. The new one appears once, on the next page.",
+                "A senha de recuperação atual deixa de abrir o repositório, também no restic \
+                 oficial. A nova aparece uma vez só, na próxima página.",
+            ),
+            ready = t(
+                "I can save the new one in my password manager now.",
+                "Consigo guardar a nova no meu gerenciador de senhas agora.",
+            ),
+            changing = t("Changing…", "Trocando…"),
+            change = t("Change now", "Trocar agora"),
+            cancel = t("Cancel", "Cancelar"),
         )
     } else {
         String::new()
@@ -456,20 +481,23 @@ fn dashboard<S: SecretStore>(
     } else {
         String::new()
     };
+    let status = status_card(language, &sync_lines, local, &base);
     page(
         language,
         &format!(
             "<h1>{title}</h1>{notice}
+{status}
 <section class=\"card\"><h2>{folders_title}</h2>{kept}</section>
 {elsewhere}
+{devices_card}
 <section class=\"card\"><h2>{add_title}</h2><p class=\"hint\">{add_hint}</p>
 <form method=\"post\" action=\"{base}folders/add\">
 <label for=\"new-folder\">{folder_label}</label>{new_field}
 <label>{name_label} <input name=\"name\" placeholder=\"{name_hint}\"></label>
-<button>{add}</button></form></section>
+<button class=\"secondary\">{add}</button></form></section>
 <section class=\"card\"><h2>{storage_title}</h2><p><code>{place}</code></p>{local_note}</section>
 {recovery}
-{devices_card}{main_card}
+{main_card}
 <section class=\"card\"><h2>{leave_title}</h2><p class=\"hint\">{leave_hint}</p>
 <button type=\"button\" class=\"secondary\" id=\"leave-open\" aria-expanded=\"false\" aria-controls=\"leave-confirm\">{leave_ask}</button>
 <form method=\"post\" action=\"{base}disconnect\" id=\"leave-confirm\" hidden>
@@ -484,6 +512,8 @@ try{{const r=await fetch('{base}pick',{{method:'POST',headers:{{'Content-Type':'
 if(r.status===200){{const i=document.getElementById(b.dataset.target);i.value=await r.text();i.focus();}}}}
 else if(r.status!==204){{toast('{pick_failed}','error');}}}}
 finally{{b.disabled=false;b.textContent=label;}}}});}}
+for(const b of document.querySelectorAll('[data-reveal]')){{b.addEventListener('click',()=>{{const box=document.getElementById(b.dataset.reveal);box.hidden=false;b.hidden=true;b.setAttribute('aria-expanded','true');box.querySelector('input,button').focus();}});}}
+for(const b of document.querySelectorAll('[data-hide]')){{b.addEventListener('click',()=>{{const box=document.getElementById(b.dataset.hide);box.hidden=true;const o=document.querySelector('[data-reveal=\"'+b.dataset.hide+'\"]');o.hidden=false;o.setAttribute('aria-expanded','false');o.focus();}});}}
 const leaveOpen=document.getElementById('leave-open'),leaveBox=document.getElementById('leave-confirm');
 leaveOpen.addEventListener('click',()=>{{leaveBox.hidden=false;leaveOpen.hidden=true;leaveOpen.setAttribute('aria-expanded','true');leaveBox.querySelector('button.danger').focus();}});
 document.getElementById('leave-cancel').addEventListener('click',()=>{{leaveBox.hidden=true;leaveOpen.hidden=false;leaveOpen.setAttribute('aria-expanded','false');leaveOpen.focus();}});
@@ -526,6 +556,39 @@ document.getElementById('leave-cancel').addEventListener('click',()=>{{leaveBox.
     )
 }
 
+/// The top of the dashboard: how the last sync on this device ended, and the way to add a device.
+fn status_card(language: Language, lines: &[crate::SyncLine], local: bool, base: &str) -> String {
+    let t = |en: &'static str, pt: &'static str| language.pick(en, pt);
+    let mut rows = String::new();
+    for (index, line) in lines.iter().enumerate() {
+        let class = match (index, line.tone) {
+            (_, crate::Tone::Warn) => "warn",
+            (0, crate::Tone::Plain) => "state",
+            _ => "hint",
+        };
+        rows.push_str(&format!("<p class=\"{class}\">{}</p>", escape(&line.text)));
+    }
+    let add = if local {
+        String::new()
+    } else {
+        format!(
+            "<a class=\"button\" href=\"{base}add\">{}</a>",
+            t("Add device", "Adicionar aparelho")
+        )
+    };
+    format!(
+        "<section class=\"card\" aria-labelledby=\"sync-title\"><h2 id=\"sync-title\">{title}</h2>\
+         {rows}<p class=\"hint\">{how}</p>{add}</section>",
+        title = t("Sync on this device", "Sincronização neste aparelho"),
+        how = t(
+            "The Satchel menu syncs every two minutes and shows the same state. This page shows \
+             it as of when it opened.",
+            "O menu do Satchel sincroniza a cada dois minutos e mostra o mesmo estado. Esta \
+             página mostra como estava quando abriu.",
+        ),
+    )
+}
+
 /// The repository's devices: who each is, when it last synced, and which is main.
 fn devices_card(
     language: Language,
@@ -551,7 +614,7 @@ fn devices_card(
                 t("this one", "este")
             ));
         }
-        let os = card.os.clone().unwrap_or_default();
+        let os = card.os.as_deref().map(os_label).unwrap_or_default();
         let seen = crate::app::local_clock(u64::try_from(card.last_unix).unwrap_or(0));
         rows.push_str(&format!(
             "<div class=\"folder\"><h3>{} {badges}</h3><p class=\"hint\">{}{}{} {}</p></div>",
@@ -573,10 +636,10 @@ fn devices_card(
     }
     let hint = match profile.role {
         Role::Maintainer => t(
-            "This is a main device: it removes devices, from the tray, and changes the recovery \
-             password. Any device adds devices.",
-            "Este é um aparelho principal: ele remove aparelhos, pela bandeja, e troca a senha \
-             de recuperação. Qualquer aparelho adiciona aparelhos.",
+            "This is a main device: it removes devices and changes the recovery password. Any \
+             device adds devices.",
+            "Este é um aparelho principal: ele remove aparelhos e troca a senha de recuperação. \
+             Qualquer aparelho adiciona aparelhos.",
         ),
         Role::Member => t(
             "Any device adds devices. Removing one, or changing the recovery password, is done \
@@ -585,10 +648,191 @@ fn devices_card(
              se faz num aparelho principal.",
         ),
     };
+    let remove = if profile.role == Role::Maintainer && profile.object_store.is_some() {
+        format!(
+            "<a class=\"button secondary\" href=\"devices\">{}</a>",
+            t("Remove a device…", "Remover um aparelho…")
+        )
+    } else {
+        String::new()
+    };
     format!(
-        "<section class=\"card\"><h2>{}</h2><p class=\"hint\">{hint}</p>{rows}</section>",
+        "<section class=\"card\"><h2>{}</h2><p class=\"hint\">{hint}</p>{rows}{remove}</section>",
         t("Devices", "Aparelhos")
     )
+}
+
+/// What removing a device does and does not do, said before it is done.
+fn removal_consequence(language: Language) -> (&'static str, &'static str) {
+    (
+        language.pick(
+            "Removing deletes its key file: its password no longer opens the repository. It keeps \
+             the copies it already opened.",
+            "Remover apaga o arquivo de chave dele: a senha dele deixa de abrir o repositório. Ele \
+             fica com as cópias que já abriu.",
+        ),
+        language.pick(
+            "It keeps the bucket access key, which all devices share: until you replace that key in \
+             the storage's console, it can still list, read and write in the bucket, and on R2 and \
+             B2 also delete. After the replacement the other devices join again.",
+            "Ele continua com a chave de acesso ao bucket, que é a mesma em todos os aparelhos: até \
+             você trocar essa chave no painel do armazenamento, ele ainda lista, lê e grava no \
+             bucket, e no R2 e no B2 também apaga. Depois da troca, os outros aparelhos entram de novo.",
+        ),
+    )
+}
+
+/// The devices a main device can remove, each with its name when it published one.
+fn devices_page<S: SecretStore>(
+    shared: &Shared<S>,
+    language: Language,
+    chosen: &str,
+    notice: Option<Notice>,
+) -> String {
+    let t = |en: &'static str, pt: &'static str| language.pick(en, pt);
+    let base = format!("/{}/", shared.token);
+    let title = t("Remove a device", "Remover um aparelho");
+    let mut desktop = lock(&shared.desktop);
+    let Some(profile) = desktop.profile().cloned() else {
+        drop(desktop);
+        return form_page(shared, language, None, &BTreeMap::new());
+    };
+    let notice = match notice {
+        Some(Notice::Done(text)) => {
+            format!("<p class=\"done\" role=\"status\">{}</p>", escape(&text))
+        }
+        Some(Notice::Failed(text)) => {
+            format!("<p class=\"error\" role=\"alert\">{}</p>", escape(&text))
+        }
+        None => String::new(),
+    };
+    let back = format!(
+        "<p><a href=\"{base}\">{}</a></p>",
+        t("Back to this device", "Voltar para este aparelho")
+    );
+    if profile.role != Role::Maintainer {
+        drop(desktop);
+        return page(
+            language,
+            &format!(
+                "<h1>{title}</h1><section class=\"card\"><p>{}</p></section>{back}",
+                t(
+                    "Only a main device removes devices.",
+                    "Só um aparelho principal remove aparelhos."
+                )
+            ),
+        );
+    }
+    if let Err(err) = desktop.load_device_keys(&*shared.secrets) {
+        drop(desktop);
+        return page(
+            language,
+            &format!(
+                "<h1>{title}</h1>{notice}<section class=\"card\"><p class=\"error\" role=\"alert\">{}</p></section>{back}",
+                escape(&describe(language, &err))
+            ),
+        );
+    }
+    let keys = desktop.device_keys().map(<[_]>::to_vec).unwrap_or_default();
+    let cards = desktop.devices().to_vec();
+    drop(desktop);
+    let mut rows = String::new();
+    for key in &keys {
+        let card = cards.iter().find(|card| card.id == key.device_id.as_str());
+        let name = card.and_then(|card| card.name.clone()).unwrap_or_else(|| {
+            t("A device with no name yet", "Um aparelho ainda sem nome").to_string()
+        });
+        let mut facts = Vec::new();
+        if let Some(os) = card.and_then(|card| card.os.as_deref()) {
+            facts.push(os_label(os));
+        }
+        if let Some(card) = card {
+            facts.push(format!(
+                "{} {}",
+                t("last sync", "última sincronização"),
+                crate::app::local_clock(u64::try_from(card.last_unix).unwrap_or(0))
+            ));
+        }
+        facts.push(format!(
+            "id {}",
+            grouped_fingerprint(key.device_id.as_str())
+        ));
+        let open = if key.key_id == chosen { " open" } else { "" };
+        rows.push_str(&format!(
+            "<details class=\"folder\"{open}><summary>{name}</summary><p class=\"hint\">{facts}</p>\
+             <form method=\"post\" action=\"{base}devices/remove\" onsubmit=\"busy(this,'{removing}')\">\
+             <input type=\"hidden\" name=\"key\" value=\"{key_id}\">\
+             <label class=\"check\"><input type=\"checkbox\" required> {confirm}</label>\
+             <button class=\"danger\">{remove}</button></form></details>",
+            name = escape(&name),
+            facts = escape(&facts.join(" · ")),
+            key_id = escape(&key.key_id),
+            removing = t("Removing…", "Removendo…"),
+            confirm = t(
+                "I read what removing does and does not do.",
+                "Li o que remover faz e o que não faz.",
+            ),
+            remove = t("Remove this device", "Remover este aparelho"),
+        ));
+    }
+    if rows.is_empty() {
+        rows = format!(
+            "<p class=\"hint\">{}</p>",
+            t(
+                "No other device has a key.",
+                "Nenhum outro aparelho tem chave."
+            )
+        );
+    }
+    page(
+        language,
+        &format!(
+            "<h1>{title}</h1>{notice}<section class=\"card\"><p>{does}</p><p class=\"warn\">{does_not}</p>{rows}</section>{back}
+<script>function busy(f,t){{const b=f.querySelector('button');b.disabled=true;b.textContent=t;b.setAttribute('aria-busy','true');}}</script>",
+            does = escape(removal_consequence(language).0),
+            does_not = escape(removal_consequence(language).1),
+        ),
+    )
+}
+
+fn remove_device<S: SecretStore>(
+    shared: &Shared<S>,
+    language: Language,
+    form: &BTreeMap<String, String>,
+) -> String {
+    let key = field(form, "key");
+    let result = {
+        let mut desktop = lock(&shared.desktop);
+        let maintainer = desktop
+            .profile()
+            .is_some_and(|profile| profile.role == Role::Maintainer);
+        if !maintainer {
+            Err(language
+                .pick(
+                    "Only a main device removes devices.",
+                    "Só um aparelho principal remove aparelhos.",
+                )
+                .to_string())
+        } else {
+            desktop
+                .revoke_device_key(&*shared.secrets, key)
+                .map_err(|err| describe(language, &err))
+        }
+    };
+    let notice = match result {
+        Ok(()) => Notice::Done(
+            language
+                .pick(
+                    "Removed: its key no longer opens the repository. Replace the devices' bucket \
+                     key in the storage's console to cut its access to the bucket too.",
+                    "Removido: a chave dele não abre mais o repositório. Troque a chave dos \
+                     aparelhos no painel do armazenamento para cortar também o acesso ao bucket.",
+                )
+                .to_string(),
+        ),
+        Err(text) => Notice::Failed(text),
+    };
+    devices_page(shared, language, "", Some(notice))
 }
 
 /// On a device that joined: become a main device with the recovery password and,
@@ -725,12 +969,16 @@ fn add_page<S: SecretStore>(shared: &Shared<S>, language: Language) -> String {
 <p><span class=\"hint\">{address_label}</span> <code>{address}</code></p>
 <p><span class=\"hint\">{fingerprint_label}</span> <code>{fingerprint}</code></p>
 <p class=\"hint\">{expires}</p>
-<button type=\"button\" class=\"secondary\" onclick=\"act('stop')\">{stop}</button></section>
+<p class=\"hint\">{copy_hint}</p>
+<textarea id=\"invite\" hidden readonly>{invite}</textarea>
+<button type=\"button\" class=\"secondary\" onclick=\"navigator.clipboard.writeText(document.getElementById('invite').value).then(()=>toast('{copied}','ok'),()=>toast('{copy_failed}','error'))\">{copy}</button>
+<button type=\"button\" class=\"secondary\" onclick=\"act('stop',this)\">{stop}</button></section>
 <section class=\"card\" id=\"pending\" hidden><h2 id=\"who\"></h2>
 <p id=\"what\" class=\"hint\"></p>
+<p>{here_label} <strong class=\"code-inline\">{code}</strong></p>
 <p class=\"hint\">{check}</p>
-<button type=\"button\" onclick=\"act('approve')\">{approve}</button>
-<button type=\"button\" class=\"secondary\" onclick=\"act('deny')\">{deny}</button></section>
+<button type=\"button\" onclick=\"act('approve',this)\">{approve}</button>
+<button type=\"button\" class=\"secondary\" onclick=\"act('deny',this)\">{deny}</button></section>
 <section class=\"card\" id=\"done\" hidden role=\"status\"><p id=\"result\"></p>
 <button type=\"button\" onclick=\"location.reload()\">{again}</button></section>
 <script>
@@ -739,10 +987,12 @@ const words={{joins:'{joins}',system:'{system}',from:'{from}',typed:'{typed}',ap
 function show(id){{for(const s of ['waiting','pending','done'])document.getElementById(s).hidden=s!==id;}}
 function finish(text,bad){{stopped=true;const r=document.getElementById('result');r.textContent=text;r.className=bad?'error':'';show('done');}}
 async function poll(){{if(stopped)return;try{{const r=await fetch(base+'add/state');const s=await r.json();
+if(stopped)return;
 if(s.state==='pending'){{document.getElementById('who').textContent=words.joins.replace('%',s.name);
 document.getElementById('what').textContent=words.system+' '+s.os+' · '+words.from+' '+s.from+' · '+words.typed+' '+s.code;show('pending');}}
 else if(s.state==='closed'){{finish(s.problem||words.closed,!!s.problem);return;}}}}catch(e){{}}setTimeout(poll,1000);}}
-async function act(what){{for(const b of document.querySelectorAll('button'))b.disabled=true;
+async function act(what,button){{stopped=true;for(const b of document.querySelectorAll('button'))b.disabled=true;
+button.textContent=what==='approve'?'{approving}':what==='deny'?'{denying}':'{stopping}';button.setAttribute('aria-busy','true');
 try{{const r=await fetch(base+'add/'+what,{{method:'POST'}});const s=await r.json();
 if(!s.ok){{finish(s.message,true);return;}}
 finish(what==='approve'?words.approved:what==='deny'?words.denied:words.closed,false);}}
@@ -772,10 +1022,28 @@ poll();
             ),
             stop = t("Stop adding", "Parar de adicionar"),
             check = t(
-                "Approve only if this is your device and the code matches the one above.",
-                "Aprove só se este for o seu aparelho e o código for o mesmo daqui.",
+                "Approve only if this is your device and the code it typed is the one on this \
+                 screen.",
+                "Aprove só se este for o seu aparelho e o código digitado for o desta tela.",
             ),
             approve = t("Approve", "Aprovar"),
+            approving = t("Approving…", "Aprovando…"),
+            denying = t("Denying…", "Recusando…"),
+            stopping = t("Stopping…", "Parando…"),
+            here_label = t("Code on this screen:", "Código desta tela:"),
+            invite = escape(&offer.invite),
+            copy = t("Copy invite", "Copiar convite"),
+            copied = t("Invite copied.", "Convite copiado."),
+            copy_failed = t(
+                "Couldn't copy. Type the code, the address and the fingerprint instead.",
+                "Não deu para copiar. Digite o código, o endereço e a impressão digital.",
+            ),
+            copy_hint = t(
+                "On another computer you can also paste the whole invite in Join, instead of \
+                 typing the three fields.",
+                "Noutro computador você também pode colar o convite inteiro em Entrar, em vez de \
+                 digitar os três campos.",
+            ),
             deny = t("Deny", "Recusar"),
             again = t("Add another device", "Adicionar outro aparelho"),
             joins = t("“%” wants to join", "“%” quer entrar"),
@@ -790,6 +1058,18 @@ poll();
             closed = t("Add device is closed.", "Adicionar aparelho foi encerrado."),
         ),
     )
+}
+
+/// The system as people write it: “macOS”, not Rust's “macos”.
+fn os_label(os: &str) -> String {
+    match os {
+        "macos" => "macOS".to_string(),
+        "ios" => "iOS".to_string(),
+        "linux" => "Linux".to_string(),
+        "android" => "Android".to_string(),
+        "windows" => "Windows".to_string(),
+        other => other.to_string(),
+    }
 }
 
 fn grouped_fingerprint(hex: &str) -> String {
@@ -826,11 +1106,13 @@ fn add_action<S: SecretStore>(
             }
         }
         ("GET", "state") => {
+            // The page asks every second; it must not wait for the tray's own timer.
+            desktop.poll();
             let value = if let Some(pending) = desktop.pending() {
                 serde_json::json!({
                     "state": "pending",
                     "name": pending.device_name,
-                    "os": pending.os,
+                    "os": os_label(&pending.os),
                     "from": pending.peer_address.ip().to_string(),
                     "code": pending.code,
                 })
@@ -903,7 +1185,7 @@ fn change_recovery<S: SecretStore>(shared: &Shared<S>, language: Language) -> St
         Ok(password) => page(
             language,
             &format!(
-                "<h1>{}</h1><p>{}</p>{}<p class=\"hint\">{}</p>",
+                "<h1>{}</h1><p>{}</p>{}<p class=\"hint\">{}</p>{}",
                 t("Recovery password changed", "Senha de recuperação trocada"),
                 t(
                     "Save the new password in a password manager that opens without this \
@@ -922,6 +1204,7 @@ fn change_recovery<S: SecretStore>(shared: &Shared<S>, language: Language) -> St
                      antiga dele num bucket versionado, ainda pode usar a senha antiga. Isto não \
                      troca a chave dos dados.",
                 ),
+                saved_button(language, &format!("/{}/", shared.token)),
             ),
         ),
         Err(err) => page(
@@ -996,6 +1279,22 @@ fn create_from_form<S: SecretStore>(
     let created = desktop
         .create_repository(&*shared.secrets, folder, setup, device_access)
         .map_err(|err| describe(language, &err))?;
+    let next = if kind == StorageKind::Directory {
+        t(
+            "This folder syncs on its own every two minutes; the Satchel menu shows when. The \
+             encrypted copies are on this computer, so no other device can join.",
+            "Esta pasta sincroniza sozinha a cada dois minutos; o menu do Satchel mostra quando. \
+             As cópias cifradas estão neste computador, então nenhum outro aparelho entra.",
+        )
+    } else {
+        t(
+            "Next: Add device, on the next page or in the Satchel menu, brings in your phone or \
+             another computer. This folder syncs on its own every two minutes.",
+            "Próximo passo: Adicionar aparelho, na próxima página ou no menu do Satchel, traz o \
+             celular ou outro computador. Esta pasta sincroniza sozinha a cada dois minutos.",
+        )
+    };
+    let base = format!("/{}/", shared.token);
     let warning = match created.protection {
         SetupCheck::Ready => format!(
             "<p>{}</p>",
@@ -1015,7 +1314,7 @@ fn create_from_form<S: SecretStore>(
     Ok(page(
         language,
         &format!(
-            "<h1>{}</h1>{warning}<p>{}</p>{}<p class=\"hint\">{}</p>",
+            "<h1>{}</h1>{warning}<p>{}</p>{}<p class=\"hint\">{}</p>{}",
             t("Repository created", "Repositório criado"),
             t(
                 "Save this recovery password in a password manager that opens without this \
@@ -1024,12 +1323,8 @@ fn create_from_form<S: SecretStore>(
                  repositório. Ela aparece uma vez só, e o <code>restic</code> oficial usa a mesma.",
             ),
             secret_block(language, &created.recovery_password),
-            t(
-                "Next: choose Add device in the tray menu to bring in your phone or another \
-                 computer. This folder syncs on its own.",
-                "Próximo passo: escolha Adicionar aparelho no menu da bandeja para trazer o \
-                 celular ou outro computador. Esta pasta sincroniza sozinha.",
-            ),
+            next,
+            saved_button(language, &base),
         ),
     ))
 }
@@ -1091,14 +1386,18 @@ fn join_from_form<S: SecretStore>(
     Ok(page(
         language,
         &format!(
-            "<h1>{}</h1><p>{}</p>",
+            "<h1>{}</h1><p>{}</p><a class=\"button\" href=\"/{}/\">{}</a>",
             t("Joined", "Pronto, este aparelho entrou"),
             t(
-                "This device has its own key. It syncs on its own now. The recovery password \
-                 stays with the device that created the repository.",
-                "Este aparelho tem a própria chave e já sincroniza sozinho. A senha de \
-                 recuperação fica com o aparelho que criou o repositório.",
+                "This device has its own key and opened the repository with it. The first sync \
+                 runs within two minutes; the Satchel menu shows when it ends. The recovery \
+                 password stays with the device that created the repository.",
+                "Este aparelho tem a própria chave e já abriu o repositório com ela. A primeira \
+                 sincronização roda em até dois minutos; o menu do Satchel mostra quando termina. \
+                 A senha de recuperação fica com o aparelho que criou o repositório.",
             ),
+            shared.token,
+            t("See this device", "Ver este aparelho"),
         ),
     ))
 }
@@ -1153,6 +1452,27 @@ fn form_page<S: SecretStore>(
         Some(message) => format!("<p class=\"error\" role=\"alert\">{}</p>", escape(message)),
         None => String::new(),
     };
+    // The refused form opens again with the message beside it; nothing is open on a first visit.
+    let open = if typed.contains_key("join_folder") {
+        "join"
+    } else if typed.contains_key("folder") {
+        "create"
+    } else {
+        ""
+    };
+    let (create_notice, join_notice) = match open {
+        "join" => (String::new(), notice),
+        "create" => (notice, String::new()),
+        _ => (String::new(), String::new()),
+    };
+    let manual_open = if ["address", "code", "fingerprint"]
+        .iter()
+        .any(|name| typed.get(*name).is_some_and(|text| !text.is_empty()))
+    {
+        " open"
+    } else {
+        ""
+    };
     let v_folder = value("folder");
     let v_repository = value("repository");
     let v_endpoint = value("endpoint");
@@ -1188,9 +1508,12 @@ fn form_page<S: SecretStore>(
         language,
         &format!(
             "<h1>{title}</h1>
-<p class=\"lead\">{lead}</p>{notice}
-<section class=\"card\"><h2>{create_title}</h2>
-<p class=\"hint\">{create_hint}</p>
+<p class=\"lead\">{lead}</p>
+<div class=\"choice\" role=\"group\" aria-label=\"{choice_label}\">
+<button type=\"button\" class=\"secondary\" data-open=\"create\" aria-controls=\"create\" aria-pressed=\"false\"><strong>{choose_create}</strong><span>{choose_create_hint}</span></button>
+<button type=\"button\" class=\"secondary\" data-open=\"join\" aria-controls=\"join\" aria-pressed=\"false\"><strong>{choose_join}</strong><span>{choose_join_hint}</span></button></div>
+<section class=\"card\" id=\"create\"><h2>{create_title}</h2>
+<p class=\"hint\">{create_hint}</p>{create_notice}
 <form method=\"post\" action=\"{base}create\" onsubmit=\"busy(this,'{checking}')\">
 <label for=\"folder\">{synced}</label>{pick_folder}
 <p class=\"hint\">{synced_hint}</p>
@@ -1209,28 +1532,62 @@ fn form_page<S: SecretStore>(
 <label>{device_key} <input name=\"device_access_key_id\"{v_device_access_key_id} autocomplete=\"off\"></label>
 <label>{device_secret} <input name=\"device_secret_access_key\" type=\"password\" autocomplete=\"off\"></label></div>
 <button>{create}</button></form></section>
-<section class=\"card\"><h2>{join_title}</h2>
-<p class=\"hint\">{join_hint}</p>
+<section class=\"card\" id=\"join\"><h2>{join_title}</h2>
+<p class=\"hint\">{join_hint}</p>{join_notice}
 <form method=\"post\" action=\"{base}join\" onsubmit=\"busy(this,'{waiting}')\">
 <label for=\"join_folder\">{synced}</label>{pick_join}
 <p class=\"hint\">{join_synced_hint}</p>
 <label>{device_name} <input name=\"device_name\"{v_device_name} placeholder=\"Desktop\"></label>
-<label>{address} <input name=\"address\"{v_address} placeholder=\"100.64.0.2:4000\"></label>
-<label>{code} <input name=\"code\"{v_code} inputmode=\"numeric\"></label>
-<label>{fingerprint} <input name=\"fingerprint\"{v_fingerprint}></label>
+<label>{code} <input name=\"code\"{v_code} inputmode=\"numeric\" autocomplete=\"off\"></label>
+<label>{address} <input name=\"address\"{v_address} autocomplete=\"off\"></label>
+<label>{fingerprint} <input name=\"fingerprint\"{v_fingerprint} autocomplete=\"off\"></label>
+<p class=\"hint\">{manual_hint}</p>
+<details{manual_open}><summary>{paste_summary}</summary>
 <label>{paste} <textarea name=\"invite\" rows=\"3\">{invite}</textarea></label>
+<p class=\"hint\">{paste_hint}</p></details>
 <button>{join}</button></form></section>
 <script>
+const opened='{open}';
+function openCard(id){{for(const c of ['create','join']){{document.getElementById(c).hidden=id!==c;}}
+for(const b of document.querySelectorAll('[data-open]')){{b.setAttribute('aria-pressed',String(b.dataset.open===id));}}}}
+for(const b of document.querySelectorAll('[data-open]')){{b.addEventListener('click',()=>{{openCard(b.dataset.open);document.querySelector('#'+b.dataset.open+' input').focus();}});}}
+openCard(opened);
+if(opened){{const e=document.querySelector('#'+opened+' .error');if(e){{e.tabIndex=-1;e.focus();}}}}
 const kind=document.querySelector('select[name=kind]');
 function show(){{const o=kind.value!=='folder';document.getElementById('obj').hidden=!o;document.getElementById('fol').hidden=o;}}
 kind.addEventListener('change',show);show();
-function busy(f,t){{const b=f.querySelector('button:not(.pick)');b.disabled=true;b.textContent=t;b.setAttribute('aria-busy','true');}}
+function busy(f,t){{const b=f.querySelector('button:not(.pick)');b.disabled=true;b.textContent=t;b.setAttribute('aria-busy','true');
+for(const e of document.querySelectorAll('.error'))e.hidden=true;}}
 for(const b of document.querySelectorAll('button.pick')){{b.addEventListener('click',async()=>{{
 const label=b.textContent;b.disabled=true;b.textContent='{choosing}';
 try{{const r=await fetch('{base}pick',{{method:'POST',headers:{{'Content-Type':'application/x-www-form-urlencoded'}},body:'for='+b.dataset.for}});
 if(r.status===200){{const i=document.getElementById(b.dataset.target);i.value=await r.text();i.focus();}}}}
 finally{{b.disabled=false;b.textContent=label;}}}});}}
 </script>",
+            choice_label = t("How to start", "Como começar"),
+            choose_create = t("This is my first device", "Este é o meu primeiro aparelho"),
+            choose_create_hint = t(
+                "Create the repository and choose where the encrypted copies go.",
+                "Criar o repositório e escolher onde ficam as cópias cifradas.",
+            ),
+            choose_join = t("I already use Satchel on another device", "Já uso o Satchel noutro aparelho"),
+            choose_join_hint = t(
+                "Join it with the code it shows. No storage account to type.",
+                "Entrar com o código que ele mostra. Sem digitar a conta do armazenamento.",
+            ),
+            manual_hint = t(
+                "The three appear on the other device, under Add device. Type them as they \
+                 appear there, spaces included.",
+                "Os três aparecem no outro aparelho, em Adicionar aparelho. Digite como aparecem \
+                 lá, com os espaços.",
+            ),
+            paste_summary = t("Paste the whole invite instead", "Colar o convite inteiro"),
+            paste_hint = t(
+                "Copy invite, on the other computer's Add device page, copies it. With the invite \
+                 the three fields above can stay empty.",
+                "Copiar convite, na página Adicionar aparelho do outro computador, copia o convite. \
+                 Com ele, os três campos acima podem ficar vazios.",
+            ),
             pick_folder = folder_field("folder", &v_folder, folder_example, PickFor::Synced),
             pick_repository = folder_field("repository", &v_repository, "", PickFor::Repository),
             pick_join = folder_field("join_folder", &v_join_folder, folder_example, PickFor::Synced),
@@ -1242,11 +1599,11 @@ finally{{b.disabled=false;b.textContent=label;}}}});}}
                 "O Satchel mantém uma pasta igual em todos os seus aparelhos. Cada versão vai, \
                  cifrada, para um armazenamento que você escolhe, e só os seus aparelhos abrem.",
             ),
-            create_title = t("First device: create the repository", "Primeiro aparelho: criar o repositório"),
+            create_title = t("Create the repository", "Criar o repositório"),
             create_hint = t(
-                "Do this once, on one computer. It keeps the recovery password and the \
+                "Do this once, on one device. It keeps the recovery password and the \
                  storage account. Your other devices join with a code and never type the account.",
-                "Faça isto uma vez, num computador. Ele guarda a senha de recuperação e a \
+                "Faça isto uma vez, num aparelho só. Ele guarda a senha de recuperação e a \
                  conta do armazenamento. Os outros aparelhos entram com um código e nunca \
                  digitam a conta.",
             ),
@@ -1301,12 +1658,12 @@ finally{{b.disabled=false;b.textContent=label;}}}});}}
             ),
             device_secret = t("Device secret", "Segredo dos aparelhos"),
             create = t("Create", "Criar"),
-            join_title = t("Another device: join with a code", "Outro aparelho: entrar com um código"),
+            join_title = t("Join with a code", "Entrar com um código"),
             join_hint = t(
-                "Open Add device on the device that holds the repository, then copy its \
-                 address, code and fingerprint, or paste the whole invite.",
-                "Abra Adicionar aparelho no aparelho que mantém o repositório e copie o \
-                 endereço, o código e a impressão digital, ou cole o convite inteiro.",
+                "On a device that already uses Satchel, open Add device. Keep it open: it shows \
+                 the code here and asks you to approve this device.",
+                "Num aparelho que já usa o Satchel, abra Adicionar aparelho. Deixe aberto: ele \
+                 mostra o código e pede para aprovar este aparelho.",
             ),
             waiting = t(
                 "Waiting for the other device to approve…",
@@ -1316,22 +1673,36 @@ finally{{b.disabled=false;b.textContent=label;}}}});}}
             address = t("Address", "Endereço"),
             code = t("Code", "Código"),
             fingerprint = t("Fingerprint", "Impressão digital"),
-            paste = t("Or paste the invite", "Ou cole o convite"),
+            paste = t("Invite", "Convite"),
             join = t("Join", "Entrar"),
         ),
     )
 }
 
 /// The recovery password, once, with a copy button. Monospace and wrapping.
+/// The password in groups of four to read it back; Copy copies it without the spaces.
 fn secret_block(language: Language, secret: &str) -> String {
     format!(
-        "<div class=\"secret\"><code id=\"secret\">{}</code>\
+        "<div class=\"secret\"><code id=\"secret\" data-secret=\"{raw}\">{grouped}</code>\
          <button type=\"button\" class=\"quiet\" onclick=\"navigator.clipboard.writeText(\
-         document.getElementById('secret').textContent).then(()=>{{toast('{}','ok')}})\">\
-         {}</button></div>",
-        escape(secret),
-        language.pick("Copied", "Copiada"),
-        language.pick("Copy", "Copiar"),
+         document.getElementById('secret').dataset.secret).then(()=>{{toast('{copied}','ok')}})\">\
+         {copy}</button><p class=\"hint\">{spaces}</p></div>",
+        raw = escape(secret),
+        grouped = escape(&grouped_fingerprint(secret)),
+        copied = language.pick("Copied", "Copiada"),
+        copy = language.pick("Copy", "Copiar"),
+        spaces = language.pick(
+            "The spaces are only for reading. The password has none.",
+            "Os espaços são só para ler. A senha não tem espaços.",
+        ),
+    )
+}
+
+/// After a recovery password is shown: the person says it is saved before moving on.
+fn saved_button(language: Language, base: &str) -> String {
+    format!(
+        "<a class=\"button\" href=\"{base}\">{}</a>",
+        language.pick("I saved it", "Guardei a senha")
     )
 }
 
@@ -1360,7 +1731,7 @@ border-radius:12px;background:var(--field);color:var(--ink);font:400 1rem/1.4 sy
 input:focus,select:focus,textarea:focus,button:focus-visible{{outline:2px solid var(--accent);outline-offset:2px}}\
 button{{display:block;width:100%;min-height:48px;margin-top:1rem;border:0;border-radius:14px;\
 background:var(--accent);color:var(--card);font:inherit;font-weight:600;cursor:pointer}}\
-button:disabled{{opacity:.6;cursor:progress}}\
+button:disabled{{opacity:.6;cursor:progress}}a{{color:var(--accent)}}a.button{{display:block;min-height:48px;margin-top:1rem;padding:.75rem 1rem;border-radius:14px;background:var(--accent);color:var(--card);font-weight:600;text-align:center;text-decoration:none}}a.button.secondary{{background:var(--field);color:var(--ink);border:1px solid var(--line)}}a.button:focus-visible{{outline:2px solid var(--accent);outline-offset:2px}}.state{{font-size:1.06rem;font-weight:600}}.choice{{display:grid;gap:.75rem;margin:1rem 0}}.choice button{{margin:0;padding:.9rem 1rem;text-align:left;display:flex;flex-direction:column;gap:.2rem}}.choice button span{{font-weight:400;color:var(--secondary);font-size:.94rem}}.choice button[aria-pressed=true]{{outline:2px solid var(--accent);outline-offset:-2px}}details{{margin-top:.75rem}}summary{{cursor:pointer;color:var(--accent);font-weight:600}}\
 .row{{display:flex;gap:.5rem;align-items:center}}.row input{{flex:1;min-width:0}}\
 button.pick{{width:auto;flex:none;min-height:44px;margin-top:.3rem;padding:0 1rem;background:var(--field);\
 color:var(--ink);border:1px solid var(--line)}}\
@@ -1380,7 +1751,7 @@ label.check input{{width:auto;margin:.2rem 0 0}}\
 button.secondary{{background:var(--field);color:var(--ink);border:1px solid var(--line)}}\
 img.qr{{display:block;width:min(100%,18rem);aspect-ratio:1;margin:1rem auto;image-rendering:pixelated;\
 background:#fff;border-radius:12px;padding:.75rem}}\
-.code{{font:600 2.25rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;margin:.25rem 0 .75rem}}\
+.code-inline{{font:600 1.1rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.06em}}.code{{font:600 2.25rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;margin:.25rem 0 .75rem}}\
 button.quiet{{display:inline;width:auto;min-height:0;margin:0;padding:.25rem 0;background:none;color:var(--accent)}}\
 .error,.warn{{color:var(--danger);font-weight:600}}\
 .secret{{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:1rem;margin:.75rem 0}}\

@@ -1,6 +1,116 @@
 # Progresso do desenvolvimento
 
-Atualizado: 2026-11-07
+## Experiência e confiança
+
+Atualizado: 2026-11-16. A ordem e os limites estão em
+[plano.md](plano.md#próxima-prioridade-proposta-experiência-e-confiança). As
+capturas de antes e depois estão em [capturas/2026-11-16](capturas/2026-11-16/).
+
+| Item do plano | Situação |
+| --- | --- |
+| 1. Diagnosticar a jornada real | Feito no desktop e no iOS (simulador). Android só por código. |
+| 2. Redesenhar a jornada principal | Feito no desktop; pareamento, aprovação e senha nos dois celulares. |
+| 3. Linguagem visual | Bloqueado: faltam as 2 a 5 referências de quem decide o produto. |
+| 4. Lacunas de confiança | Remoção comunicada com precisão. A solução da chave do bucket segue sem decisão. |
+| 5. Preparar a entrega | Descrição da PR atualizada; verificações no fim desta seção. |
+
+### 1. Percurso de 2026-11-16
+
+O desktop foi percorrido no Firefox, pela página real servida por
+`examples/setup_preview`, com um Floci descartável em `127.0.0.1:4599`
+(bucket versionado). Dois desktops neste Mac criaram, entraram pelo código e
+pelo convite colado, aprovaram, recusaram e removeram. O iOS foi percorrido
+no simulador iPhone 18 Pro Max (iOS 27.2) por `testFirstRunJourneyScreens`,
+que guarda as capturas. Não foram exercitados: a bandeja clicada, o seletor
+de pastas, um celular de verdade, a câmera, o Android em emulador (este Mac
+não tem o alvo `aarch64-linux-android` do Rust, e a biblioteca do repositório
+é só x86_64) e qualquer bucket real.
+
+O que o percurso mostrou:
+
+- **Bug, impressão digital com espaços.** O desktop e os celulares mostram a
+  impressão digital em grupos de quatro. Digitada assim, era recusada, e a
+  conexão desfeita encerrava o convite do outro lado. Corrigido em
+  `satchel-pair`: os espaços são ignorados e a impressão é conferida antes de
+  discar (`util::tests`).
+- **Bug, aprovação sem bandeja.** A página de adicionar aparelho só via o
+  pedido quando a bandeja consultava a sessão. A página agora consulta sozinha.
+- **Bug, “encerrado” depois de aprovar.** Depois de Aprovar, a consulta
+  periódica trocava “Pronto” por “Adicionar aparelho foi encerrado”. Corrigido.
+- **Aprovação dependia de memória.** A tela pedia para comparar o código
+  digitado com “o daqui”, mas o código daqui sumia ao chegar o pedido. Agora os
+  dois aparecem juntos, no desktop, no iOS e no Android.
+- **Convite impossível de colar.** A entrada do desktop oferecia colar o
+  convite, mas nenhuma tela o copiava. A página de adicionar ganhou Copiar
+  convite.
+- **Primeira abertura do desktop.** Criar e Entrar tinham o mesmo peso e
+  ocupavam a tela inteira. Agora a página começa pela escolha (“Este é o meu
+  primeiro aparelho” ou “Já uso o Satchel noutro aparelho”) e abre só o
+  formulário escolhido. O erro aparece dentro do formulário enviado, com foco,
+  e some ao reenviar.
+- **Painel sem estado.** A página do aparelho não dizia se ou quando
+  sincronizou; só a bandeja dizia. Agora o primeiro cartão mostra o mesmo
+  estado da bandeja (`Desktop::sync_lines`), com Adicionar aparelho. Adicionar
+  pasta deixou de ser o botão principal.
+- **Senha de recuperação.** No desktop não havia “Guardei”, a senha vinha em
+  64 caracteres seguidos e o próximo passo mandava usar Adicionar aparelho
+  mesmo numa pasta local, onde ele fica desligado. Agora a senha aparece em
+  grupos de quatro (Copiar copia sem espaços), há Guardei a senha, e o próximo
+  passo depende do armazenamento. O mesmo agrupamento foi para o iOS (com
+  Copiar local e que expira em 2 minutos) e o Android.
+- **Troca da senha com um clique.** Trocar senha de recuperação agia na hora.
+  Agora abre uma confirmação que diz que a senha atual deixa de abrir o
+  repositório, inclusive no `restic`.
+- **Promessa antes da prova.** Quem entrava lia “já sincroniza sozinho” antes
+  de qualquer rodada. Agora lê que abriu o repositório com a própria chave e
+  que a primeira sincronização roda em até dois minutos.
+- **Celulares: QR depois dos campos.** O pareamento mostrava três campos e
+  só depois Ler QR. Agora Ler QR vem primeiro, como cartão, e a entrada manual
+  diz onde achar cada campo e que os espaços podem ficar.
+- **Catálogo de exemplo sem aviso.** Num celular sem repositório, o catálogo
+  mostra `kept.txt`, uma amostra local usada pelos testes, como se fosse um
+  arquivo da pessoa. Agora há a linha “Exemplo: …” acima. Se a amostra deve
+  sair da versão de produção não foi decidido.
+- **Texto antigo do R2.** O iOS e o Android ainda diziam que o R2 é sempre
+  recusado, o que deixou de ser verdade em `dec37e3`. O texto agora é o do
+  desktop.
+
+Ainda não tratados: o padrão do armazenamento continua sendo uma pasta local
+no desktop e no celular, o que desliga Adicionar aparelho; o código do
+convite no iOS e no Android não é grande e o QR do iOS fica à esquerda; a
+entrada de quem está esperando aprovação não distingue “o pedido não chegou”
+de “esperando aprovar”. Ficam para a passada visual do item 3.
+
+### 4. Confiança
+
+- **Remover aparelho.** Na bandeja, “Remover aparelho <id>” apagava a chave
+  com um clique, sem nome nem aviso. Agora a linha abre a página Remover um
+  aparelho, que também está no cartão Aparelhos do painel. Ela mostra o nome
+  publicado, o sistema e o último envio, diz o que remover faz (a senha do
+  aparelho deixa de abrir o repositório; as cópias já abertas ficam) e o que
+  não faz (a chave do bucket, a mesma em todos os aparelhos, continua com ele
+  até ser trocada no painel do armazenamento; no R2 e no B2 ela apaga), e
+  pede confirmação. `page_creates_and_joins_and_refuses_strangers` remove pela
+  página e confere que o aparelho removido deixa de publicar.
+- **Solução da chave do bucket.** Não decidida: uma chave por aparelho, ou
+  trocar a chave de todos ao remover alguém. A página só descreve o estado.
+- **Várias pastas, aparelhos e bucket reais.** Não validados nesta passada.
+
+### 5. Verificações em 2026-11-16
+
+- `cargo fmt --all --check` e `cargo clippy --all-targets -- -D warnings`: saíram 0.
+- `satchel-pair` (unidade) e `setup_page` (5 testes, inclui a remoção pela página): passaram.
+- iOS, simulador iPhone 18 Pro Max: `testFirstRunJourneyScreens`, `testCreateFolderRepositoryShowsTheRecoveryPasswordOnceThenTheInvite` e `testCreatorChangesTheRecoveryPasswordAndSeesTheNewOneOnce` passaram (antes de a amostra sair do Release).
+- Android: `:app:testDebugUnitTest` e `:app:compileReleaseKotlin` saíram 0 (Gradle 8.14 local, offline).
+- `caffeinate -d cargo test --no-fail-fast -- --test-threads=1`: saiu 0, todos os testes passaram (1 ignorado de propósito), com o Floci pelo OrbStack.
+- iOS em Release no simulador: a primeira abertura sem repositório não mostra amostra ([captura](capturas/2026-11-16/depois-ios-release-primeira-abertura.png)).
+- **Pendente:** nada foi commitado nem enviado à PR; a descrição nova da PR está rascunhada, não publicada.
+
+Decisões de 2026-11-16: o catálogo de exemplo sai da produção (só builds de teste/Debug); referências visuais candidatas em [referencias-visuais.md](referencias-visuais.md), aguardando a escolha. Revogação: ver a recomendação abaixo, ainda sem decisão final.
+
+Recomendação para a revogação: uma chave de bucket por aparelho dá a melhor experiência (remover corta só aquele aparelho, os outros não pareiam de novo). Trocar a chave de todos obriga a redistribuir a chave nova aos que ficam, e quem estiver offline pareia de novo. As duas exigem a API administrativa do provedor (IAM na AWS, chaves de aplicação com prefixo no B2, API da Cloudflare no R2).
+
+Registro anterior atualizado em: 2026-11-07
 
 O plano está em [plano.md](plano.md). Os passos 1 a 7 estão concluídos neste Mac. O corte do catálogo Android e o corte da superfície de produto no iOS e na bandeja, separados desses passos, estão nas notas de 2026-11-02. O catálogo do iOS neste checkout é uma rolagem de cartões com a marca sem texto. O desenho da tela está em [catalogo-telefone.md](catalogo-telefone.md). Na prova dos passos 1 a 7, `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings` e `cargo test -- --test-threads=1` saíram 0. O daemon é o OrbStack, contexto `orbstack`, rootful (`name=seccomp` e `name=cgroupns`), sem contexto chamado `rootless`, com socket local. `desktop_publishes_and_the_phone_reads_metadata_only` passou nessa suíte e uma segunda vez sozinho: o log mostrou o container em `127.0.0.1`, a imagem `floci/floci:2.3.0` já local, sem pull, e a remoção do container. `tray_binary_follows_the_connected_display` passou de novo com o display ligado; o stderr não citou a senha de recuperação. Os títulos do menu não foram lidos. `gradle -p android test` saiu 0, sem emulador. A abertura nos dois aparelhos, decidida em 2026-11-02, foi feita no mesmo dia; o que ficou provado e o que não está em “Abertura nos dois aparelhos”. O que permanece está em “Aberto”.
 
@@ -9,8 +119,8 @@ O plano está em [plano.md](plano.md). Os passos 1 a 7 estão concluídos neste 
 Fora dos passos numerados:
 
 - Provedor de documentos do iOS, o que sobrou (nota “provedor de documentos do iOS”): escrever pelo Arquivos e o comportamento só leitura num iPhone de verdade (a build assinada já existe; falta instalar e abrir no aparelho).
-- Desktop, o que sobrou das notas de 2026-11-07 (página clara, Adicionar aparelho, várias pastas, aparelho principal, R2): a página nova e os avisos não foram vistos num navegador; o seletor de pastas do macOS não foi aberto por teste; o R2 não foi testado num bucket de verdade; as suítes de interface do iOS e do Android não rodaram depois das várias pastas; a pasta escolhida no celular continua ligada só à primeira pasta do repositório; um build antigo que abra um repositório com mais de uma pasta mistura as pastas.
-- Chave dos aparelhos única: todos os aparelhos recebem a mesma chave do bucket, então um aparelho removido perde a chave do repositório mas continua com acesso ao bucket (no R2 e no B2, inclusive para apagar). Falta uma chave de bucket por aparelho, ou trocar a chave dos aparelhos ao remover alguém.
+- Desktop, o que sobrou das notas de 2026-11-07 (página clara, Adicionar aparelho, várias pastas, aparelho principal, R2): a página e os avisos foram vistos no Firefox em 2026-11-16 (seção “Experiência e confiança”); o seletor de pastas do macOS não foi aberto por teste; o R2 não foi testado num bucket de verdade; as suítes de interface do iOS e do Android não rodaram depois das várias pastas; a pasta escolhida no celular continua ligada só à primeira pasta do repositório; um build antigo que abra um repositório com mais de uma pasta mistura as pastas.
+- Chave dos aparelhos única: todos os aparelhos recebem a mesma chave do bucket, então um aparelho removido perde a chave do repositório mas continua com acesso ao bucket (no R2 e no B2, inclusive para apagar). Falta uma chave de bucket por aparelho, ou trocar a chave dos aparelhos ao remover alguém. Desde 2026-11-16 a página Remover um aparelho diz isso antes de remover.
 - Testes do Floci em paralelo: às vezes um contêiner não sobe na rodada completa; um de cada vez, passam.
 - YubiKey no iPhone.
 - OAuth, relay de push e apagamento remoto.
@@ -188,3 +298,4 @@ As linhas da tabela são o registro de cada passo neste Mac. O que fica de fora 
 - 2026-11-07, várias pastas num repositório: um repositório guarda várias pastas, e cada uma sincroniza como se estivesse sozinha. No núcleo, cada snapshot diz a que pasta pertence (`folder` e `folder_name` no estado, dentro do snapshot cifrado); `load_snaps` lê só os snapshots da pasta pedida. A primeira pasta não tem id, e todo snapshot de antes também é dela, então repositórios e builds antigos continuam vendo a mesma pasta. Funções novas: `Lane`, `Client::in_lane`, `sync_folder_in`, `folders`, `read_followed_in` e `write_latest_in`. Um build antigo que leia um repositório com mais de uma pasta mistura as pastas: todos os aparelhos precisam do build novo antes de alguém adicionar a segunda pasta. No desktop, o perfil passou de `folder` para `folders` (cada uma com id, nome e caminho); um perfil antigo carrega como a primeira pasta. A página do aparelho configurado (menu “Pastas e este aparelho…”) lista as pastas deste computador com Parar de sincronizar aqui (os arquivos ficam na pasta e no repositório), as outras pastas do repositório com Receber neste computador, Adicionar uma pasta (com o seletor), as cópias cifradas, a senha de recuperação e Desconectar este aparelho (esquece perfil e chaveiro, não apaga pasta nem repositório; o aparelho principal precisa confirmar que guardou a senha de recuperação). Uma pasta cujo disco sumiu fica pausada (“não está conectada, pausada” na bandeja), porque sincronizá-la leria a pasta como vazia e apagaria os arquivos nos outros aparelhos; quando o disco volta, ela sincroniza de novo. Se o disco das cópias cifradas some, a sincronização inteira pausa com esse aviso, e nenhum repositório vazio é criado no lugar. Com as cópias numa pasta do computador, Adicionar aparelho fica desligado na bandeja e a página recusa abrir convite. Pastas que se sobrepõem são recusadas. Nos celulares, com uma pasta o catálogo continua igual; com várias, cada pasta vira uma pasta de primeiro nível com o nome dela, e marcar, ler e abrir pelo Arquivos vão para a pasta certa; a pasta escolhida no celular continua ligada à primeira pasta. Provas: `tests/folders.rs` do núcleo (duas pastas, dois aparelhos, nada cruza, apagar tudo numa não toca a outra, leitor por pasta, ids), `tests/folders.rs` do desktop (perfil antigo; adicionar, recusar sobreposição, receber de outro aparelho, disco que some sem apagar nada, parar, desconectar; disco das cópias ausente), `the_device_page_adds_stops_and_disconnects` e a parte nova de `grant_opens_with_the_device_password` (catálogo com `Fotos/` e `Satchel/`, ler, marcar Baixar agora na cópia da pasta certa, abrir pelo provedor). Não rodei as suítes de interface do iOS e do Android nem vi a página num navegador.
 - 2026-11-07, qualquer aparelho adiciona aparelhos, e o principal tem nome: cada desktop publica nos snapshots o próprio nome (o nome do computador, ou o nome digitado ao entrar), o sistema e se é o principal (`Intro`, `sync_folder_introduced`, `devices` no núcleo; `DeviceCard.main`). Adicionar aparelho deixou de ser só do principal: um aparelho que entrou abre o convite e aprova com a própria chave do repositório, e o que vai para o novo aparelho é a chave dos aparelhos, que ele já tem. Remover aparelho e trocar a senha de recuperação continuam no principal. A bandeja de um aparelho que entrou mostra “Aparelho principal: <nome>”, e a página lista os aparelhos com sistema, última sincronização e as marcas “principal” e “este”. Se o principal se perde, “Tornar este um aparelho principal” pede a senha de recuperação e, num bucket, a chave de manutenção; a senha é conferida abrindo o repositório pelo acesso atual, e a chave abrindo de novo com ela, antes de qualquer coisa ir para o chaveiro. O erro “Não dá para enviar a chave dos aparelhos” ao criar virou dois: chave dos aparelhos vazia, e chave dos aparelhos igual à de manutenção, cada um dizendo o que fazer. A página ganhou avisos que somem sozinhos (próprios, sem biblioteca) para o que deu certo e para copiar a senha; erros continuam fixos na página e também aparecem como aviso que só fecha pelo ×. Desconectar não usa mais o `confirm()` do navegador: a confirmação abre dentro do cartão. Provas: `devices_say_who_they_are_and_which_one_is_main`, a continuação de `second_desktop_joins_a_bucket_and_both_sync` no Floci (o membro vê o nome do principal, adiciona um terceiro aparelho que sincroniza e recebe só a chave limitada; senha errada recusada; o membro vira principal e lista as chaves), `the_device_key_must_differ_from_the_maintenance_key` e asserções novas da página. Rust: 102 testes passaram, 1 ignorado; dois testes do Floci falharam ao subir o contêiner na rodada completa e passaram sozinhos. Clippy limpo no Mac, no iOS e no Android. A página não foi vista num navegador.
 - 2026-11-07, R2 sem versionamento: o R2 não tem versionamento de objetos, e o portão pedia versionamento ligado, então criar no R2 sempre falhava com “não deixa esta chave ler o versionamento”. Agora o R2 não é perguntado sobre versionamento (`probe_storage`): só as regras de ciclo de vida são lidas. Sem regra que apague objetos, ele é aceito com o mesmo aviso de uma pasta (uma cópia sobrescrita não volta); com uma regra dessas, continua recusado. S3 e B2 seguem exigindo versionamento. A mensagem de chave recusada diz o que a chave de manutenção precisa: no AWS, `s3:GetBucketVersioning` e `s3:GetLifecycleConfiguration`; no R2, um token com Admin Read & Write. Um aparelho que entrou não consulta mais as configurações do bucket a cada sincronização: a chave limitada não tem permissão de ler o ciclo de vida, e no AWS isso fazia a sincronização dele falhar. Provas: `r2_has_no_versioning_so_it_is_created_with_a_warning`, a recusa do R2 com regra de expiração em `setup_refuses_unprotected_buckets_before_writing_and_accepts_a_protected_one`, `r2_has_no_versioning_so_it_warns_and_still_refuses_a_deleting_lifecycle`, e `second_desktop_joins_a_bucket_and_both_sync` agora espera o aviso. Não foi testado num R2 de verdade. Os testes do Floci passam um de cada vez; em paralelo, às vezes um contêiner não sobe.
+- 2026-11-16, experiência e confiança: percurso real do desktop (Firefox, Floci local) e do iOS (simulador), três bugs de pareamento corrigidos, estado da sincronização no painel, primeira abertura por escolha, QR primeiro nos celulares, senha agrupada, troca de senha e remoção de aparelho com confirmação e consequência. Detalhes na seção “Experiência e confiança”.

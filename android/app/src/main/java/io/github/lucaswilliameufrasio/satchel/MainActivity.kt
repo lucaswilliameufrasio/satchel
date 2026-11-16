@@ -2,6 +2,7 @@
 
 package io.github.lucaswilliameufrasio.satchel
 
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -99,6 +100,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val fixture = intent.getBooleanExtra(EXTRA_FIXTURE, false)
         val sampleRoot = File(cacheDir, "sample").absolutePath
+        val sampleAllowed = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         val storePath = intent.getStringExtra(EXTRA_STORE)
         val pairRequested = intent.getBooleanExtra(EXTRA_PAIR, false)
         val vault = SecureGrant(filesDir)
@@ -114,7 +116,7 @@ class MainActivity : ComponentActivity() {
         val initialSession = if (showPair) {
             null
         } else {
-            CatalogSession(sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido, openFolder))
+            CatalogSession(sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido, openFolder, sampleAllowed))
         }
         setContent {
             SatchelTheme {
@@ -347,7 +349,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onBack = {
                             val opened = CatalogSession(
-                                sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido, openFolder),
+                                sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido, openFolder, sampleAllowed),
                             )
                             session = opened
                             scope.launch {
@@ -424,7 +426,7 @@ class MainActivity : ComponentActivity() {
                         onForm = { screen = CatalogScreenState.Creating(it) },
                         onBack = {
                             val opened = CatalogSession(
-                                sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido, openFolder),
+                                sourceFor(fixture, sampleRoot, storePath, storedGrant, apelido, openFolder, sampleAllowed),
                             )
                             session = opened
                             scope.launch {
@@ -715,6 +717,7 @@ internal fun sourceFor(
     grantPath: String?,
     apelido: () -> String = { "" },
     folder: () -> PhoneFolder? = { null },
+    sampleAllowed: Boolean = true,
 ): CatalogSource {
     if (fixture) {
         return FixtureCatalog()
@@ -725,7 +728,22 @@ internal fun sourceFor(
     if (!grantPath.isNullOrEmpty()) {
         return GrantCatalog(grantPath, apelido, folder)
     }
+    // The sample is for test builds: before create or join, a release shows no files at all.
+    if (!sampleAllowed) {
+        return EmptyCatalog
+    }
     return CoreCatalog(sampleRoot, apelido)
+}
+
+/** No repository yet: nothing to list. */
+internal object EmptyCatalog : CatalogSource {
+    override fun listMetadata(): List<CatalogRow> = emptyList()
+
+    override fun hasContent(path: String): Boolean = false
+
+    override fun readContent(path: String): ByteArray = throw IllegalStateException("no repository")
+
+    override fun remember(path: String, follow: Follow) {}
 }
 
 private fun joinGrant(
@@ -943,7 +961,17 @@ private fun CatalogScreen(
             }
             if (rows.isEmpty()) {
                 item {
-                    ProductCard { Text(stringResource(R.string.catalog_empty), color = satchel.secondary) }
+                    val empty = if (canPair) R.string.catalog_empty_unpaired else R.string.catalog_empty
+                    ProductCard { Text(stringResource(empty), color = satchel.secondary) }
+                }
+            } else if (canPair) {
+                // Before create or join the rows come from a sample kept on this phone, not from any storage.
+                item {
+                    Text(
+                        stringResource(R.string.sample_note),
+                        color = satchel.secondary,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
                 }
             }
             items(rows, key = { row -> row.path }) { row ->
@@ -1125,6 +1153,15 @@ private fun PairScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
         Text(stringResource(R.string.entry_note), color = satchel.secondary)
+        ProductCard(onClick = onScan, enabled = !state.busy, modifier = Modifier.padding(top = 16.dp)) {
+            CardText(stringResource(R.string.scan_qr), stringResource(R.string.scan_card_note))
+        }
+        Text(
+            stringResource(R.string.manual_title),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = 24.dp),
+        )
+        Text(stringResource(R.string.manual_note), color = satchel.secondary)
         ProductTextField(
             value = state.address,
             onValueChange = onAddress,
@@ -1161,18 +1198,11 @@ private fun PairScreen(
                 modifier = Modifier.padding(top = 12.dp),
             )
         }
-        TextButton(
-            onClick = onScan,
-            enabled = !state.busy,
-            modifier = Modifier.padding(top = 16.dp),
-        ) {
-            Text(stringResource(R.string.scan_qr))
-        }
         PrimaryButton(
             stringResource(R.string.join),
             onClick = onSubmit,
             enabled = !state.busy,
-            modifier = Modifier.padding(top = 8.dp, bottom = 32.dp),
+            modifier = Modifier.padding(top = 16.dp, bottom = 32.dp),
         )
         }
     }

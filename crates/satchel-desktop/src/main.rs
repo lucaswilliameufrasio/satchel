@@ -463,15 +463,10 @@ fn apply_command(
                 }
             }
         }
+        // Removing is not undone, and the bucket key stays with the device: the page says so
+        // and asks for a confirmation, which a menu row cannot.
         TrayCommand::Revoke(key_id) => {
-            let mut desktop = lock_desktop(desktop);
-            match desktop.revoke_device_key(&**secrets, &key_id) {
-                Ok(_) => desktop.clear_problem(),
-                Err(err) => {
-                    eprintln!("satchel-desktop: {err}");
-                    desktop.report_problem(&err);
-                }
-            }
+            open_setup(desktop, secrets, &format!("devices?remove={key_id}"));
         }
     }
 }

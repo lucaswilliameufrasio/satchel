@@ -81,6 +81,45 @@ A marca escolhida num aparelho vira um snapshot novo. Outro processo desse apare
 
 Provedor de documentos do iOS, YubiKey no iPhone, OAuth, pasta grande, relay de push e apagamento remoto.
 
+## Próxima prioridade proposta: experiência e confiança
+
+Antes de acrescentar outra funcionalidade grande, priorizar a jornada de
+configurar o Satchel, conectar outro aparelho e entender se os arquivos estão
+seguros e sincronizados. Esta é uma priorização proposta, não uma mudança nas
+regras de segurança nem uma aprovação da identidade visual.
+
+1. **Diagnosticar a jornada real.** Percorrer primeira abertura, configuração
+   do armazenamento, conexão de outro aparelho, sincronização, falha e
+   recuperação em desktop e celular. Capturar as telas e seus estados vazios,
+   de espera, erro e sucesso; registrar o que foi observado e o que não pôde
+   ser exercitado.
+2. **Redesenhar a jornada principal.** Aplicar hierarquia visual, agrupamento,
+   reconhecimento em vez de memorização, prevenção de erro e visibilidade do
+   estado. Deixar claros o estado e a última confirmação da sincronização,
+   sem prometer proteção ou sincronização que não foram comprovadas. Priorizar
+   o QR no pareamento e explicar a entrada manual. Tratar senha de recuperação,
+   troca de pasta e remoção de aparelho conforme suas consequências.
+3. **Definir e provar a linguagem visual.** A proposta existente em
+   [identidade-visual.md](identidade-visual.md) ainda precisa de aprovação.
+   Antes de escolher uma nova direção visual, obter 2 a 5 referências de
+   aplicativos ou telas escolhidas pelo responsável pelo produto. Avaliar
+   capturas reais, inclusive tamanhos de texto, modo escuro, leitor de tela e
+   estados da jornada. Depois estender a linguagem aprovada às demais telas.
+4. **Fechar lacunas que afetam a confiança.** Resolver ou comunicar com
+   precisão a limitação da revogação da credencial compartilhada do bucket;
+   validar o comportamento de várias pastas e o pareamento e a sincronização
+   entre aparelhos reais. A solução de revogação ainda não está decidida.
+5. **Preparar a entrega.** Atualizar a descrição da PR com seu escopo real e
+   executar as verificações aplicáveis no commit final. Separar resultados
+   comprovados de testes que dependem de dispositivos ou armazenamento real.
+
+O percurso de 2026-11-16, o que mudou e o que segue pendente estão em
+[progresso.md](progresso.md#experiência-e-confiança). Os itens 3 (referências
+visuais) e 4 (solução da chave do bucket) dependem de decisão de quem
+responde pelo produto. YubiKey, OAuth, push e apagamento remoto
+continuam fora ou incompletos; sua prioridade frente a essa jornada não foi
+decidida.
+
 ## Licença
 
 Apache-2.0 OR MIT, a mesma faixa do `rustic`.

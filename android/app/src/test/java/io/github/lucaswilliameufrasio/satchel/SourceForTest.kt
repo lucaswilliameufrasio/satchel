@@ -33,4 +33,10 @@ class SourceForTest {
         val source = sourceFor(false, "unused", "", "")
         assertTrue(source is CoreCatalog)
     }
+
+    @Test
+    fun aReleaseWithoutARepositoryListsNothing() {
+        val source = sourceFor(false, "unused", "", "", sampleAllowed = false)
+        assertTrue(source.listMetadata().isEmpty())
+    }
 }

@@ -203,7 +203,13 @@ final class PhoneModel: ObservableObject {
                 if paired {
                     return SatchelCore.catalogGrant(specPath: grant)
                 }
+                // The sample is for test builds: before create or join, a release shows no files.
+                #if DEBUG
                 return SatchelCore.sampleCatalog(root: sample)
+                #else
+                _ = sample
+                return []
+                #endif
             }.value
             if let rows {
                 screen = .ready(rows: rows, busy: false)

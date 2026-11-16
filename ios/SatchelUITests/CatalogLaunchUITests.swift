@@ -193,7 +193,8 @@ final class CatalogLaunchUITests: XCTestCase {
         submit.tap()
         let password = app.descendants(matching: .any)["recovery-password"]
         XCTAssertTrue(password.waitForExistence(timeout: 60), "recovery password did not appear")
-        let shown = password.label
+        // The screen groups the hex by four to read it back; the password itself has no spaces.
+        let shown = password.label.replacingOccurrences(of: " ", with: "")
         proof("recovery-length \(shown.count)")
         let hex = try NSRegularExpression(pattern: "^[0-9a-f]{64}$")
         let range = NSRange(shown.startIndex..<shown.endIndex, in: shown)
@@ -225,7 +226,7 @@ final class CatalogLaunchUITests: XCTestCase {
         submit.tap()
         let first = app.descendants(matching: .any)["recovery-password"]
         XCTAssertTrue(first.waitForExistence(timeout: 60))
-        let old = first.label
+        let old = first.label.replacingOccurrences(of: " ", with: "")
         app.descendants(matching: .any)["recovery-done"].tap()
 
         let change = app.descendants(matching: .any)["change-recovery"]
@@ -236,7 +237,7 @@ final class CatalogLaunchUITests: XCTestCase {
         now.tap()
         let second = app.descendants(matching: .any)["recovery-password"]
         XCTAssertTrue(second.waitForExistence(timeout: 60), "new password did not appear")
-        let fresh = second.label
+        let fresh = second.label.replacingOccurrences(of: " ", with: "")
         XCTAssertEqual(fresh.count, 64)
         XCTAssertNotEqual(fresh, old)
         proof("recovery-changed \(old.prefix(4))… -> \(fresh.prefix(4))…")
@@ -385,7 +386,7 @@ final class CatalogLaunchUITests: XCTestCase {
         submit.tap()
         let password = app.descendants(matching: .any)["recovery-password"]
         XCTAssertTrue(password.waitForExistence(timeout: 60), "recovery password did not appear on a protected bucket")
-        XCTAssertEqual(password.label.count, 64)
+        XCTAssertEqual(password.label.replacingOccurrences(of: " ", with: "").count, 64)
         app.descendants(matching: .any)["recovery-done"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["show-invite"].waitForExistence(timeout: 60))
         proof("object storage created prefix \(prefix)")
@@ -403,6 +404,38 @@ final class CatalogLaunchUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 10), "missing secret field \(title)")
         field.tap()
         field.typeText(text)
+    }
+
+    /// The first-run journey on a clean phone, captured for the UX record: first open, the
+    /// join form, the recovery password and the invite.
+    func testFirstRunJourneyScreens() throws {
+        let app = XCUIApplication()
+        launch(app, .portuguese, ["-satchel-reset"])
+        let create = app.descendants(matching: .any)["create-repository"]
+        XCTAssertTrue(create.waitForExistence(timeout: 60), "create card did not appear")
+        XCTAssertTrue(app.descendants(matching: .any)["sample-note"].waitForExistence(timeout: 30))
+        capture(name: "journey-01-first-open", text: "")
+        app.descendants(matching: .any)["pair-entry"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["pair-scan"].waitForExistence(timeout: 10))
+        capture(name: "journey-02-join", text: "")
+        app.buttons["Voltar"].firstMatch.tap()
+        XCTAssertTrue(create.waitForExistence(timeout: 30))
+        create.tap()
+        let submit = app.descendants(matching: .any)["create-submit"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 10))
+        capture(name: "journey-03-create", text: "")
+        submit.tap()
+        let password = app.descendants(matching: .any)["recovery-password"]
+        XCTAssertTrue(password.waitForExistence(timeout: 60))
+        capture(name: "journey-04-recovery", text: "")
+        app.descendants(matching: .any)["recovery-done"].tap()
+        let invite = app.descendants(matching: .any)["show-invite"]
+        XCTAssertTrue(invite.waitForExistence(timeout: 60))
+        XCTAssertFalse(app.descendants(matching: .any)["sample-note"].exists)
+        capture(name: "journey-05-catalog", text: "")
+        invite.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["hold-code"].waitForExistence(timeout: 20))
+        capture(name: "journey-06-invite", text: "")
     }
 
     private func capture(name: String, text: String) {

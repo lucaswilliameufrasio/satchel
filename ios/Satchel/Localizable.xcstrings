@@ -215,6 +215,16 @@
         }
       }
     },
+    "Approve only if this is your device and the code it typed is the one on this screen.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aprove só se este for o seu aparelho e o código digitado for o desta tela."
+          }
+        }
+      }
+    },
     "Back": {
       "localizations": {
         "pt-BR": {
@@ -351,6 +361,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "Código %@"
+          }
+        }
+      }
+    },
+    "Code on this screen: %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Código desta tela: %@"
+          }
+        }
+      }
+    },
+    "Code typed: %@": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Código digitado: %@"
+          }
+        }
+      }
+    },
+    "Code, address and fingerprint appear under Add device on the other device. Spaces are fine.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Código, endereço e impressão digital aparecem em Adicionar aparelho no outro aparelho. Pode digitar com os espaços."
+          }
+        }
+      }
+    },
+    "Copy": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar"
           }
         }
       }
@@ -511,6 +561,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Baixa, envia e acompanha. Arquivo novo dentro desta pasta entra nesse estado."
+          }
+        }
+      }
+    },
+    "Example: these files are a sample kept on this phone. Yours show up here after you create or join a repository.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exemplo: estes arquivos são uma amostra guardada neste celular. Os seus aparecem aqui depois de criar ou entrar num repositório."
           }
         }
       }
@@ -685,6 +745,16 @@
         }
       }
     },
+    "No camera? Type what the other device shows": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem câmera? Digite o que o outro aparelho mostra"
+          }
+        }
+      }
+    },
     "No device keeps a copy.": {
       "localizations": {
         "pt-BR": {
@@ -771,6 +841,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aponte a câmera para o QR do desktop."
+          }
+        }
+      }
+    },
+    "Point the camera at the QR on the other device's Add device screen.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aponte a câmera para o QR da tela Adicionar aparelho do outro aparelho."
           }
         }
       }
@@ -1025,12 +1105,12 @@
         }
       }
     },
-    "The storage did not let this key check versioning. Give it admin permission on the bucket. R2 does not expose versioning through the S3 API and is always refused.": {
+    "The spaces are only for reading. The password has none; Copy copies it without them.": {
       "localizations": {
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O armazenamento não deixou esta chave consultar o versionamento. Dê a ela permissão de administrador no bucket. O R2 não expõe versionamento pela API S3 e será sempre recusado."
+            "value": "Os espaços são só para ler. A senha não tem espaços; Copiar copia sem eles."
           }
         }
       }
@@ -1041,6 +1121,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "O armazenamento precisa ter versionamento ligado e nenhum ciclo de vida que apague objeto. A chave dos aparelhos só fica limitada a apagar os próprios locks se o armazenamento aplicar política por chave (S3 da AWS, MinIO, RustFS). No R2 e no B2 essa chave pode apagar tudo."
+          }
+        }
+      }
+    },
+    "The storage refused the maintenance key when it read the bucket's settings (versioning and lifecycle rules). The maintenance key needs to manage the bucket: on AWS, s3:GetBucketVersioning and s3:GetLifecycleConfiguration; on R2, an API token with Admin Read & Write.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O armazenamento recusou a chave de manutenção ao ler as configurações do bucket (versionamento e regras de ciclo de vida). A chave de manutenção precisa administrar o bucket: no AWS, s3:GetBucketVersioning e s3:GetLifecycleConfiguration; no R2, um token de API com Admin Read & Write."
           }
         }
       }
@@ -1151,6 +1241,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Esperando o outro aparelho digitar o código."
+          }
+        }
+      }
+    },
+    "Your files show up here after you create a repository or join one that already exists.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os seus arquivos aparecem aqui depois de criar um repositório ou entrar num que já existe."
           }
         }
       }

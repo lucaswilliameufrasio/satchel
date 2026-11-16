@@ -8,8 +8,13 @@ pub(crate) fn hex_encode(bytes: &[u8]) -> String {
     text
 }
 
+/// 64 hex digits. Spaces between them are ignored, because the screens show them in groups of four.
 pub(crate) fn hex_decode_32(text: &str) -> Result<[u8; 32], Error> {
-    if text.len() != 64 {
+    let text: String = text
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace())
+        .collect();
+    if text.len() != 64 || !text.is_ascii() {
         return Err(Error::Fingerprint);
     }
     let mut out = [0_u8; 32];
@@ -70,4 +75,35 @@ fn candidate_ips() -> Option<(Option<std::net::Ipv4Addr>, Option<std::net::Ipv4A
         }
     }
     Some((mesh, private))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PLAIN: &str = "3370ae4489244459ace8f2054f19794abc0d1e6e385a2225dcb2797fe56ce09c";
+
+    #[test]
+    fn a_fingerprint_typed_in_the_groups_the_screen_shows_is_the_same_fingerprint() {
+        let grouped =
+            "3370 ae44 8924 4459 ace8 f205 4f19 794a\nbc0d 1e6e 385a 2225 dcb2 797f e56c e09c";
+        assert_eq!(
+            hex_decode_32(grouped).unwrap(),
+            hex_decode_32(PLAIN).unwrap()
+        );
+        assert_eq!(
+            hex_decode_32(&PLAIN.to_uppercase()).unwrap(),
+            hex_decode_32(PLAIN).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_fingerprint_with_a_missing_digit_or_a_foreign_letter_is_refused() {
+        assert!(matches!(
+            hex_decode_32(&PLAIN[1..]),
+            Err(Error::Fingerprint)
+        ));
+        let accented = format!("é{}", &PLAIN[2..]);
+        assert!(matches!(hex_decode_32(&accented), Err(Error::Fingerprint)));
+    }
 }

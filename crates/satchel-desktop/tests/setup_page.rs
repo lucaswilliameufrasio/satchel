@@ -284,6 +284,50 @@ fn page_creates_and_joins_and_refuses_strangers() {
         .expect("lock")
         .publish(&*second_store)
         .expect("member publishes");
+
+    // Removing a device is a page that says what it does and doesn't do, then asks.
+    let member_devices = http(
+        &second_host,
+        &second_host,
+        "GET",
+        &format!("{second_base}devices"),
+        "",
+    );
+    assert!(
+        member_devices
+            .body
+            .contains("Only a main device removes devices.")
+    );
+    let devices = http(&host, &host, "GET", &format!("{base}devices"), "");
+    assert!(
+        devices
+            .body
+            .contains("its password no longer opens the repository"),
+        "{}",
+        devices.body
+    );
+    assert!(devices.body.contains("It keeps the bucket access key"));
+    assert!(devices.body.contains("type=\"checkbox\" required"));
+    let marker = "name=\"key\" value=\"";
+    let start = devices.body.find(marker).expect("a removable device") + marker.len();
+    let key = devices.body[start..start + 64].to_string();
+    let removed = http(
+        &host,
+        &host,
+        "POST",
+        &format!("{base}devices/remove"),
+        &form(&[("key", &key)]),
+    );
+    assert!(removed.body.contains("Removed:"), "{}", removed.body);
+    assert!(removed.body.contains("No other device has a key."));
+    assert!(
+        second
+            .lock()
+            .expect("lock")
+            .publish(&*second_store)
+            .is_err(),
+        "the removed device's key still opens the repository"
+    );
 }
 
 #[test]
@@ -306,7 +350,8 @@ fn the_page_speaks_the_browser_language_and_falls_back_to_the_desktop() {
     let form_pt = http_with(&host, &host, "GET", &base, "", portuguese);
     assert!(form_pt.body.contains("<html lang=\"pt-BR\">"));
     assert!(form_pt.body.contains("Configurar este aparelho"));
-    assert!(form_pt.body.contains("entrar com um código"));
+    assert!(form_pt.body.contains("Entrar com um código"));
+    assert!(form_pt.body.contains("Este é o meu primeiro aparelho"));
     assert!(!form_pt.body.contains("Set up this device"));
 
     let refused = http_with(
@@ -503,6 +548,9 @@ fn add_device_page_shows_the_invite_and_takes_the_decision() {
     assert!(shown.body.contains(&offer.address.to_string()));
     assert!(shown.body.contains(&offer.fingerprint[..4]));
     assert!(shown.body.contains("add/qr.png"));
+    // The approval keeps this screen's code beside the typed one, and the invite can be copied.
+    assert!(shown.body.contains("Code on this screen:"));
+    assert!(shown.body.contains("Copy invite"));
     // A folder repository is named, and the phone problem is said before anyone joins.
     assert!(
         shown.body.contains("a folder on this computer"),
@@ -711,6 +759,10 @@ fn the_device_page_adds_stops_and_disconnects() {
     // Leaving is confirmed inside the page, not by a browser dialog.
     assert!(!listed.body.contains("confirm("));
     assert!(listed.body.contains("id=\"leave-confirm\" hidden"));
+    // The state of the last sync comes first, and changing the recovery password asks first.
+    assert!(listed.body.contains("Sync on this device"));
+    assert!(listed.body.contains("Synced at "), "{}", listed.body);
+    assert!(listed.body.contains("id=\"recovery-confirm\" hidden"));
     assert!(
         !listed.body.contains("Make this a main device"),
         "already main"

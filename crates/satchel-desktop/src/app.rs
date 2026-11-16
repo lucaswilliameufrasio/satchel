@@ -206,6 +206,20 @@ pub struct Desktop {
     problem: Option<String>,
 }
 
+/// One line about the last sync, for the tray and the page.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SyncLine {
+    pub text: String,
+    pub tone: Tone,
+}
+
+/// Whether a line needs the person's attention.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Tone {
+    Plain,
+    Warn,
+}
+
 /// How the last sync ended, for the tray. The error itself goes to the log, not the menu.
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum SyncStatus {
@@ -701,6 +715,11 @@ impl Desktop {
         Ok(())
     }
 
+    /// The other devices' keys, after [`Desktop::load_device_keys`].
+    pub fn device_keys(&self) -> Option<&[DeviceKeyRecord]> {
+        self.device_keys.as_deref()
+    }
+
     /// Replace the recovery password. Only the device that created the repository can.
     ///
     /// The new value is kept in the keystore before the repository changes, so a
@@ -1086,6 +1105,80 @@ impl Desktop {
         self.finish(Decision::Deny)
     }
 
+    /// How the last sync on this device ended, in words for the person: the first line is the
+    /// state, the next ones say what it means or what to do. Empty without a repository.
+    pub fn sync_lines(&self) -> Vec<SyncLine> {
+        let t = |en: &'static str, pt: &'static str| self.language.pick(en, pt);
+        let Some(profile) = &self.profile else {
+            return Vec::new();
+        };
+        let mut items = Vec::new();
+        let info = |text: String| SyncLine {
+            text,
+            tone: Tone::Plain,
+        };
+        let warn = |text: String| SyncLine {
+            text,
+            tone: Tone::Warn,
+        };
+        match &self.last_sync {
+            None => items.push(info(
+                t("Not synced yet", "Ainda não sincronizado").to_string(),
+            )),
+            Some(SyncStatus::Done { unix, unprotected }) => {
+                items.push(info(format!(
+                    "{} {}",
+                    t("Synced at", "Sincronizado às"),
+                    local_clock(*unix)
+                )));
+                if *unprotected {
+                    let place = storage_label(self.language, profile);
+                    items.push(warn(match self.language {
+                        Language::En => format!(
+                            "{place} keeps no old versions: an overwritten copy cannot come back"
+                        ),
+                        Language::PtBr => format!(
+                            "{place} não guarda versões antigas: uma cópia sobrescrita não volta"
+                        ),
+                    }));
+                }
+            }
+            Some(SyncStatus::Failed { unix, hint }) => {
+                items.push(warn(format!(
+                    "{} {}",
+                    t("Sync failed at", "A sincronização falhou às"),
+                    local_clock(*unix)
+                )));
+                items.push(info(
+                    match hint {
+                        FailureHint::Keystore => t(
+                            "Unlock the keychain, then sync again",
+                            "Desbloqueie o chaveiro e sincronize de novo",
+                        ),
+                        FailureHint::Storage => t(
+                            "The storage did not answer. Check the network, then sync again",
+                            "O armazenamento não respondeu. Confira a rede e sincronize de novo",
+                        ),
+                        FailureHint::Folder => t(
+                            "The folder is missing or unreadable. Check it, then sync again",
+                            "A pasta sumiu ou não pode ser lida. Confira e sincronize de novo",
+                        ),
+                        FailureHint::Disk => t(
+                            "The disk with the encrypted copies isn't connected. Nothing was deleted",
+                            "O disco das cópias cifradas não está conectado. Nada foi apagado",
+                        ),
+                        FailureHint::Other => t(
+                            "Sync again. If it keeps failing, see the log",
+                            "Sincronize de novo. Se continuar falhando, veja o log",
+                        ),
+                    }
+                    .to_string(),
+                ));
+            }
+        }
+        items
+    }
+
     /// Rows for the tray. Labels include the approval fields and not the keystore values.
     pub fn tray_view(&self) -> TrayView {
         let t = |en: &'static str, pt: &'static str| self.language.pick(en, pt);
@@ -1136,60 +1229,8 @@ impl Desktop {
                     (Language::PtBr, None) => "Aparelho principal: ainda não visto".to_string(),
                 }));
             }
-            match &self.last_sync {
-                None => items.push(info(
-                    t("Not synced yet", "Ainda não sincronizado").to_string(),
-                )),
-                Some(SyncStatus::Done { unix, unprotected }) => {
-                    items.push(info(format!(
-                        "{} {}",
-                        t("Synced at", "Sincronizado às"),
-                        local_clock(*unix)
-                    )));
-                    if *unprotected {
-                        let place = storage_label(self.language, profile);
-                        items.push(info(match self.language {
-                            Language::En => format!(
-                                "{place} keeps no old versions: an overwritten copy cannot come back"
-                            ),
-                            Language::PtBr => format!(
-                                "{place} não guarda versões antigas: uma cópia sobrescrita não volta"
-                            ),
-                        }));
-                    }
-                }
-                Some(SyncStatus::Failed { unix, hint }) => {
-                    items.push(info(format!(
-                        "{} {}",
-                        t("Sync failed at", "A sincronização falhou às"),
-                        local_clock(*unix)
-                    )));
-                    items.push(info(
-                        match hint {
-                            FailureHint::Keystore => t(
-                                "Unlock the keychain, then sync again",
-                                "Desbloqueie o chaveiro e sincronize de novo",
-                            ),
-                            FailureHint::Storage => t(
-                                "The storage did not answer. Check the network, then sync again",
-                                "O armazenamento não respondeu. Confira a rede e sincronize de novo",
-                            ),
-                            FailureHint::Folder => t(
-                                "The folder is missing or unreadable. Check it, then sync again",
-                                "A pasta sumiu ou não pode ser lida. Confira e sincronize de novo",
-                            ),
-                            FailureHint::Disk => t(
-                                "The disk with the encrypted copies isn't connected. Nothing was deleted",
-                                "O disco das cópias cifradas não está conectado. Nada foi apagado",
-                            ),
-                            FailureHint::Other => t(
-                                "Sync again. If it keeps failing, see the log",
-                                "Sincronize de novo. Se continuar falhando, veja o log",
-                            ),
-                        }
-                        .to_string(),
-                    ));
-                }
+            for line in self.sync_lines() {
+                items.push(info(line.text));
             }
         } else {
             items.push(info(

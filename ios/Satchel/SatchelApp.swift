@@ -271,9 +271,17 @@ struct CatalogList: View {
             }
             if rows.isEmpty {
                 ProductCard {
-                    Text(String(localized: "No files yet. What this or another device sends shows up here.", bundle: .copy, locale: .copy))
+                    Text(canPair
+                        ? String(localized: "Your files show up here after you create a repository or join one that already exists.", bundle: .copy, locale: .copy)
+                        : String(localized: "No files yet. What this or another device sends shows up here.", bundle: .copy, locale: .copy))
                         .foregroundStyle(SatchelInk.secondary)
                 }
+            } else if canPair {
+                // Before create or join the rows come from a sample kept on this phone, not from any storage.
+                Text(String(localized: "Example: these files are a sample kept on this phone. Yours show up here after you create or join a repository.", bundle: .copy, locale: .copy))
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+                    .accessibilityIdentifier("sample-note")
             }
             ForEach(rows) { row in
                 Button {
@@ -546,6 +554,32 @@ struct PairForm: View {
             Text(String(localized: "The desktop shows the QR. The recovery password is not part of the invite.", bundle: .copy, locale: .copy))
                 .font(.subheadline)
                 .foregroundStyle(SatchelInk.secondary)
+            Button(action: onScan) {
+                ProductCard {
+                    HStack(alignment: .center, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(String(localized: "Scan QR", bundle: .copy, locale: .copy))
+                                .font(.headline)
+                                .foregroundStyle(SatchelInk.ink)
+                            Text(String(localized: "Point the camera at the QR on the other device's Add device screen.", bundle: .copy, locale: .copy))
+                                .font(.subheadline)
+                                .foregroundStyle(SatchelInk.secondary)
+                        }
+                        Spacer(minLength: 12)
+                        TrailingChevron()
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("pair-scan")
+            .disabled(busy)
+            Text(String(localized: "No camera? Type what the other device shows", bundle: .copy, locale: .copy))
+                .font(.headline)
+                .foregroundStyle(SatchelInk.ink)
+                .padding(.top, 8)
+            Text(String(localized: "Code, address and fingerprint appear under Add device on the other device. Spaces are fine.", bundle: .copy, locale: .copy))
+                .font(.subheadline)
+                .foregroundStyle(SatchelInk.secondary)
             ProductCard {
                 ProductField(title: String(localized: "Address", bundle: .copy, locale: .copy), text: $address, suppressesAutocorrection: true)
                 ProductField(title: String(localized: "Code", bundle: .copy, locale: .copy), text: $code)
@@ -561,22 +595,6 @@ struct PairForm: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(SatchelInk.danger)
             }
-            Button(action: onScan) {
-                Text(String(localized: "Scan QR", bundle: .copy, locale: .copy))
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(SatchelInk.ink)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(SatchelInk.card)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(SatchelInk.line, lineWidth: 1)
-                    )
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("pair-scan")
-            .disabled(busy)
             Button {
                 onSubmit(address, code, fingerprint, name)
             } label: {
@@ -859,11 +877,20 @@ struct RecoveryPage: View {
                     .foregroundStyle(SatchelInk.secondary)
             }
             ProductCard {
-                Text(password)
+                Text(groupedHex(password))
                     .font(.system(.body, design: .monospaced))
                     .foregroundStyle(SatchelInk.ink)
-                    .textSelection(.enabled)
                     .accessibilityIdentifier("recovery-password")
+            }
+            Text(String(localized: "The spaces are only for reading. The password has none; Copy copies it without them.", bundle: .copy, locale: .copy))
+                .font(.footnote)
+                .foregroundStyle(SatchelInk.secondary)
+            WideButton(title: String(localized: "Copy", bundle: .copy, locale: .copy), primary: false, id: "recovery-copy") {
+                // Only this device, and gone after two minutes, like a password manager's copy.
+                UIPasteboard.general.setItems(
+                    [[UIPasteboard.typeAutomatic: password]],
+                    options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)]
+                )
             }
             WideButton(title: String(localized: "I saved it", bundle: .copy, locale: .copy), id: "recovery-done", action: onDone)
         }
@@ -888,9 +915,16 @@ struct HoldPage: View {
                     Text(String(localized: "Device \(approval.deviceName)", bundle: .copy, locale: .copy))
                     Text(String(localized: "System \(approval.os)", bundle: .copy, locale: .copy))
                     Text(String(localized: "Address \(approval.peerAddress)", bundle: .copy, locale: .copy))
-                    Text(String(localized: "Code \(approval.code)", bundle: .copy, locale: .copy))
+                    Text(String(localized: "Code typed: \(approval.code)", bundle: .copy, locale: .copy))
                 }
                 .foregroundStyle(SatchelInk.ink)
+                Text(String(localized: "Code on this screen: \(state.offer.code)", bundle: .copy, locale: .copy))
+                    .font(.headline)
+                    .foregroundStyle(SatchelInk.ink)
+                    .accessibilityIdentifier("hold-code-here")
+                Text(String(localized: "Approve only if this is your device and the code it typed is the one on this screen.", bundle: .copy, locale: .copy))
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
                 if state.failed {
                     Text(String(localized: "Couldn't approve. Close the invite and open it again.", bundle: .copy, locale: .copy))
                         .font(.subheadline.weight(.semibold))
@@ -907,7 +941,7 @@ struct HoldPage: View {
                         .accessibilityIdentifier("hold-code")
                     Text(String(localized: "Address \(state.offer.address)", bundle: .copy, locale: .copy))
                         .accessibilityIdentifier("hold-address")
-                    Text(String(localized: "Fingerprint \(state.offer.fingerprint)", bundle: .copy, locale: .copy))
+                    Text(String(localized: "Fingerprint \(groupedHex(state.offer.fingerprint))", bundle: .copy, locale: .copy))
                         .accessibilityIdentifier("hold-fingerprint")
                 }
                 .foregroundStyle(SatchelInk.ink)
@@ -932,7 +966,7 @@ func createFailureCopy(_ reason: String) -> String {
     case "protection":
         return String(localized: "The storage refused: turn on bucket versioning and remove lifecycle rules that delete objects.", bundle: .copy, locale: .copy)
     case "denied":
-        return String(localized: "The storage did not let this key check versioning. Give it admin permission on the bucket. R2 does not expose versioning through the S3 API and is always refused.", bundle: .copy, locale: .copy)
+        return String(localized: "The storage refused the maintenance key when it read the bucket's settings (versioning and lifecycle rules). The maintenance key needs to manage the bucket: on AWS, s3:GetBucketVersioning and s3:GetLifecycleConfiguration; on R2, an API token with Admin Read & Write.", bundle: .copy, locale: .copy)
     case "exists":
         return String(localized: "There is already a repository here. Choose another prefix, or join it with a code.", bundle: .copy, locale: .copy)
     case "unreachable":
@@ -942,4 +976,15 @@ func createFailureCopy(_ reason: String) -> String {
     default:
         return String(localized: "Couldn't create. Check the fields, versioning and lifecycle.", bundle: .copy, locale: .copy)
     }
+}
+
+/// Hex in groups of four, to read it back. The spaces are not part of the value.
+func groupedHex(_ hex: String) -> String {
+    var groups: [String] = []
+    var rest = Substring(hex)
+    while !rest.isEmpty {
+        groups.append(String(rest.prefix(4)))
+        rest = rest.dropFirst(4)
+    }
+    return groups.joined(separator: " ")
 }
