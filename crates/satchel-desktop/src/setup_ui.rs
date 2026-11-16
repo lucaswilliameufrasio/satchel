@@ -320,6 +320,7 @@ fn dashboard<S: SecretStore>(
         .collect();
     let place = desktop.storage_place().unwrap_or_default();
     let local = desktop.storage_is_local_folder();
+    let may_add = desktop.may_add_devices();
     let devices = desktop.devices().to_vec();
     let sync_lines = desktop.sync_lines();
     drop(desktop);
@@ -481,7 +482,7 @@ fn dashboard<S: SecretStore>(
     } else {
         String::new()
     };
-    let status = status_card(language, &sync_lines, local, &base);
+    let status = status_card(language, &sync_lines, may_add, &base);
     page(
         language,
         &format!(
@@ -557,7 +558,7 @@ document.getElementById('leave-cancel').addEventListener('click',()=>{{leaveBox.
 }
 
 /// The top of the dashboard: how the last sync on this device ended, and the way to add a device.
-fn status_card(language: Language, lines: &[crate::SyncLine], local: bool, base: &str) -> String {
+fn status_card(language: Language, lines: &[crate::SyncLine], may_add: bool, base: &str) -> String {
     let t = |en: &'static str, pt: &'static str| language.pick(en, pt);
     let mut rows = String::new();
     for (index, line) in lines.iter().enumerate() {
@@ -568,7 +569,7 @@ fn status_card(language: Language, lines: &[crate::SyncLine], local: bool, base:
         };
         rows.push_str(&format!("<p class=\"{class}\">{}</p>", escape(&line.text)));
     }
-    let add = if local {
+    let add = if !may_add {
         String::new()
     } else {
         format!(
@@ -636,16 +637,20 @@ fn devices_card(
     }
     let hint = match profile.role {
         Role::Maintainer => t(
-            "This is a main device: it removes devices and changes the recovery password. Any \
-             device adds devices.",
-            "Este é um aparelho principal: ele remove aparelhos e troca a senha de recuperação. \
-             Qualquer aparelho adiciona aparelhos.",
+            "This is a main device: it adds and removes devices and changes the recovery \
+             password. You choose which devices are main: any one becomes main with the recovery \
+             password and the maintenance key.",
+            "Este é um aparelho principal: ele adiciona e remove aparelhos e troca a senha de \
+             recuperação. Você escolhe quais aparelhos são principais: qualquer um vira principal \
+             com a senha de recuperação e a chave de manutenção.",
         ),
         Role::Member => t(
-            "Any device adds devices. Removing one, or changing the recovery password, is done \
-             on a main device.",
-            "Qualquer aparelho adiciona aparelhos. Remover um, ou trocar a senha de recuperação, \
-             se faz num aparelho principal.",
+            "Adding or removing a device, and changing the recovery password, is done on a main \
+             device. This one becomes main with the recovery password and the maintenance key, \
+             below.",
+            "Adicionar ou remover aparelhos, e trocar a senha de recuperação, se faz num aparelho \
+             principal. Este vira principal com a senha de recuperação e a chave de manutenção, \
+             aqui embaixo.",
         ),
     };
     let remove = if profile.role == Role::Maintainer && profile.object_store.is_some() {
@@ -735,10 +740,37 @@ fn devices_page<S: SecretStore>(
     }
     let keys = desktop.device_keys().map(<[_]>::to_vec).unwrap_or_default();
     let cards = desktop.devices().to_vec();
+    let bucket_keys: Vec<crate::BucketKey> = keys
+        .iter()
+        .map(|key| desktop.bucket_key_of(&*shared.secrets, key.device_id.as_str()))
+        .collect();
     drop(desktop);
     let mut rows = String::new();
-    for key in &keys {
+    for (key, bucket_key) in keys.iter().zip(&bucket_keys) {
         let card = cards.iter().find(|card| card.id == key.device_id.as_str());
+        let bucket_line = match bucket_key {
+            crate::BucketKey::Own => format!(
+                "<p class=\"hint\">{}</p>",
+                t(
+                    "It has its own bucket key: removing it deletes that key too, and it loses \
+                     the bucket.",
+                    "Ele tem chave própria no bucket: remover apaga essa chave também, e ele perde \
+                     o acesso ao bucket.",
+                )
+            ),
+            crate::BucketKey::Shared => format!(
+                "<p class=\"warn\">{}</p>",
+                escape(removal_consequence(language).1)
+            ),
+            crate::BucketKey::Unknown => format!(
+                "<p class=\"warn\">{} {}</p>",
+                t(
+                    "The maintenance key couldn't check its bucket key.",
+                    "A chave de manutenção não conseguiu conferir a chave dele no bucket.",
+                ),
+                escape(removal_consequence(language).1)
+            ),
+        };
         let name = card.and_then(|card| card.name.clone()).unwrap_or_else(|| {
             t("A device with no name yet", "Um aparelho ainda sem nome").to_string()
         });
@@ -759,7 +791,7 @@ fn devices_page<S: SecretStore>(
         ));
         let open = if key.key_id == chosen { " open" } else { "" };
         rows.push_str(&format!(
-            "<details class=\"folder\"{open}><summary>{name}</summary><p class=\"hint\">{facts}</p>\
+            "<details class=\"folder\"{open}><summary>{name}</summary><p class=\"hint\">{facts}</p>{bucket_line}\
              <form method=\"post\" action=\"{base}devices/remove\" onsubmit=\"busy(this,'{removing}')\">\
              <input type=\"hidden\" name=\"key\" value=\"{key_id}\">\
              <label class=\"check\"><input type=\"checkbox\" required> {confirm}</label>\
@@ -787,10 +819,9 @@ fn devices_page<S: SecretStore>(
     page(
         language,
         &format!(
-            "<h1>{title}</h1>{notice}<section class=\"card\"><p>{does}</p><p class=\"warn\">{does_not}</p>{rows}</section>{back}
+            "<h1>{title}</h1>{notice}<section class=\"card\"><p>{does}</p>{rows}</section>{back}
 <script>function busy(f,t){{const b=f.querySelector('button');b.disabled=true;b.textContent=t;b.setAttribute('aria-busy','true');}}</script>",
             does = escape(removal_consequence(language).0),
-            does_not = escape(removal_consequence(language).1),
         ),
     )
 }
@@ -801,8 +832,20 @@ fn remove_device<S: SecretStore>(
     form: &BTreeMap<String, String>,
 ) -> String {
     let key = field(form, "key");
+    let mut had_own_key = false;
     let result = {
         let mut desktop = lock(&shared.desktop);
+        if desktop.device_keys().is_none() {
+            let _ = desktop.load_device_keys(&*shared.secrets);
+        }
+        if let Some(device_id) = desktop
+            .device_keys()
+            .and_then(|keys| keys.iter().find(|record| record.key_id == key))
+            .map(|record| record.device_id.as_str().to_string())
+        {
+            had_own_key =
+                desktop.bucket_key_of(&*shared.secrets, &device_id) == crate::BucketKey::Own;
+        }
         let maintainer = desktop
             .profile()
             .is_some_and(|profile| profile.role == Role::Maintainer);
@@ -820,6 +863,15 @@ fn remove_device<S: SecretStore>(
         }
     };
     let notice = match result {
+        Ok(()) if had_own_key => Notice::Done(
+            language
+                .pick(
+                    "Removed: its key no longer opens the repository, and its bucket key was deleted.",
+                    "Removido: a chave dele não abre mais o repositório, e a chave dele no bucket foi \
+                     apagada.",
+                )
+                .to_string(),
+        ),
         Ok(()) => Notice::Done(
             language
                 .pick(
@@ -983,7 +1035,7 @@ fn add_page<S: SecretStore>(shared: &Shared<S>, language: Language) -> String {
 <button type=\"button\" onclick=\"location.reload()\">{again}</button></section>
 <script>
 const base='{base}';let stopped=false;
-const words={{joins:'{joins}',system:'{system}',from:'{from}',typed:'{typed}',approved:'{approved}',denied:'{denied}',closed:'{closed}'}};
+const words={{joins:'{joins}',system:'{system}',from:'{from}',typed:'{typed}',approved:'{approved}',approvedShared:'{approved_shared}',denied:'{denied}',closed:'{closed}'}};
 function show(id){{for(const s of ['waiting','pending','done'])document.getElementById(s).hidden=s!==id;}}
 function finish(text,bad){{stopped=true;const r=document.getElementById('result');r.textContent=text;r.className=bad?'error':'';show('done');}}
 async function poll(){{if(stopped)return;try{{const r=await fetch(base+'add/state');const s=await r.json();
@@ -995,7 +1047,7 @@ async function act(what,button){{stopped=true;for(const b of document.querySelec
 button.textContent=what==='approve'?'{approving}':what==='deny'?'{denying}':'{stopping}';button.setAttribute('aria-busy','true');
 try{{const r=await fetch(base+'add/'+what,{{method:'POST'}});const s=await r.json();
 if(!s.ok){{finish(s.message,true);return;}}
-finish(what==='approve'?words.approved:what==='deny'?words.denied:words.closed,false);}}
+finish(what==='approve'?(s.sharedKey?words.approvedShared:words.approved):what==='deny'?words.denied:words.closed,false);}}
 finally{{for(const b of document.querySelectorAll('button'))b.disabled=false;}}}}
 poll();
 </script>",
@@ -1053,6 +1105,14 @@ poll();
             approved = t(
                 "Done. The device received what it needs and is opening the repository.",
                 "Pronto. O aparelho recebeu o que precisa e está abrindo o repositório.",
+            ),
+            approved_shared = t(
+                "Done. The device is opening the repository. It got the bucket key all devices \
+                 share, because the maintenance key can't make keys: removing it later won't cut \
+                 its bucket access.",
+                "Pronto. O aparelho está abrindo o repositório. Ele recebeu a chave do bucket que \
+                 todos os aparelhos dividem, porque a chave de manutenção não cria chaves: \
+                 removê-lo depois não corta o acesso dele ao bucket.",
             ),
             denied = t("Denied. Nothing was sent.", "Recusado. Nada foi enviado."),
             closed = t("Add device is closed.", "Adicionar aparelho foi encerrado."),
@@ -1139,7 +1199,10 @@ fn add_action<S: SecretStore>(
             let value = match result {
                 Ok(()) => {
                     desktop.clear_problem();
-                    serde_json::json!({ "ok": true })
+                    let shared_key = action == "approve"
+                        && desktop.per_device_bucket_keys()
+                        && desktop.last_grant_key() != Some(crate::BucketKey::Own);
+                    serde_json::json!({ "ok": true, "sharedKey": shared_key })
                 }
                 Err(err) => {
                     desktop.report_problem(&err);
@@ -1638,7 +1701,9 @@ finally{{b.disabled=false;b.textContent=label;}}}});}}
                  maintenance key manages the bucket (on R2, an API token with Admin Read & \
                  Write). The device key is a second one, limited to listing, reading and \
                  writing; it can only delete its own locks where the store applies per-key \
-                 policy (AWS S3, MinIO, RustFS). On R2 and B2 it can delete everything.",
+                 policy (AWS S3, MinIO, RustFS). On R2 and B2 it can delete everything. On S3, \
+                 when the maintenance key may also manage IAM users, each device gets its own key \
+                 instead, and removing a device deletes it.",
                 "No S3 e no B2, o bucket precisa de versionamento ligado e de nenhuma regra de \
                  ciclo de vida que apague objetos. O R2 não tem versionamento: o Satchel aceita, \
                  avisa que uma cópia sobrescrita não volta, e continua recusando uma regra que \
@@ -1646,7 +1711,9 @@ finally{{b.disabled=false;b.textContent=label;}}}});}}
                  API com Admin Read & Write). A chave dos aparelhos é outra, só para listar, ler \
                  e gravar; ela só fica limitada a apagar os próprios locks quando o armazenamento \
                  aplica política por chave (AWS S3, MinIO, RustFS). No R2 e no B2 ela pode \
-                 apagar tudo.",
+                 apagar tudo. No S3, quando a chave de manutenção também pode administrar \
+                 usuários do IAM, cada aparelho recebe a própria chave, e remover um aparelho a \
+                 apaga.",
             ),
             region = t("Region", "Região"),
             prefix = t("Prefix (may be empty)", "Prefixo (pode ficar vazio)"),

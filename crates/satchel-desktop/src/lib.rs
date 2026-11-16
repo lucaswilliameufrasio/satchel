@@ -12,9 +12,9 @@ mod setup_ui;
 mod text;
 
 pub use app::{
-    AccessPair, CreatedProfile, Desktop, Granted, JoinTarget, PublishReport, SyncLine, Tone,
-    TrayCommand, TrayItem, TrayView, add_device_config, default_config_dir, phone_grant_secret,
-    request_grant, tray_mark_rgba,
+    AccessPair, BucketKey, CreatedProfile, Desktop, Granted, JoinTarget, PublishReport, SyncLine,
+    Tone, TrayCommand, TrayItem, TrayView, add_device_config, default_config_dir,
+    phone_grant_secret, request_grant, tray_mark_rgba,
 };
 pub use error::Error;
 pub use picker::{FolderPicker, PickFor, native_picker};

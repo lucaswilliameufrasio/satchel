@@ -204,6 +204,19 @@ pub struct Desktop {
     language: Language,
     /// The last thing that went wrong from the menu, in words for the person.
     problem: Option<String>,
+    /// What the last approval gave the new device for the bucket.
+    last_grant_key: Option<BucketKey>,
+}
+
+/// Whether a device holds a bucket key of its own, which removing it deletes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BucketKey {
+    /// Its own IAM key: removing the device deletes it.
+    Own,
+    /// The key all devices share: it stays with the device after removal.
+    Shared,
+    /// The maintenance key could not tell.
+    Unknown,
 }
 
 /// One line about the last sync, for the tray and the page.
@@ -352,6 +365,7 @@ impl Desktop {
             devices: Vec::new(),
             wake: None,
             problem: None,
+            last_grant_key: None,
             language: Language::detect(),
         })
     }
@@ -715,6 +729,74 @@ impl Desktop {
         Ok(())
     }
 
+    /// True where each device can get its own bucket key: S3, through IAM.
+    pub fn per_device_bucket_keys(&self) -> bool {
+        self.profile.as_ref().is_some_and(|profile| {
+            profile.kind == StorageKind::S3 && profile.object_store.is_some()
+        })
+    }
+
+    /// Whether this device may open Add device: only a main device of a bucket
+    /// repository. A device that joined holds only its own bucket key and could
+    /// only hand that one on; any device becomes main with the recovery password.
+    pub fn may_add_devices(&self) -> bool {
+        self.profile.as_ref().is_some_and(|profile| {
+            profile.object_store.is_some() && profile.role == Role::Maintainer
+        })
+    }
+
+    /// The maintenance key as an IAM signer, on a main device of an S3 repository.
+    fn key_admin_parts(&self, store: &dyn SecretStore) -> Option<(String, AccessKey)> {
+        if !self.per_device_bucket_keys() {
+            return None;
+        }
+        let profile = self.profile.as_ref()?;
+        if profile.role != Role::Maintainer {
+            return None;
+        }
+        let object_store = profile.object_store.as_ref()?;
+        let maintenance = store.get(Account::BucketCredential).ok()??;
+        let access: AccessKey = serde_json::from_str(&maintenance).ok()?;
+        if access.access_key_id.is_empty() || access.secret_access_key.is_empty() {
+            return None;
+        }
+        Some((object_store.endpoint.clone(), access))
+    }
+
+    /// Whether `device_id` has a bucket key of its own.
+    pub fn bucket_key_of(&self, store: &dyn SecretStore, device_id: &str) -> BucketKey {
+        let Some((endpoint, access)) = self.key_admin_parts(store) else {
+            return BucketKey::Shared;
+        };
+        let Some(object_store) = self
+            .profile
+            .as_ref()
+            .and_then(|profile| profile.object_store.as_ref())
+        else {
+            return BucketKey::Shared;
+        };
+        let Ok(user) =
+            satchel_core::device_key_user(&object_store.bucket, &object_store.prefix, device_id)
+        else {
+            return BucketKey::Unknown;
+        };
+        let admin = satchel_core::KeyAdmin {
+            s3_endpoint: &endpoint,
+            access_key_id: &access.access_key_id,
+            secret_access_key: &access.secret_access_key,
+        };
+        match satchel_core::device_bucket_key_exists(&admin, &user) {
+            Ok(true) => BucketKey::Own,
+            Ok(false) => BucketKey::Shared,
+            Err(_) => BucketKey::Unknown,
+        }
+    }
+
+    /// What the last approval gave the device for the bucket.
+    pub fn last_grant_key(&self) -> Option<BucketKey> {
+        self.last_grant_key
+    }
+
     /// The other devices' keys, after [`Desktop::load_device_keys`].
     pub fn device_keys(&self) -> Option<&[DeviceKeyRecord]> {
         self.device_keys.as_deref()
@@ -758,12 +840,52 @@ impl Desktop {
             return Err(Error::MissingRecovery);
         };
         let location = self.open_location(store)?;
+        if self.device_keys.is_none() {
+            self.load_device_keys(store)?;
+        }
+        let device_id = self
+            .device_keys
+            .as_ref()
+            .and_then(|keys| keys.iter().find(|key| key.key_id == key_id))
+            .map(|key| key.device_id.as_str().to_string());
         remove_device_key(&location, &recovery_password, key_id)?;
+        // Its own bucket key goes too. A device on the shared key has no IAM user,
+        // and removing a user that is not there counts as done.
+        if let (Some(device_id), Some((endpoint, access))) =
+            (device_id, self.key_admin_parts(store))
+            && let Some(object_store) = self
+                .profile
+                .as_ref()
+                .and_then(|profile| profile.object_store.as_ref())
+        {
+            let user = satchel_core::device_key_user(
+                &object_store.bucket,
+                &object_store.prefix,
+                &device_id,
+            )?;
+            let admin = satchel_core::KeyAdmin {
+                s3_endpoint: &endpoint,
+                access_key_id: &access.access_key_id,
+                secret_access_key: &access.secret_access_key,
+            };
+            match satchel_core::revoke_device_bucket_key(&admin, &user) {
+                Ok(()) | Err(satchel_core::Error::KeysDenied) => {}
+                Err(err) => return Err(err.into()),
+            }
+        }
         self.load_device_keys(store)
     }
 
     /// Start listening. Discovery follows `config.advertise` and ends when the session is dropped.
     pub fn open_add_device(&mut self, config: ListenConfig) -> Result<Offer, Error> {
+        // A device that joined a bucket holds only its own bucket key: a main device adds.
+        if self
+            .profile
+            .as_ref()
+            .is_some_and(|profile| profile.object_store.is_some() && profile.role == Role::Member)
+        {
+            return Err(Error::MainDeviceAdds);
+        }
         if self.session.is_some() {
             return Err(Error::AlreadyPairing);
         }
@@ -1079,13 +1201,48 @@ impl Desktop {
         let provisioned = provision_device_key(&location, &recovery_password, &device_id)?;
         let key_id = provisioned.key_id;
         let device_key_password = provisioned.device_key_password;
-        let bucket_credential = phone_grant_secret(profile.object_store.as_ref(), &phone_secret)?;
+        // On S3 the main device makes this device its own bucket key, so removing it later
+        // cuts the bucket too. Without IAM rights the device gets the shared key.
+        let mut issued_user = None;
+        let mut device_secret = phone_secret;
+        let mut granted_key = BucketKey::Shared;
+        if let (Some((endpoint, access)), Some(object_store)) =
+            (self.key_admin_parts(store), profile.object_store.as_ref())
+        {
+            let admin = satchel_core::KeyAdmin {
+                s3_endpoint: &endpoint,
+                access_key_id: &access.access_key_id,
+                secret_access_key: &access.secret_access_key,
+            };
+            match satchel_core::issue_device_bucket_key(
+                &admin,
+                &object_store.bucket,
+                &object_store.prefix,
+                device_id.as_str(),
+            ) {
+                Ok(issued) => {
+                    device_secret = access_json(&issued.access_key_id, &issued.secret_access_key)?;
+                    issued_user = Some((endpoint.clone(), access.clone(), issued.user_name));
+                    granted_key = BucketKey::Own;
+                }
+                Err(err) => eprintln!("satchel-desktop: device bucket key not issued: {err}"),
+            }
+        }
+        let bucket_credential = phone_grant_secret(profile.object_store.as_ref(), &device_secret)?;
         let secrets = DeviceSecrets {
             endpoint: grant_endpoint(&profile),
             bucket_credential,
             device_key_password,
         };
         if let Err(err) = self.finish(Decision::Approve(secrets)) {
+            if let Some((endpoint, access, user)) = &issued_user {
+                let admin = satchel_core::KeyAdmin {
+                    s3_endpoint: endpoint,
+                    access_key_id: &access.access_key_id,
+                    secret_access_key: &access.secret_access_key,
+                };
+                let _ = satchel_core::revoke_device_bucket_key(&admin, user);
+            }
             // A device key cannot always delete keys; the main device can remove it later.
             if let Err(remove_err) = remove_device_key(&location, &recovery_password, &key_id)
                 && profile.role == Role::Maintainer
@@ -1094,6 +1251,7 @@ impl Desktop {
             }
             return Err(err);
         }
+        self.last_grant_key = Some(granted_key);
         Ok(())
     }
 
@@ -1326,13 +1484,22 @@ impl Desktop {
                 true,
                 TrayCommand::OpenSetup,
             ));
-            // Any device adds devices; only the main one removes them.
+            // Only a main device adds devices, and only it removes them.
             let reachable = profile.object_store.is_some();
             items.push(item(
                 t("Add device…", "Adicionar aparelho…").to_string(),
-                reachable,
+                self.may_add_devices(),
                 TrayCommand::OpenAddDevice,
             ));
+            if reachable && !self.may_add_devices() {
+                items.push(info(
+                    t(
+                        "Devices are added on a main device",
+                        "Aparelhos se adicionam num aparelho principal",
+                    )
+                    .to_string(),
+                ));
+            }
             if !reachable {
                 items.push(info(
                     t(
@@ -1574,7 +1741,7 @@ pub fn phone_grant_secret(
     serde_json::to_string(&body).map_err(|_| Error::PhoneCredential)
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct AccessKey {
     access_key_id: String,
     secret_access_key: String,

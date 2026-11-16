@@ -173,6 +173,14 @@ pub fn describe(language: Language, err: &Error) -> String {
             "The storage refused this maintenance key. Check the key and its secret.",
             "O armazenamento recusou esta chave de manutenção. Confira a chave e o segredo.",
         ),
+        Error::MainDeviceAdds => l(
+            "Devices are added on a main device, which can give each one its own bucket key. \
+             Open Add device there. Any device becomes main with the recovery password and the \
+             maintenance key.",
+            "Aparelhos se adicionam num aparelho principal, que consegue dar a cada um a própria \
+             chave do bucket. Abra Adicionar aparelho nele. Qualquer aparelho vira principal com \
+             a senha de recuperação e a chave de manutenção.",
+        ),
         Error::LocalRepository => l(
             "The encrypted copies are in a folder on this computer, which phones and other \
              computers can't reach. To add devices, create the repository on S3, R2 or B2.",
@@ -285,6 +293,21 @@ pub fn describe(language: Language, err: &Error) -> String {
                  (versionamento e regras de ciclo de vida). A chave de manutenção precisa \
                  administrar o bucket: no AWS, s3:GetBucketVersioning e \
                  s3:GetLifecycleConfiguration; no R2, um token de API com Admin Read & Write.",
+            ),
+            Core::KeysDenied => l(
+                "The storage refused the maintenance key when it managed device keys. On AWS it \
+                 needs iam:CreateUser, iam:PutUserPolicy, iam:CreateAccessKey, \
+                 iam:ListAccessKeys, iam:DeleteAccessKey, iam:DeleteUserPolicy and \
+                 iam:DeleteUser.",
+                "O armazenamento recusou a chave de manutenção ao administrar as chaves dos \
+                 aparelhos. No AWS ela precisa de iam:CreateUser, iam:PutUserPolicy, \
+                 iam:CreateAccessKey, iam:ListAccessKeys, iam:DeleteAccessKey, \
+                 iam:DeleteUserPolicy e iam:DeleteUser.",
+            ),
+            Core::Keys => l(
+                "Couldn't manage the device's bucket key. Check the network and try again.",
+                "Não foi possível administrar a chave do aparelho no bucket. Confira a rede e \
+                 tente de novo.",
             ),
             Core::Probe => l(
                 "Couldn't check the bucket. Check the endpoint, the region and the network.",

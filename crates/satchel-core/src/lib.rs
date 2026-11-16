@@ -3,6 +3,7 @@
 mod credential;
 mod error;
 mod format;
+mod iam;
 mod mirror;
 mod probe;
 mod setup;
@@ -15,6 +16,10 @@ pub use error::Error;
 pub use format::{
     DeviceId, DeviceKeyRecord, Location, S3Store, add_device_key, backup_directory,
     change_recovery_password, init, list_other_device_keys, remove_device_key,
+};
+pub use iam::{
+    DeviceBucketKey, KeyAdmin, device_bucket_key_exists, device_key_user, iam_endpoint,
+    issue_device_bucket_key, revoke_device_bucket_key,
 };
 pub use mirror::{DirectoryTree, FolderTree, MirrorReport, TreeFile, sync_mirrored};
 pub use probe::{ObjectProtection, probe_object_protection, probe_storage};

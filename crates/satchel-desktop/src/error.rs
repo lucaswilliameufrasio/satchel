@@ -34,6 +34,9 @@ pub enum Error {
     /// The typed maintenance key was refused by the storage.
     #[error("the storage refused the maintenance key")]
     MaintenanceRefused,
+    /// Each device has its own bucket key here, and only a main device can make one.
+    #[error("only a main device adds devices to this repository")]
+    MainDeviceAdds,
     /// The repository is a folder on this computer, which other devices cannot reach.
     #[error("the repository is a folder on this computer")]
     LocalRepository,

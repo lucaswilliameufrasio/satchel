@@ -165,54 +165,26 @@ fn second_desktop_joins_a_bucket_and_both_sync() {
             .map(|item| &item.label)
             .collect::<Vec<_>>()
     );
+    // Only a main device adds devices: the member could only hand on its own bucket key.
     let add = view
         .items
         .iter()
         .find(|item| item.label == "Add device…")
-        .expect("a member adds devices too");
-    assert!(add.enabled);
-
-    // The device that joined adds a third one, without the main device.
-    let offer = second
-        .open_add_device(ListenConfig {
-            bind: "127.0.0.1:0".parse().expect("bind"),
-            timeout: Duration::from_secs(90),
-            advertise: false,
-        })
-        .expect("screen on the member");
-    let target = JoinTarget::from_invite(&offer.invite, "third", "test").expect("invite");
-    let grant = thread::spawn(move || request_grant(target, Duration::from_secs(90)));
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while second.pending().is_none() {
-        second.poll();
-        assert!(Instant::now() < deadline, "no approval request");
-        thread::sleep(Duration::from_millis(30));
-    }
-    second
-        .approve_pending(&second_store)
-        .expect("member approves");
-    let granted = grant.join().expect("thread").expect("grant");
-    let third_folder = root.0.join("third");
-    fs::create_dir_all(&third_folder).expect("third");
-    let third_store = MemoryStore::default();
-    let mut third = Desktop::open(root.0.join("config-third"))
-        .expect("open")
-        .with_language(Language::En);
-    third
-        .join_with_grant(&third_store, third_folder.clone(), granted)
-        .expect("third joins through the member");
-    third.publish(&third_store).expect("third syncs");
-    assert_eq!(
-        fs::read_to_string(third_folder.join("note.txt")).expect("pulled"),
-        "from-first"
+        .expect("add device row");
+    assert!(!add.enabled);
+    assert!(
+        view.items
+            .iter()
+            .any(|item| item.label == "Devices are added on a main device")
     );
-    // What the member sent is the limited key, never more.
-    let sent = third_store
-        .get(Account::BucketCredential)
-        .expect("get")
-        .expect("credential");
-    assert!(sent.contains("device-key"));
-    assert!(!sent.contains(ACCESS_KEY));
+    assert!(matches!(
+        second.open_add_device(ListenConfig {
+            bind: "127.0.0.1:0".parse().expect("bind"),
+            timeout: Duration::from_secs(5),
+            advertise: false,
+        }),
+        Err(satchel_desktop::Error::MainDeviceAdds)
+    ));
 
     // With the main device gone, the member becomes main: both secrets are checked first.
     let wrong = second.become_main(
@@ -322,4 +294,144 @@ fn restic_restore(
         .output()
         .expect("restic");
     assert!(output.status.success(), "restic status {}", output.status);
+}
+
+/// On S3 the main device makes each device its own bucket key through IAM; a
+/// device that joined does not add devices; removing a device deletes its key.
+/// Floci answers IAM but accepts any key on S3, so the cut is proven at IAM.
+#[test]
+fn on_s3_each_device_gets_its_own_bucket_key_and_removal_deletes_it() {
+    let floci = LocalFloci::start();
+    let endpoint = floci.endpoint().to_string();
+    let bucket = format!("satchel-own-{}", std::process::id());
+    aws(
+        &endpoint,
+        &["s3api", "create-bucket", "--bucket", bucket.as_str()],
+    );
+    aws(
+        &endpoint,
+        &[
+            "s3api",
+            "put-bucket-versioning",
+            "--bucket",
+            bucket.as_str(),
+            "--versioning-configuration",
+            "Status=Enabled",
+        ],
+    );
+    let root = TempRoot::new();
+    let first_folder = root.0.join("first");
+    let second_folder = root.0.join("second");
+    fs::create_dir_all(&first_folder).expect("first");
+    fs::create_dir_all(&second_folder).expect("second");
+    fs::write(first_folder.join("note.txt"), "from-first").expect("note");
+
+    let mut setup = StorageSetup::directory(root.0.join("unused"));
+    setup.kind = StorageKind::S3;
+    setup.endpoint = endpoint.clone();
+    setup.bucket = bucket.clone();
+    setup.region = "us-east-1".to_string();
+    setup.prefix = "repo".to_string();
+    setup.access_key_id = ACCESS_KEY.to_string();
+    setup.secret_access_key = SECRET_KEY.to_string();
+    let first_store = MemoryStore::default();
+    let mut first = Desktop::open(root.0.join("config-first"))
+        .expect("open")
+        .with_language(Language::En);
+    first
+        .create_repository(
+            &first_store,
+            first_folder,
+            setup,
+            Some(AccessPair {
+                access_key_id: "shared-device-key".to_string(),
+                secret_access_key: "shared-device-secret".to_string(),
+            }),
+        )
+        .expect("create on S3");
+    first.publish(&first_store).expect("first publishes");
+    assert!(first.per_device_bucket_keys());
+    assert!(first.may_add_devices());
+
+    let offer = first
+        .open_add_device(ListenConfig {
+            bind: "127.0.0.1:0".parse().expect("bind"),
+            timeout: Duration::from_secs(90),
+            advertise: false,
+        })
+        .expect("screen");
+    let target = JoinTarget::from_invite(&offer.invite, "second", "test").expect("invite");
+    let grant = thread::spawn(move || request_grant(target, Duration::from_secs(90)));
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while first.pending().is_none() {
+        first.poll();
+        assert!(Instant::now() < deadline, "no approval request");
+        thread::sleep(Duration::from_millis(30));
+    }
+    first.approve_pending(&first_store).expect("approve");
+    assert_eq!(
+        first.last_grant_key(),
+        Some(satchel_desktop::BucketKey::Own)
+    );
+    let granted = grant.join().expect("thread").expect("grant");
+    let second_store = MemoryStore::default();
+    let mut second = Desktop::open(root.0.join("config-second"))
+        .expect("open")
+        .with_language(Language::En);
+    second
+        .join_with_grant(&second_store, second_folder.clone(), granted)
+        .expect("join");
+    let held = second_store
+        .get(Account::BucketCredential)
+        .expect("get")
+        .expect("credential");
+    assert!(!held.contains("shared-device-key"), "got the shared key");
+    assert!(!held.contains(ACCESS_KEY));
+    second
+        .publish(&second_store)
+        .expect("second syncs with its own key");
+    assert_eq!(
+        fs::read_to_string(second_folder.join("note.txt")).expect("pulled"),
+        "from-first"
+    );
+
+    // A device that joined does not add devices here: it could only hand on its own key.
+    assert!(!second.may_add_devices());
+    assert!(matches!(
+        second.open_add_device(ListenConfig {
+            bind: "127.0.0.1:0".parse().expect("bind"),
+            timeout: Duration::from_secs(5),
+            advertise: false,
+        }),
+        Err(satchel_desktop::Error::MainDeviceAdds)
+    ));
+
+    let second_id = second
+        .profile()
+        .expect("profile")
+        .device_id
+        .as_str()
+        .to_string();
+    assert_eq!(
+        first.bucket_key_of(&first_store, &second_id),
+        satchel_desktop::BucketKey::Own
+    );
+    first.load_device_keys(&first_store).expect("keys");
+    let record = first
+        .device_keys()
+        .expect("loaded")
+        .iter()
+        .find(|record| record.device_id.as_str() == second_id)
+        .expect("second's key file")
+        .key_id
+        .clone();
+    first
+        .revoke_device_key(&first_store, &record)
+        .expect("remove second");
+    assert_eq!(
+        first.bucket_key_of(&first_store, &second_id),
+        satchel_desktop::BucketKey::Shared,
+        "the IAM key is still there"
+    );
+    assert!(second.publish(&second_store).is_err());
 }

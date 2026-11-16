@@ -20,6 +20,9 @@ O `.kdbx` foi o caso que revelou a necessidade. O produto não sabe o que é um 
 - Revogar um aparelho perdido corta o acesso futuro. Não apaga as cópias já abertas nele.
 - Trocar a senha de recuperação reembrulha todas as YubiKeys na mesma sessão.
 - A configuração só está pronta quando um aparelho zerado abre o repositório pelo aplicativo e pelo `restic` oficial.
+- Decidido em 2026-11-16: cada aparelho recebe a própria chave de bucket, criada pelo aparelho principal com a chave de manutenção (IAM no S3; no B2, chave de aplicação com prefixo). Remover um aparelho apaga a chave dele no provedor. Sem permissão para criar chaves, ou no R2, o aparelho recebe a chave compartilhada e a tela diz que remover não corta o bucket.
+- Decidido em 2026-11-16: em armazenamento de objetos, só aparelhos principais adicionam aparelhos. A pessoa define o grupo: qualquer aparelho vira principal com a senha de recuperação e a chave de manutenção.
+- Decidido em 2026-11-16: a linguagem visual segue a direção C de [referencias-visuais.md](referencias-visuais.md) (superfície e tom do Mercury, status e dados do Geist).
 
 ### Pareamento
 

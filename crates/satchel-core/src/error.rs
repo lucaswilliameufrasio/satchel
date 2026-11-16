@@ -81,6 +81,14 @@ pub enum Error {
     )]
     ProbeDenied,
 
+    /// The provider refused the maintenance key when it managed device keys (HTTP 401 or 403).
+    #[error("the storage would not let the maintenance key manage device keys")]
+    KeysDenied,
+
+    /// Creating or deleting a device key did not return a usable answer.
+    #[error("managing a device key failed")]
+    Keys,
+
     /// The bucket probe did not return a usable answer. The message has no credential.
     #[error("object storage probe failed")]
     Probe,

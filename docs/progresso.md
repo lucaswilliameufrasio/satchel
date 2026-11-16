@@ -10,8 +10,8 @@ capturas de antes e depois estão em [capturas/2026-11-16](capturas/2026-11-16/)
 | --- | --- |
 | 1. Diagnosticar a jornada real | Feito no desktop e no iOS (simulador). Android só por código. |
 | 2. Redesenhar a jornada principal | Feito no desktop; pareamento, aprovação e senha nos dois celulares. |
-| 3. Linguagem visual | Bloqueado: faltam as 2 a 5 referências de quem decide o produto. |
-| 4. Lacunas de confiança | Remoção comunicada com precisão. A solução da chave do bucket segue sem decisão. |
+| 3. Linguagem visual | Direção C escolhida em 2026-11-16 ([referencias-visuais.md](referencias-visuais.md)); aplicação em andamento. |
+| 4. Lacunas de confiança | Chave de bucket por aparelho no S3, com remoção que a apaga; B2, R2 e celular principal pendentes. |
 | 5. Preparar a entrega | Feito: commit `9239ac3`, PR #1 atualizada; verificações no fim desta seção. |
 
 ### 1. Percurso de 2026-11-16
@@ -92,8 +92,26 @@ de “esperando aprovar”. Ficam para a passada visual do item 3.
   até ser trocada no painel do armazenamento; no R2 e no B2 ela apaga), e
   pede confirmação. `page_creates_and_joins_and_refuses_strangers` remove pela
   página e confere que o aparelho removido deixa de publicar.
-- **Solução da chave do bucket.** Não decidida: uma chave por aparelho, ou
-  trocar a chave de todos ao remover alguém. A página só descreve o estado.
+- **Chave do bucket por aparelho (decidido e feito em 2026-11-16, no S3).** Ao
+  aprovar, o aparelho principal usa a chave de manutenção para criar no IAM um
+  usuário `satchel-<repositório>-<id do aparelho>` com a política limitada de
+  `phone_credential_policy` e uma chave de acesso, que vai só para aquele
+  aparelho. Remover apaga a chave, a política e o usuário. O nome é
+  determinístico, então qualquer aparelho principal remove a chave de qualquer
+  aparelho, sem guardar estado. Sem permissão de IAM, o aparelho recebe a chave
+  compartilhada, e a aprovação e a página de remoção dizem isso. Em
+  armazenamento de objetos, só aparelhos principais adicionam aparelhos; a
+  pessoa escolhe o grupo tornando principal qualquer aparelho. Provas:
+  `device_bucket_keys` (núcleo, Floci: dois aparelhos, duas chaves, remover um
+  deixa o outro, reemitir troca a chave) e
+  `on_s3_each_device_gets_its_own_bucket_key_and_removal_deletes_it` (desktop,
+  Floci: a chave recebida não é a compartilhada nem a de manutenção, o aparelho
+  sincroniza com ela, um aparelho comum não abre Adicionar aparelho, remover
+  apaga a chave no IAM). O Floci aceita qualquer chave no S3, então o corte do
+  acesso está provado no IAM, não numa recusa do S3. Falta: o B2 (chave de
+  aplicação com prefixo, API nativa), o R2 (API da Cloudflare), a aprovação
+  feita por um celular principal (ainda entrega a chave compartilhada) e uma
+  conta AWS de verdade.
 - **Várias pastas, aparelhos e bucket reais.** Não validados nesta passada.
 
 ### 5. Verificações em 2026-11-16
@@ -120,7 +138,7 @@ Fora dos passos numerados:
 
 - Provedor de documentos do iOS, o que sobrou (nota “provedor de documentos do iOS”): escrever pelo Arquivos e o comportamento só leitura num iPhone de verdade (a build assinada já existe; falta instalar e abrir no aparelho).
 - Desktop, o que sobrou das notas de 2026-11-07 (página clara, Adicionar aparelho, várias pastas, aparelho principal, R2): a página e os avisos foram vistos no Firefox em 2026-11-16 (seção “Experiência e confiança”); o seletor de pastas do macOS não foi aberto por teste; o R2 não foi testado num bucket de verdade; as suítes de interface do iOS e do Android não rodaram depois das várias pastas; a pasta escolhida no celular continua ligada só à primeira pasta do repositório; um build antigo que abra um repositório com mais de uma pasta mistura as pastas.
-- Chave dos aparelhos única: todos os aparelhos recebem a mesma chave do bucket, então um aparelho removido perde a chave do repositório mas continua com acesso ao bucket (no R2 e no B2, inclusive para apagar). Falta uma chave de bucket por aparelho, ou trocar a chave dos aparelhos ao remover alguém. Desde 2026-11-16 a página Remover um aparelho diz isso antes de remover.
+- Chave dos aparelhos única: resolvida no S3 em 2026-11-16 (chave por aparelho pelo IAM; ver “Experiência e confiança”). No B2, no R2 e quando um celular principal aprova, o aparelho ainda recebe a chave compartilhada, e a página Remover um aparelho diz isso antes de remover.
 - Testes do Floci em paralelo: às vezes um contêiner não sobe na rodada completa; um de cada vez, passam.
 - YubiKey no iPhone.
 - OAuth, relay de push e apagamento remoto.
