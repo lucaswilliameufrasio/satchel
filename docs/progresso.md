@@ -14,6 +14,11 @@ capturas de antes e depois estão em [capturas/2026-11-16](capturas/2026-11-16/)
 | 4. Lacunas de confiança | Chave de bucket própria por aparelho no S3, no B2 e no R2 (com token da Cloudflare), emitida pelo desktop ou pelo celular principal; remover a apaga. Sem a permissão, chave compartilhada com aviso. |
 | 5. Preparar a entrega | Feito: commits até `94e7223`, PR #1 atualizada com escopo, provas e o que não foi provado. |
 
+O que ainda não pode ser feito daqui, porque depende de aparelho físico ou de
+conta real, está em [verificacao-em-aparelhos.md](verificacao-em-aparelhos.md):
+o corte de uma chave removida num provedor de verdade (AWS, B2, R2), VoiceOver
+e TalkBack, e a leitura do QR pela câmera.
+
 ### 1. Percurso de 2026-11-16
 
 O desktop foi percorrido no Firefox, pela página real servida por
