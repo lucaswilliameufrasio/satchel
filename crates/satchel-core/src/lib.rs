@@ -1,21 +1,49 @@
 //! Create and write a restic repository without putting the machine name in the key file.
 
+mod b2keys;
 mod credential;
 mod error;
 mod format;
+mod iam;
+mod mirror;
 mod probe;
+mod r2keys;
+mod setup;
 mod storage;
 mod sync;
+mod wake;
 
+pub use b2keys::{
+    B2_API, b2_device_key_exists, b2_key_name, issue_b2_device_key, own_key_exists, own_key_issue,
+    own_key_revoke, revoke_b2_device_key,
+};
 pub use credential::{phone_credential_policy, phone_may_delete};
 pub use error::Error;
 pub use format::{
-    DeviceId, DeviceKeyRecord, Location, S3Store, add_device_key, backup_directory, init,
-    list_other_device_keys, remove_device_key,
+    DeviceId, DeviceKeyRecord, Location, S3Store, add_device_key, backup_directory,
+    change_recovery_password, init, list_other_device_keys, remove_device_key,
 };
-pub use probe::{ObjectProtection, probe_object_protection};
+pub use iam::{
+    DeviceBucketKey, KeyAdmin, device_bucket_key_exists, device_key_user, iam_endpoint,
+    issue_device_bucket_key, revoke_device_bucket_key,
+};
+pub use mirror::{DirectoryTree, FolderTree, MirrorReport, TreeFile, sync_mirrored};
+pub use probe::{ObjectProtection, probe_object_protection, probe_storage};
+pub use r2keys::{
+    CLOUDFLARE_API, issue_r2_device_key, r2_account, r2_device_key_exists, revoke_r2_device_key,
+};
+pub use setup::{
+    CreatedRepository, ProvisionedKey, StorageSetup, check_storage, create_repository,
+    generate_recovery_password, provision_device_key,
+};
 pub use storage::{SetupCheck, StorageKind, Versioning, check_setup};
 pub use sync::{
-    CatalogEntry, Client, Cursor, Follow, MarkedConflict, SyncOutcome, cursors, publish_folder,
-    read_followed, read_version, restore_latest,
+    CatalogEntry, Client, Cursor, DeviceCard, FolderSummary, Follow, Intro, Lane, MarkedConflict,
+    QuietMark, SyncOutcome, cursors, devices, folders, publish_folder, quiet_mark, read_followed,
+    read_followed_in, read_version, restore_latest, sync_folder, sync_folder_announcing,
+    sync_folder_in, sync_folder_introduced, write_latest, write_latest_in,
+};
+pub use wake::{
+    WAKE_WINDOW_SECS, WakeCheck, WakeEndpoint, WakeListener, WakePeer, bind_saved_wake,
+    generate_wake_key, send_wakes, wake_datagram,
 };

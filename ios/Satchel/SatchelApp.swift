@@ -1,0 +1,1037 @@
+import AVFoundation
+import SwiftUI
+
+@main
+struct SatchelApp: App {
+    @StateObject private var model = PhoneModel()
+    @Environment(\.scenePhase) private var phase
+
+    var body: some Scene {
+        WindowGroup {
+            PhoneView(model: model)
+                .onAppear {
+                    model.openIfNeeded()
+                }
+        }
+        .onChange(of: phase) { now in
+            if now == .active {
+                model.startWakes()
+            } else {
+                model.stopWakes()
+            }
+        }
+    }
+}
+
+struct PhoneView: View {
+    @ObservedObject var model: PhoneModel
+    @State private var pickingFolder = false
+
+    var body: some View {
+        screenView
+            .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder]) { result in
+                if case .success(let url) = result {
+                    model.chooseFolder(url)
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var screenView: some View {
+        switch model.screen {
+        case .loading:
+            StatusPage(title: String(localized: "Catalog", bundle: .copy, locale: .copy), message: String(localized: "Reading the catalog…", bundle: .copy, locale: .copy))
+        case .failed:
+            StatusPage(
+                title: String(localized: "Catalog", bundle: .copy, locale: .copy),
+                message: String(localized: "Couldn't open the catalog. Check the network and try again.", bundle: .copy, locale: .copy),
+                retry: { model.openCatalog() }
+            )
+        case .ready(let rows, _):
+            CatalogList(
+                rows: rows,
+                canPair: model.canPair,
+                zone: .current,
+                canCreate: model.canPair,
+                onCreate: { model.showCreate() },
+                canInvite: model.canInvite,
+                onInvite: { model.showInvite() },
+                onChangeRecovery: { model.showRecoveryChange() },
+                folder: model.canPair
+                    ? nil
+                    : FolderCardState(name: model.folderName, status: model.folderStatus, busy: model.folderBusy),
+                onChooseFolder: { pickingFolder = true },
+                onSyncFolder: { model.syncFolder() },
+                onPair: {
+                    model.showPairing()
+                },
+                onOpen: { path in
+                    model.openFile(path: path)
+                }
+            )
+        case .creating(let draft):
+            CreatePage(
+                draft: draft,
+                onChange: { model.update($0) },
+                onBack: { model.openCatalog() },
+                onSubmit: { model.create(draft) }
+            )
+        case .changingRecovery(let busy, let failed):
+            RecoveryChangePage(
+                busy: busy,
+                failed: failed,
+                onChange: { model.changeRecovery() },
+                onBack: { model.openCatalog() }
+            )
+        case .recovery(let password, let note):
+            RecoveryPage(password: password, note: note, onDone: { model.finishRecovery() })
+        case .holding(let state):
+            HoldPage(
+                state: state,
+                onApprove: { model.decideHold(approve: true) },
+                onDeny: { model.decideHold(approve: false) },
+                onBack: { model.closeHold() }
+            )
+            .task {
+                while !Task.isCancelled {
+                    await model.pollHold()
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+            }
+        case .file(let path, let rows, let busy):
+            FilePage(
+                path: path,
+                rows: rows,
+                busy: busy,
+                localDeviceId: model.catalogDeviceId,
+                zone: .current,
+                onBack: {
+                    model.closeFile()
+                },
+                onChoose: { follow in
+                    model.choose(path: path, follow: follow)
+                }
+            )
+        case .pairing(let address, let code, let fingerprint, let name, let busy, let failed):
+            PairForm(
+                address: address,
+                code: code,
+                fingerprint: fingerprint,
+                name: name,
+                busy: busy,
+                failed: failed,
+                onScan: {
+                    model.showScanner(
+                        address: address,
+                        code: code,
+                        fingerprint: fingerprint,
+                        name: name
+                    )
+                },
+                onBack: {
+                    model.openCatalog()
+                },
+                onSubmit: { address, code, fingerprint, name in
+                    model.join(
+                        address: address,
+                        code: code,
+                        fingerprint: fingerprint,
+                        name: name
+                    )
+                }
+            )
+        case .scanning(let address, let code, let fingerprint, let name):
+            ScannerPage(onCode: { raw in
+                model.applyScan(raw, previous: (address, code, fingerprint, name))
+            }, onBack: {
+                model.screen = .pairing(
+                    address: address,
+                    code: code,
+                    fingerprint: fingerprint,
+                    name: name,
+                    busy: false,
+                    failed: false
+                )
+            })
+        }
+    }
+}
+
+/// The folder card on the catalog. `name` is nil until a folder is picked.
+struct FolderCardState {
+    let name: String?
+    let status: String?
+    let busy: Bool
+}
+
+struct StatusPage: View {
+    let title: String
+    let message: String
+    /// Shown as Tentar de novo under a failure. A wait has none.
+    var retry: (() -> Void)?
+
+    var body: some View {
+        ProductScreen(title: title) {
+            VStack(spacing: 20) {
+                if retry == nil {
+                    ProgressView()
+                        .tint(SatchelInk.secondary)
+                }
+                Text(message)
+                    .font(.body)
+                    .foregroundStyle(retry == nil ? SatchelInk.secondary : SatchelInk.ink)
+                    .multilineTextAlignment(.center)
+                if let retry {
+                    WideButton(title: String(localized: "Try again", bundle: .copy, locale: .copy), id: "status-retry", action: retry)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 280)
+        }
+    }
+}
+
+struct CatalogList: View {
+    let rows: [CatalogRow]
+    let canPair: Bool
+    var zone: TimeZone = .current
+    var canCreate: Bool = false
+    var onCreate: () -> Void = {}
+    var canInvite: Bool = false
+    var onInvite: () -> Void = {}
+    var onChangeRecovery: () -> Void = {}
+    var folder: FolderCardState?
+    var onChooseFolder: () -> Void = {}
+    var onSyncFolder: () -> Void = {}
+    let onPair: () -> Void
+    let onOpen: (String) -> Void
+
+    var body: some View {
+        ProductScreen(title: String(localized: "Catalog", bundle: .copy, locale: .copy)) {
+            if canCreate {
+                actionCard(
+                    String(localized: "Create repository", bundle: .copy, locale: .copy),
+                    String(localized: "This device keeps the recovery password. The other one joins with a code.", bundle: .copy, locale: .copy),
+                    id: "create-repository",
+                    action: onCreate
+                )
+            }
+            if canInvite {
+                actionCard(
+                    String(localized: "Show invite", bundle: .copy, locale: .copy),
+                    String(localized: "The recovery password is not in the invite.", bundle: .copy, locale: .copy),
+                    id: "show-invite",
+                    action: onInvite
+                )
+                actionCard(
+                    String(localized: "Change recovery password", bundle: .copy, locale: .copy),
+                    String(localized: "Only this device, which created the repository, can change it.", bundle: .copy, locale: .copy),
+                    id: "change-recovery",
+                    action: onChangeRecovery
+                )
+            }
+            if let folder {
+                if let name = folder.name {
+                    actionCard(
+                        String(localized: "Phone folder: \(name)", bundle: .copy, locale: .copy),
+                        folder.status ?? folderReadyNote,
+                        id: "folder-sync",
+                        dot: folderDot(folder),
+                        action: onSyncFolder
+                    )
+                    .disabled(folder.busy)
+                    actionCard(
+                        String(localized: "Choose another folder", bundle: .copy, locale: .copy),
+                        folderSwitchNote,
+                        id: "folder-switch",
+                        action: onChooseFolder
+                    )
+                    .disabled(folder.busy)
+                } else {
+                    actionCard(folderTitle, folderChooseNote, id: "folder-choose", action: onChooseFolder)
+                }
+            }
+            if canPair {
+                Button(action: onPair) {
+                    ProductCard {
+                        HStack(alignment: .center, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(String(localized: "Join on this device", bundle: .copy, locale: .copy))
+                                    .font(.headline)
+                                    .foregroundStyle(SatchelInk.ink)
+                                Text(String(localized: "Scan the QR shown on the desktop, or enter the invite.", bundle: .copy, locale: .copy))
+                                    .font(.subheadline)
+                                    .foregroundStyle(SatchelInk.secondary)
+                            }
+                            Spacer(minLength: 12)
+                            TrailingChevron()
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("pair-entry")
+            }
+            if rows.isEmpty {
+                ProductCard {
+                    Text(canPair
+                        ? String(localized: "Your files show up here after you create a repository or join one that already exists.", bundle: .copy, locale: .copy)
+                        : String(localized: "No files yet. What this or another device sends shows up here.", bundle: .copy, locale: .copy))
+                        .foregroundStyle(SatchelInk.secondary)
+                }
+            } else if canPair {
+                // Before create or join the rows come from a sample kept on this phone, not from any storage.
+                Text(String(localized: "Example: these files are a sample kept on this phone. Yours show up here after you create or join a repository.", bundle: .copy, locale: .copy))
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+                    .accessibilityIdentifier("sample-note")
+            }
+            ForEach(rows) { row in
+                Button {
+                    onOpen(row.path)
+                } label: {
+                    CatalogRowLabel(row: row, zone: zone)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("catalog-row-\(row.path)")
+            }
+        }
+    }
+}
+
+extension CatalogList {
+    fileprivate func actionCard(
+        _ title: String,
+        _ detail: String,
+        id: String,
+        dot: Color? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            ProductCard {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(title)
+                            .font(.headline)
+                            .foregroundStyle(SatchelInk.ink)
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            // The words say the same as the color: the dot is never the only sign.
+                            if let dot {
+                                Circle()
+                                    .fill(dot)
+                                    .frame(width: 8, height: 8)
+                                    .accessibilityHidden(true)
+                            }
+                            Text(detail)
+                                .font(.subheadline)
+                                .foregroundStyle(SatchelInk.secondary)
+                        }
+                    }
+                    Spacer(minLength: 12)
+                    TrailingChevron()
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(id)
+    }
+}
+
+struct CatalogRowLabel: View {
+    let row: CatalogRow
+    var zone: TimeZone = .current
+
+    var body: some View {
+        ProductCard {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: row.isDirectory ? "folder" : "doc")
+                    .font(.title3)
+                    .foregroundStyle(SatchelInk.accent)
+                    .accessibilityHidden(true)
+                    .frame(width: 28, alignment: .center)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(row.path)
+                            .font(.headline)
+                            .foregroundStyle(SatchelInk.ink)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text(followLabel(row.follow))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(SatchelInk.accent)
+                            .layoutPriority(1)
+                    }
+                    Text(catalogMeta(row, zone: zone))
+                        .font(.subheadline)
+                        .foregroundStyle(SatchelInk.secondary)
+                    Text(deviceCountLabel(row.devices))
+                        .font(.footnote)
+                        .foregroundStyle(SatchelInk.secondary)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+struct FilePage: View {
+    let path: String
+    let rows: [CatalogRow]
+    let busy: Bool
+    let localDeviceId: String
+    var zone: TimeZone = .current
+    let onBack: () -> Void
+    let onChoose: (String) -> Void
+
+    var body: some View {
+        ProductScreen(title: path, backLabel: String(localized: "Catalog", bundle: .copy, locale: .copy), backDisabled: busy, onBack: onBack) {
+            if let row = listedRow(path, rows) {
+                ProductCard {
+                    factLine(String(localized: "Size", bundle: .copy, locale: .copy), row.isDirectory ? String(localized: "Folder", bundle: .copy, locale: .copy) : byteCount(row.size))
+                    factLine(String(localized: "Synced", bundle: .copy, locale: .copy), syncedWhen(row.versionUnix, zone: zone))
+                }
+                ProductCard {
+                    Text(String(localized: "On this device", bundle: .copy, locale: .copy))
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(SatchelInk.secondary)
+                    stateButton(String(localized: "View", bundle: .copy, locale: .copy), "see", row: row)
+                    stateButton(String(localized: "Download now", bundle: .copy, locale: .copy), "once", row: row)
+                    stateButton(String(localized: "Always sync", bundle: .copy, locale: .copy), "always", row: row)
+                    if busy {
+                        Text(String(localized: "Saving the choice…", bundle: .copy, locale: .copy))
+                            .font(.subheadline)
+                            .foregroundStyle(SatchelInk.secondary)
+                    }
+                }
+                ProductCard {
+                    Text(String(localized: "Devices", bundle: .copy, locale: .copy))
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(SatchelInk.secondary)
+                    if row.devices.isEmpty {
+                        Text(String(localized: "No device keeps a copy.", bundle: .copy, locale: .copy))
+                            .foregroundStyle(SatchelInk.secondary)
+                    }
+                    ForEach(Array(row.devices.enumerated()), id: \.offset) { _, device in
+                        DeviceFacts(
+                            deviceId: device,
+                            card: holderCard(device, row.holders),
+                            local: device == localDeviceId,
+                            zone: zone
+                        )
+                    }
+                }
+            } else {
+                ProductCard {
+                    Text(String(localized: "No files yet. What this or another device sends shows up here.", bundle: .copy, locale: .copy))
+                        .foregroundStyle(SatchelInk.secondary)
+                }
+            }
+        }
+    }
+
+    private func factLine(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(SatchelInk.secondary)
+            Text(value)
+                .font(.body)
+                .foregroundStyle(SatchelInk.ink)
+        }
+    }
+
+    private func stateButton(_ label: String, _ follow: String, row: CatalogRow) -> some View {
+        let selected = row.follow == follow
+        return Button {
+            onChoose(follow)
+        } label: {
+            // The mark sits on the title line so the detail keeps the full width at large text.
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(label)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(SatchelInk.ink)
+                    Spacer(minLength: 12)
+                    if selected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(SatchelInk.accent)
+                            .accessibilityHidden(true)
+                    }
+                }
+                Text(followDetail(follow, directory: row.isDirectory))
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selected ? SatchelInk.selected : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .accessibilityIdentifier("follow-\(follow)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+func holderCard(_ id: String, _ cards: [DeviceCard]) -> DeviceCard? {
+    for card in cards {
+        if card.id == id {
+            return card
+        }
+    }
+    return nil
+}
+
+struct DeviceFacts: View {
+    let deviceId: String
+    let card: DeviceCard?
+    let local: Bool
+    var zone: TimeZone = .current
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(SatchelInk.ink)
+            if let name = card?.name, title != name {
+                Text(String(localized: "Nickname \(name)", bundle: .copy, locale: .copy))
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+            }
+            if let os = card?.os {
+                Text(String(localized: "System \(osLabel(os))", bundle: .copy, locale: .copy))
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+            }
+            if let enrolled = card?.enrolledUnix {
+                Text(String(localized: "Registered \(syncedWhen(enrolled, zone: zone))", bundle: .copy, locale: .copy))
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+            }
+            if let last = card?.lastUnix {
+                Text(String(localized: "Last sent \(syncedWhen(last, zone: zone))", bundle: .copy, locale: .copy))
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+            }
+            if title != groupedDeviceId(deviceId) {
+                Text(groupedDeviceId(deviceId))
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(SatchelInk.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.top, 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(local ? "device-card-local" : "device-card-other")
+    }
+
+    private var title: String {
+        if local {
+            return String(localized: "This device", bundle: .copy, locale: .copy)
+        }
+        if let name = card?.name, !name.isEmpty {
+            return name
+        }
+        return groupedDeviceId(deviceId)
+    }
+}
+
+func listedRow(_ path: String, _ rows: [CatalogRow]) -> CatalogRow? {
+    for row in rows {
+        if row.path == path {
+            return row
+        }
+    }
+    return nil
+}
+
+struct PairForm: View {
+    @State var address: String
+    @State var code: String
+    @State var fingerprint: String
+    @State var name: String
+    let busy: Bool
+    let failed: Bool
+    let onScan: () -> Void
+    let onBack: () -> Void
+    let onSubmit: (String, String, String, String) -> Void
+
+    var body: some View {
+        ProductScreen(
+            title: String(localized: "Join on this device", bundle: .copy, locale: .copy),
+            backLabel: String(localized: "Back", bundle: .copy, locale: .copy),
+            backDisabled: busy,
+            onBack: onBack
+        ) {
+            Text(String(localized: "The desktop shows the QR. The recovery password is not part of the invite.", bundle: .copy, locale: .copy))
+                .font(.subheadline)
+                .foregroundStyle(SatchelInk.secondary)
+            Button(action: onScan) {
+                ProductCard {
+                    HStack(alignment: .center, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(String(localized: "Scan QR", bundle: .copy, locale: .copy))
+                                .font(.headline)
+                                .foregroundStyle(SatchelInk.ink)
+                            Text(String(localized: "Point the camera at the QR on the other device's Add device screen.", bundle: .copy, locale: .copy))
+                                .font(.subheadline)
+                                .foregroundStyle(SatchelInk.secondary)
+                        }
+                        Spacer(minLength: 12)
+                        TrailingChevron()
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("pair-scan")
+            .disabled(busy)
+            Text(String(localized: "No camera? Type what the other device shows", bundle: .copy, locale: .copy))
+                .font(.headline)
+                .foregroundStyle(SatchelInk.ink)
+                .padding(.top, 8)
+            Text(String(localized: "Code, address and fingerprint appear under Add device on the other device. Spaces are fine.", bundle: .copy, locale: .copy))
+                .font(.subheadline)
+                .foregroundStyle(SatchelInk.secondary)
+            ProductCard {
+                ProductField(title: String(localized: "Address", bundle: .copy, locale: .copy), text: $address, suppressesAutocorrection: true)
+                ProductField(title: String(localized: "Code", bundle: .copy, locale: .copy), text: $code)
+                ProductField(
+                    title: String(localized: "Fingerprint", bundle: .copy, locale: .copy),
+                    text: $fingerprint,
+                    suppressesAutocorrection: true
+                )
+                ProductField(title: String(localized: "Nickname", bundle: .copy, locale: .copy), text: $name)
+            }
+            if failed {
+                Text(String(localized: "Couldn't join. Check the code and that the other device still shows the invite.", bundle: .copy, locale: .copy))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SatchelInk.danger)
+            }
+            Button {
+                onSubmit(address, code, fingerprint, name)
+            } label: {
+                Text(String(localized: "Join", bundle: .copy, locale: .copy))
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(SatchelInk.onAccent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(SatchelInk.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(busy)
+        }
+    }
+}
+
+/// What the scanner can do right now.
+enum CameraAccess: Equatable {
+    case missing, ask, refused, granted
+
+    static func current() -> CameraAccess {
+        if AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) == nil {
+            return .missing
+        }
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            return .granted
+        case .notDetermined:
+            return .ask
+        default:
+            return .refused
+        }
+    }
+}
+
+struct ScannerPage: View {
+    let onCode: (String) -> Void
+    let onBack: () -> Void
+    var access: CameraAccess = .current()
+    @State private var shown: CameraAccess?
+    @Environment(\.scenePhase) private var phase
+
+    private func copy(_ key: String.LocalizationValue) -> String {
+        String(localized: key, bundle: .copy, locale: .copy)
+    }
+
+    var body: some View {
+        let now = shown ?? access
+        ProductScreen(title: copy("Scan QR"), backLabel: copy("Back"), onBack: onBack) {
+            switch now {
+            case .granted:
+                Text(copy("Point the camera at the QR on the desktop."))
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+                QrScannerView(onCode: onCode)
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .accessibilityElement()
+                    .accessibilityLabel(copy("Camera viewfinder"))
+            case .missing:
+                ProductCard {
+                    Text(copy("No camera")).font(.headline).foregroundStyle(SatchelInk.ink)
+                    Text(copy("This device has no camera. Go back and type the address, code and fingerprint."))
+                        .font(.subheadline).foregroundStyle(SatchelInk.secondary)
+                }
+            case .ask:
+                ProductCard {
+                    Text(copy("Camera")).font(.headline).foregroundStyle(SatchelInk.ink)
+                    Text(copy("Satchel uses the camera only to read the QR on the desktop. Nothing is recorded."))
+                        .font(.subheadline).foregroundStyle(SatchelInk.secondary)
+                }
+                WideButton(title: copy("Allow camera"), id: "scanner-allow") {
+                    AVCaptureDevice.requestAccess(for: .video) { _ in
+                        DispatchQueue.main.async {
+                            shown = CameraAccess.current()
+                        }
+                    }
+                }
+            case .refused:
+                ProductCard {
+                    Text(copy("Camera")).font(.headline).foregroundStyle(SatchelInk.ink)
+                    Text(copy("Camera access is off for Satchel. Turn it on in Settings, or go back and type the code."))
+                        .font(.subheadline).foregroundStyle(SatchelInk.secondary)
+                }
+                WideButton(title: copy("Open Settings"), id: "scanner-settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+            }
+            Button(action: onBack) {
+                Text(copy("Type the code instead"))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SatchelInk.accent)
+            }
+            .accessibilityIdentifier("scanner-type-instead")
+        }
+        .onChange(of: phase) { now in
+            // Back from Settings with the permission changed.
+            if now == .active, shown != nil || access != .granted {
+                shown = CameraAccess.current()
+            }
+        }
+    }
+}
+
+/// The chevron of a card that opens a screen. Left out at accessibility text sizes,
+/// where it would squeeze the text into a narrow column; the whole card is the button.
+private struct TrailingChevron: View {
+    @Environment(\.dynamicTypeSize) private var size
+
+    var body: some View {
+        if !size.isAccessibilitySize {
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(SatchelInk.secondary)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+private struct WideButton: View {
+    let title: String
+    var primary: Bool = true
+    var disabled: Bool = false
+    let id: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(primary ? SatchelInk.onAccent : SatchelInk.ink)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(primary ? SatchelInk.accent : SatchelInk.card)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(primary ? Color.clear : SatchelInk.line, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .accessibilityIdentifier(id)
+    }
+}
+
+struct CreatePage: View {
+    let draft: CreateDraft
+    let onChange: (CreateDraft) -> Void
+    let onBack: () -> Void
+    let onSubmit: () -> Void
+
+    private func bind(_ keyPath: WritableKeyPath<CreateDraft, String>) -> Binding<String> {
+        Binding(
+            get: { draft[keyPath: keyPath] },
+            set: { value in
+                var next = draft
+                next[keyPath: keyPath] = value
+                next.failed = false
+                onChange(next)
+            }
+        )
+    }
+
+    var body: some View {
+        ProductScreen(
+            title: String(localized: "Create repository", bundle: .copy, locale: .copy),
+            backLabel: String(localized: "Back", bundle: .copy, locale: .copy),
+            backDisabled: draft.busy,
+            onBack: onBack
+        ) {
+            Text(
+                String(localized: "This device will keep the recovery password and the maintenance credential. The other device joins with a code and does not type the account again.", bundle: .copy, locale: .copy)
+            )
+            .font(.subheadline)
+            .foregroundStyle(SatchelInk.secondary)
+            HStack(spacing: 8) {
+                ForEach([("folder", String(localized: "Folder", bundle: .copy, locale: .copy)), ("s3", "S3"), ("r2", "R2"), ("b2", "B2")], id: \.0) { item in
+                    Button {
+                        var next = draft
+                        next.storage = item.0
+                        next.failed = false
+                        onChange(next)
+                    } label: {
+                        Text(item.1)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(SatchelInk.ink)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(draft.storage == item.0 ? SatchelInk.selected : SatchelInk.card)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(draft.busy)
+                    .accessibilityIdentifier("storage-\(item.0)")
+                    .accessibilityAddTraits(draft.storage == item.0 ? .isSelected : [])
+                }
+            }
+            if draft.storage == "folder" {
+                Text(String(localized: "The folder stays on this device only. It has no object versioning.", bundle: .copy, locale: .copy))
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+            } else {
+                Text(
+                    String(localized: "The storage needs versioning turned on and no lifecycle rule that deletes objects. The device key is only limited to deleting its own locks if the storage applies a per-key policy (AWS S3, MinIO, RustFS). On R2 and B2 that key can delete everything.", bundle: .copy, locale: .copy)
+                )
+                .font(.subheadline)
+                .foregroundStyle(SatchelInk.secondary)
+                ProductCard {
+                    ProductField(title: "Endpoint", text: bind(\.endpoint), suppressesAutocorrection: true)
+                    ProductField(title: "Bucket", text: bind(\.bucket), suppressesAutocorrection: true)
+                    ProductField(title: String(localized: "Region", bundle: .copy, locale: .copy), text: bind(\.region), suppressesAutocorrection: true)
+                    ProductField(title: String(localized: "Prefix (can be empty)", bundle: .copy, locale: .copy), text: bind(\.prefix), suppressesAutocorrection: true)
+                    ProductField(title: String(localized: "Maintenance access key", bundle: .copy, locale: .copy), text: bind(\.accessKeyId), suppressesAutocorrection: true)
+                    ProductField(title: String(localized: "Maintenance secret", bundle: .copy, locale: .copy), text: bind(\.secretAccessKey), suppressesAutocorrection: true, secure: true)
+                    ProductField(title: String(localized: "Device access key", bundle: .copy, locale: .copy), text: bind(\.deviceAccessKeyId), suppressesAutocorrection: true)
+                    ProductField(title: String(localized: "Device secret", bundle: .copy, locale: .copy), text: bind(\.deviceSecretAccessKey), suppressesAutocorrection: true, secure: true)
+                    if draft.storage == "r2" {
+                        ProductField(title: String(localized: "Cloudflare API token (optional)", bundle: .copy, locale: .copy), text: bind(\.cloudflareToken), suppressesAutocorrection: true, secure: true)
+                        Text(String(localized: "With a token that may create API tokens, each device gets its own R2 key, scoped to this bucket, and removing a device deletes it. Without it, devices share the device key.", bundle: .copy, locale: .copy))
+                            .font(.footnote)
+                            .foregroundStyle(SatchelInk.secondary)
+                    }
+                }
+            }
+            if draft.failed {
+                Text(createFailureCopy(draft.reason))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SatchelInk.danger)
+            }
+            WideButton(
+                title: String(localized: "Create", bundle: .copy, locale: .copy),
+                disabled: draft.busy || !draft.complete,
+                id: "create-submit",
+                action: onSubmit
+            )
+        }
+    }
+}
+
+struct RecoveryChangePage: View {
+    let busy: Bool
+    let failed: Bool
+    let onChange: () -> Void
+    let onBack: () -> Void
+
+    var body: some View {
+        ProductScreen(title: String(localized: "Change recovery password", bundle: .copy, locale: .copy)) {
+            Text(
+                String(localized: "Makes a new password and shows it once. The other devices keep opening with their own key. Anyone who kept the old key file, or reads old versions in a bucket with versioning, still opens with the old password: the data key does not change.", bundle: .copy, locale: .copy)
+            )
+            .font(.subheadline)
+            .foregroundStyle(SatchelInk.secondary)
+            if failed {
+                Text(String(localized: "Couldn't change it. The old password still works. Check the connection to the storage.", bundle: .copy, locale: .copy))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(SatchelInk.danger)
+                    .accessibilityIdentifier("recovery-change-failed")
+            }
+            WideButton(title: busy ? String(localized: "Changing…", bundle: .copy, locale: .copy) : String(localized: "Change now", bundle: .copy, locale: .copy), id: "recovery-change-now", action: onChange)
+                .disabled(busy)
+            WideButton(title: String(localized: "Back", bundle: .copy, locale: .copy), id: "recovery-change-back", action: onBack)
+                .disabled(busy)
+        }
+    }
+}
+
+struct RecoveryPage: View {
+    let password: String
+    let note: String?
+    let onDone: () -> Void
+
+    var body: some View {
+        ProductScreen(title: String(localized: "Recovery password", bundle: .copy, locale: .copy)) {
+            Text(
+                String(localized: "Keep this password in a password manager that opens without this repository. It shows only now, and official restic uses this password.", bundle: .copy, locale: .copy)
+            )
+            .font(.subheadline)
+            .foregroundStyle(SatchelInk.secondary)
+            if let note {
+                Text(note)
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+            }
+            ProductCard {
+                Text(groupedHex(password))
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(SatchelInk.ink)
+                    .accessibilityIdentifier("recovery-password")
+            }
+            Text(String(localized: "The spaces are only for reading. The password has none; Copy copies it without them.", bundle: .copy, locale: .copy))
+                .font(.footnote)
+                .foregroundStyle(SatchelInk.secondary)
+            WideButton(title: String(localized: "Copy", bundle: .copy, locale: .copy), primary: false, id: "recovery-copy") {
+                // Only this device, and gone after two minutes, like a password manager's copy.
+                UIPasteboard.general.setItems(
+                    [[UIPasteboard.typeAutomatic: password]],
+                    options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)]
+                )
+            }
+            WideButton(title: String(localized: "I saved it", bundle: .copy, locale: .copy), id: "recovery-done", action: onDone)
+        }
+    }
+}
+
+struct HoldPage: View {
+    let state: PhoneModel.HoldState
+    let onApprove: () -> Void
+    let onDeny: () -> Void
+    let onBack: () -> Void
+
+    var body: some View {
+        ProductScreen(
+            title: String(localized: "Invite", bundle: .copy, locale: .copy),
+            backLabel: String(localized: "Back", bundle: .copy, locale: .copy),
+            backDisabled: state.busy,
+            onBack: onBack
+        ) {
+            if let approval = state.approval {
+                ProductCard {
+                    Text(String(localized: "Device \(approval.deviceName)", bundle: .copy, locale: .copy))
+                    Text(String(localized: "System \(osLabel(approval.os))", bundle: .copy, locale: .copy))
+                    Text(String(localized: "Address \(approval.peerAddress)", bundle: .copy, locale: .copy))
+                    Text(String(localized: "Code typed: \(approval.code)", bundle: .copy, locale: .copy))
+                }
+                .foregroundStyle(SatchelInk.ink)
+                Text(String(localized: "Code on this screen: \(state.offer.code)", bundle: .copy, locale: .copy))
+                    .font(.headline)
+                    .foregroundStyle(SatchelInk.ink)
+                    .accessibilityIdentifier("hold-code-here")
+                Text(String(localized: "Approve only if this is your device and the code it typed is the one on this screen.", bundle: .copy, locale: .copy))
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+                if state.failed {
+                    Text(String(localized: "Couldn't approve. Close the invite and open it again.", bundle: .copy, locale: .copy))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(SatchelInk.danger)
+                }
+                WideButton(title: String(localized: "Approve", bundle: .copy, locale: .copy), disabled: state.busy, id: "hold-approve", action: onApprove)
+                WideButton(title: String(localized: "Deny", bundle: .copy, locale: .copy), primary: false, disabled: state.busy, id: "hold-deny", action: onDeny)
+            } else {
+                Text(String(localized: "Waiting for the other device to enter the code.", bundle: .copy, locale: .copy))
+                    .font(.subheadline)
+                    .foregroundStyle(SatchelInk.secondary)
+                ProductCard {
+                    Text(String(localized: "Code \(state.offer.code)", bundle: .copy, locale: .copy))
+                        .accessibilityIdentifier("hold-code")
+                    Text(String(localized: "Address \(state.offer.address)", bundle: .copy, locale: .copy))
+                        .accessibilityIdentifier("hold-address")
+                    Text(String(localized: "Fingerprint \(groupedHex(state.offer.fingerprint))", bundle: .copy, locale: .copy))
+                        .accessibilityIdentifier("hold-fingerprint")
+                }
+                .foregroundStyle(SatchelInk.ink)
+                if let data = state.qr, let image = UIImage(data: data) {
+                    Image(uiImage: image)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 240, height: 240)
+                        .accessibilityLabel(String(localized: "Invite QR", bundle: .copy, locale: .copy))
+                }
+                Text(String(localized: "The recovery password is not in the invite.", bundle: .copy, locale: .copy))
+                    .font(.footnote)
+                    .foregroundStyle(SatchelInk.secondary)
+            }
+        }
+    }
+}
+
+func createFailureCopy(_ reason: String) -> String {
+    switch reason {
+    case "protection":
+        return String(localized: "The storage refused: turn on bucket versioning and remove lifecycle rules that delete objects.", bundle: .copy, locale: .copy)
+    case "denied":
+        return String(localized: "The storage refused the maintenance key when it read the bucket's settings (versioning and lifecycle rules). The maintenance key needs to manage the bucket: on AWS, s3:GetBucketVersioning and s3:GetLifecycleConfiguration; on R2, an API token with Admin Read & Write.", bundle: .copy, locale: .copy)
+    case "exists":
+        return String(localized: "There is already a repository here. Choose another prefix, or join it with a code.", bundle: .copy, locale: .copy)
+    case "unreachable":
+        return String(localized: "Couldn't reach the storage. Check the endpoint, region and keys.", bundle: .copy, locale: .copy)
+    case "fields":
+        return String(localized: "Check the fields. The device key must be different from the maintenance key.", bundle: .copy, locale: .copy)
+    default:
+        return String(localized: "Couldn't create. Check the fields, versioning and lifecycle.", bundle: .copy, locale: .copy)
+    }
+}
+
+/// Hex in groups of four, to read it back. The spaces are not part of the value.
+func groupedHex(_ hex: String) -> String {
+    var groups: [String] = []
+    var rest = Substring(hex)
+    while !rest.isEmpty {
+        groups.append(String(rest.prefix(4)))
+        rest = rest.dropFirst(4)
+    }
+    return groups.joined(separator: " ")
+}
+
+/// The color of the folder card's dot: amber while it syncs, red when the last round
+/// failed, green when it ended well, none before the first round.
+func folderDot(_ folder: FolderCardState) -> Color? {
+    if folder.busy {
+        return SatchelInk.warning
+    }
+    guard let status = folder.status else {
+        return nil
+    }
+    if status == folderLost || status == folderSyncFailed || status == folderUnavailable {
+        return SatchelInk.danger
+    }
+    if status == folderSyncing {
+        return SatchelInk.warning
+    }
+    return SatchelInk.success
+}
+
+/// The system as people write it: “macOS”, not Rust's “macos”.
+func osLabel(_ os: String) -> String {
+    switch os {
+    case "macos": return "macOS"
+    case "ios": return "iOS"
+    case "linux": return "Linux"
+    case "android": return "Android"
+    case "windows": return "Windows"
+    default: return os
+    }
+}

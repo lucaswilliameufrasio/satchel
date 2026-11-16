@@ -5,12 +5,22 @@
 
 mod app;
 mod error;
+mod picker;
 mod profile;
 mod secrets;
+mod setup_ui;
+mod text;
 
 pub use app::{
-    Desktop, PublishReport, TrayCommand, TrayItem, TrayView, default_config_dir, phone_grant_secret,
+    AccessPair, BucketKey, CreatedProfile, Desktop, Granted, JoinTarget, PublishReport, SyncLine,
+    Tone, TrayCommand, TrayItem, TrayView, add_device_config, default_config_dir,
+    phone_grant_secret, request_grant, tray_mark_rgba,
 };
 pub use error::Error;
-pub use profile::{ObjectStore, Profile};
+pub use picker::{FolderPicker, PickFor, native_picker};
+pub use profile::{ObjectStore, Profile, Role, SyncedFolder, folder_name};
 pub use secrets::{Account, KeyringStore, MemoryStore, SecretStore};
+pub use setup_ui::{
+    SetupPage, start as start_setup_page, start_with_picker as start_setup_page_with_picker,
+};
+pub use text::{Language, describe};

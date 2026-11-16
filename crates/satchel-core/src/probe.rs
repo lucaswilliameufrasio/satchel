@@ -41,13 +41,58 @@ pub fn probe_object_protection(
         secret_access_key,
     };
     let versioning_body = request(endpoint, "GET", bucket, "", "versioning", &auth)?;
-    if versioning_body.status != 200 {
-        return Err(Error::Probe);
+    probed(endpoint, bucket, &auth, versioning_body)
+}
+
+/// The probe for a storage kind. R2 has no object versioning at all, so it is
+/// not asked; only its lifecycle rules are read, and versioning is `None`.
+pub fn probe_storage(
+    kind: crate::StorageKind,
+    endpoint: &str,
+    bucket: &str,
+    region: &str,
+    access_key_id: &str,
+    secret_access_key: &str,
+) -> Result<ObjectProtection, Error> {
+    if kind != crate::StorageKind::R2 {
+        return probe_object_protection(endpoint, bucket, region, access_key_id, secret_access_key);
     }
+    let auth = ProbeAuth {
+        region,
+        access_key_id,
+        secret_access_key,
+    };
     let lifecycle = request(endpoint, "GET", bucket, "", "lifecycle", &auth)?;
     let lifecycle_deletes_objects = match lifecycle.status {
         200 => lifecycle_deletes(&lifecycle.body),
+        // No rule, or no lifecycle API on this endpoint: nothing deletes objects on a timer.
+        404 | 501 => false,
+        401 | 403 => return Err(Error::ProbeDenied),
+        _ => return Err(Error::Probe),
+    };
+    Ok(ObjectProtection {
+        versioning: None,
+        lifecycle_deletes_objects,
+    })
+}
+
+fn probed(
+    endpoint: &str,
+    bucket: &str,
+    auth: &ProbeAuth<'_>,
+    versioning_body: HttpResponse,
+) -> Result<ObjectProtection, Error> {
+    if matches!(versioning_body.status, 401 | 403) {
+        return Err(Error::ProbeDenied);
+    }
+    if versioning_body.status != 200 {
+        return Err(Error::Probe);
+    }
+    let lifecycle = request(endpoint, "GET", bucket, "", "lifecycle", auth)?;
+    let lifecycle_deletes_objects = match lifecycle.status {
+        200 => lifecycle_deletes(&lifecycle.body),
         404 => false,
+        401 | 403 => return Err(Error::ProbeDenied),
         _ => return Err(Error::Probe),
     };
     Ok(ObjectProtection {
@@ -78,12 +123,12 @@ pub(crate) fn object_exists(
     }
 }
 
-struct HttpResponse {
-    status: u16,
-    body: String,
+pub(crate) struct HttpResponse {
+    pub(crate) status: u16,
+    pub(crate) body: String,
 }
 
-struct Origin {
+pub(crate) struct Origin {
     https: bool,
     host: String,
     port: u16,
@@ -141,7 +186,7 @@ fn request(
         "{method} {canonical_uri}{query_suffix} HTTP/1.1\r\nHost: {host_header}\r\nx-amz-date: {amz_date}\r\nx-amz-content-sha256: {EMPTY_SHA256}\r\nAuthorization: {authorization}\r\nConnection: close\r\n\r\n"
     );
     let bytes = exchange(&origin, message.as_bytes())?;
-    parse_response(&bytes)
+    parse_response(&bytes, method == "HEAD")
 }
 
 struct SignInput<'a> {
@@ -181,7 +226,7 @@ fn sign(input: &SignInput<'_>) -> Result<String, Error> {
     ))
 }
 
-fn hmac_sha256(key: &[u8], data: &[u8]) -> Result<Vec<u8>, Error> {
+pub(crate) fn hmac_sha256(key: &[u8], data: &[u8]) -> Result<Vec<u8>, Error> {
     let mut mac = hmac::Hmac::<Sha256>::new_from_slice(key).map_err(|_| Error::Probe)?;
     mac.update(data);
     Ok(mac.finalize().into_bytes().to_vec())
@@ -214,7 +259,7 @@ fn encode_segment(segment: &str) -> Result<String, Error> {
     Ok(encoded)
 }
 
-fn parse_origin(endpoint: &str) -> Result<Origin, Error> {
+pub(crate) fn parse_origin(endpoint: &str) -> Result<Origin, Error> {
     let (https, rest) = if let Some(rest) = endpoint.strip_prefix("https://") {
         (true, rest)
     } else if let Some(rest) = endpoint.strip_prefix("http://") {
@@ -250,7 +295,7 @@ fn parse_port(text: &str) -> Result<u16, Error> {
     text.parse::<u16>().map_err(|_| Error::Probe)
 }
 
-fn host_header(origin: &Origin) -> String {
+pub(crate) fn host_header(origin: &Origin) -> String {
     let default_port = if origin.https { 443 } else { 80 };
     if origin.port == default_port {
         return origin.host.clone();
@@ -258,7 +303,7 @@ fn host_header(origin: &Origin) -> String {
     format!("{}:{}", origin.host, origin.port)
 }
 
-fn exchange(origin: &Origin, request: &[u8]) -> Result<Vec<u8>, Error> {
+pub(crate) fn exchange(origin: &Origin, request: &[u8]) -> Result<Vec<u8>, Error> {
     let address = format!("{}:{}", origin.host, origin.port);
     let mut stream = TcpStream::connect(address).map_err(|_| Error::Probe)?;
     stream
@@ -277,7 +322,10 @@ fn exchange(origin: &Origin, request: &[u8]) -> Result<Vec<u8>, Error> {
 fn exchange_tls(origin: &Origin, stream: &mut TcpStream, request: &[u8]) -> Result<Vec<u8>, Error> {
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let config = rustls::ClientConfig::builder()
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|_| Error::Probe)?
         .with_root_certificates(roots)
         .with_no_client_auth();
     let name = rustls::pki_types::ServerName::try_from(origin.host.as_str())
@@ -306,7 +354,8 @@ fn read_limited(stream: &mut impl Read) -> Result<Vec<u8>, Error> {
     Ok(buffer)
 }
 
-fn parse_response(bytes: &[u8]) -> Result<HttpResponse, Error> {
+/// A HEAD answer names the length of the object and carries no body.
+pub(crate) fn parse_response(bytes: &[u8], head: bool) -> Result<HttpResponse, Error> {
     let header_end = find_separator(bytes).ok_or(Error::Probe)?;
     let header_text = std::str::from_utf8(&bytes[..header_end]).map_err(|_| Error::Probe)?;
     let mut lines = header_text.split("\r\n");
@@ -319,6 +368,7 @@ fn parse_response(bytes: &[u8]) -> Result<HttpResponse, Error> {
         .parse::<u16>()
         .map_err(|_| Error::Probe)?;
     let mut length = None;
+    let mut chunked = false;
     for line in lines {
         let Some((name, value)) = line.split_once(':') else {
             continue;
@@ -326,9 +376,23 @@ fn parse_response(bytes: &[u8]) -> Result<HttpResponse, Error> {
         if name.eq_ignore_ascii_case("content-length") {
             length = Some(value.trim().parse::<usize>().map_err(|_| Error::Probe)?);
         }
+        if name.eq_ignore_ascii_case("transfer-encoding")
+            && value.trim().eq_ignore_ascii_case("chunked")
+        {
+            chunked = true;
+        }
     }
     let body_start = header_end + 4;
-    let body_bytes = if let Some(length) = length {
+    if chunked && !head {
+        let body = dechunk(&bytes[body_start..])?;
+        return Ok(HttpResponse {
+            status,
+            body: String::from_utf8_lossy(&body).into_owned(),
+        });
+    }
+    let body_bytes = if head {
+        &bytes[body_start..body_start]
+    } else if let Some(length) = length {
         if length > BODY_LIMIT || body_start + length > bytes.len() {
             return Err(Error::Probe);
         }
@@ -340,6 +404,29 @@ fn parse_response(bytes: &[u8]) -> Result<HttpResponse, Error> {
     };
     let body = String::from_utf8_lossy(body_bytes).into_owned();
     Ok(HttpResponse { status, body })
+}
+
+/// The body of a `Transfer-Encoding: chunked` answer, without the chunk sizes.
+fn dechunk(mut rest: &[u8]) -> Result<Vec<u8>, Error> {
+    let mut body = Vec::new();
+    loop {
+        let line_end = rest
+            .windows(2)
+            .position(|pair| pair == b"\r\n")
+            .ok_or(Error::Probe)?;
+        let size_text = std::str::from_utf8(&rest[..line_end]).map_err(|_| Error::Probe)?;
+        let size_text = size_text.split(';').next().unwrap_or("").trim();
+        let size = usize::from_str_radix(size_text, 16).map_err(|_| Error::Probe)?;
+        rest = &rest[line_end + 2..];
+        if size == 0 {
+            return Ok(body);
+        }
+        if size > BODY_LIMIT || body.len() + size > BODY_LIMIT || rest.len() < size + 2 {
+            return Err(Error::Probe);
+        }
+        body.extend_from_slice(&rest[..size]);
+        rest = &rest[size + 2..];
+    }
 }
 
 fn find_separator(bytes: &[u8]) -> Option<usize> {
@@ -373,7 +460,7 @@ fn lifecycle_deletes(body: &str) -> bool {
         || body.contains("<ExpiredObjectDeleteMarker")
 }
 
-fn utc_stamp(seconds: u64) -> (String, String) {
+pub(crate) fn utc_stamp(seconds: u64) -> (String, String) {
     let days = (seconds / 86_400) as i64;
     let time = seconds % 86_400;
     let hour = time / 3600;
@@ -434,6 +521,14 @@ mod tests {
         assert!(lifecycle_deletes(
             "<NoncurrentVersionExpiration><NoncurrentDays>1</NoncurrentDays></NoncurrentVersionExpiration>"
         ));
+    }
+
+    #[test]
+    fn a_chunked_answer_is_read_without_the_chunk_sizes() {
+        let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n<a>12\r\n3\r\n</a\r\n0\r\n\r\n";
+        let response = parse_response(raw, false).expect("chunked");
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body, "<a>12</a");
     }
 
     #[test]

@@ -300,6 +300,8 @@ pub fn join(request: JoinRequest) -> Result<DeviceSecrets, Error> {
     }
     let code_value = parse_code(&request.code)?;
     let digits = code_digits(code_value)?;
+    // A mistyped fingerprint fails here, before dialing: a failed connection ends the holder's attempt.
+    crate::util::hex_decode_32(&request.fingerprint)?;
     let sock = TcpStream::connect_timeout(&request.address, request.timeout).map_err(map_io)?;
     prepare_socket(&sock, request.timeout)?;
     let mut handshake = client_stream(sock, &request.fingerprint)?;

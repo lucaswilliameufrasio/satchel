@@ -14,6 +14,14 @@ pub enum Account {
     BucketCredential,
     /// Credential sent to a phone. It is not the recovery password and not the desktop key.
     PhoneCredential,
+    /// The new recovery password while a change is under way. It is removed once
+    /// the repository and `RecoveryPassword` both hold the new value.
+    PendingRecoveryPassword,
+    /// Password of this device's own key. Only a device that joined holds one.
+    DeviceKeyPassword,
+    /// A Cloudflare API token that may create tokens, for one R2 key per device.
+    /// Only a main device of an R2 repository holds one, and only when it was given.
+    CloudflareToken,
 }
 
 impl Account {
@@ -21,7 +29,10 @@ impl Account {
         match self {
             Self::RecoveryPassword => "recovery-password",
             Self::BucketCredential => "bucket-credential",
+            Self::PendingRecoveryPassword => "recovery-password-pending",
             Self::PhoneCredential => "phone-credential",
+            Self::DeviceKeyPassword => "device-key-password",
+            Self::CloudflareToken => "cloudflare-token",
         }
     }
 }
@@ -59,7 +70,7 @@ impl SecretStore for MemoryStore {
     }
 }
 
-/// OS keystore entry. On Linux this talks to the Secret Service.
+/// OS keystore entry. Linux uses the Secret Service. macOS uses the login keychain.
 pub struct KeyringStore {
     service: String,
 }

@@ -7,6 +7,39 @@ pub enum Error {
     #[error("a folder is already configured")]
     ProfileExists,
 
+    /// One folder would sit inside another, or the copies inside a folder.
+    #[error("path `{path}` is inside another folder Satchel uses")]
+    Nested {
+        /// Path that was rejected.
+        path: PathBuf,
+    },
+    /// This device already keeps that folder of the repository.
+    #[error("this folder is already kept on this device")]
+    FolderTaken,
+    /// A folder or the repository is on a disk that is not there now.
+    #[error("path `{path}` cannot be reached now")]
+    Unreachable {
+        /// Path that is missing.
+        path: PathBuf,
+    },
+    /// The device access key and secret were left empty.
+    #[error("the device access key is missing")]
+    DeviceKeyMissing,
+    /// The device access key is the maintenance key, which would hand every device full control.
+    #[error("the device access key is the maintenance key")]
+    DeviceKeySameAsMaintenance,
+    /// The typed recovery password does not open this repository.
+    #[error("the recovery password does not open this repository")]
+    NotTheRecovery,
+    /// The typed maintenance key was refused by the storage.
+    #[error("the storage refused the maintenance key")]
+    MaintenanceRefused,
+    /// Each device has its own bucket key here, and only a main device can make one.
+    #[error("only a main device adds devices to this repository")]
+    MainDeviceAdds,
+    /// The repository is a folder on this computer, which other devices cannot reach.
+    #[error("the repository is a folder on this computer")]
+    LocalRepository,
     /// The folder or the repository path cannot be used.
     #[error("path `{path}` is not usable")]
     Path {
@@ -43,6 +76,21 @@ pub enum Error {
     Store {
         /// Coarse reason such as `locked` or `platform`.
         kind: &'static str,
+    },
+
+    /// The grant from the other device could not be used or did not open the repository.
+    #[error("the grant did not open the repository")]
+    Grant,
+
+    /// Only the device that created the repository holds the recovery password.
+    #[error("only the device that created the repository can change the recovery password")]
+    NotMaintainer,
+
+    /// A setup field is empty or malformed. `field` names it and never carries the value.
+    #[error("setup field `{field}` is not usable")]
+    Field {
+        /// Name of the field.
+        field: &'static str,
     },
 
     /// StatusNotifier did not start.

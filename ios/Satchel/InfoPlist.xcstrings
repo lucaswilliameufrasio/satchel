@@ -1,0 +1,24 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "NSCameraUsageDescription" : {
+      "comment" : "Why the app asks for the camera.",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Satchel reads the QR shown on the desktop to fill in the invite."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Satchel lê o QR mostrado no desktop para preencher o convite."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

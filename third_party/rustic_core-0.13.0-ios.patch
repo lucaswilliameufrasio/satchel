@@ -1,0 +1,41 @@
+--- a/src/backend/local_destination.rs	2006-07-23 22:21:28
++++ b/src/backend/local_destination.rs	2026-11-01 05:54:06
+@@ -66,7 +66,7 @@
+     /// file `{0:?}` should have a parent
+     FileDoesNotHaveParent(PathBuf),
+     #[cfg(any(
+-        target_os = "macos",
++        target_os = "macos", target_os = "ios",
+         target_os = "openbsd",
+         all(target_os = "android", target_pointer_width = "32")
+     ))]
+@@ -665,12 +665,12 @@
+             }
+             NodeType::Dev { device } => {
+                 #[cfg(not(any(
+-                    target_os = "macos",
++                    target_os = "macos", target_os = "ios",
+                     target_os = "openbsd",
+                     all(target_os = "android", target_pointer_width = "32")
+                 )))]
+                 let device = *device;
+-                #[cfg(any(target_os = "macos", target_os = "openbsd"))]
++                #[cfg(any(target_os = "macos", target_os = "ios", target_os = "openbsd"))]
+                 let device = i32::try_from(*device).map_err(|err| {
+                     LocalDestinationErrorKind::DeviceIdConversionFailed {
+                         target: "i32".to_string(),
+@@ -691,12 +691,12 @@
+             }
+             NodeType::Chardev { device } => {
+                 #[cfg(not(any(
+-                    target_os = "macos",
++                    target_os = "macos", target_os = "ios",
+                     target_os = "openbsd",
+                     all(target_os = "android", target_pointer_width = "32")
+                 )))]
+                 let device = *device;
+-                #[cfg(any(target_os = "macos", target_os = "openbsd"))]
++                #[cfg(any(target_os = "macos", target_os = "ios", target_os = "openbsd"))]
+                 let device = i32::try_from(*device).map_err(|err| {
+                     LocalDestinationErrorKind::DeviceIdConversionFailed {
+                         target: "i32".to_string(),

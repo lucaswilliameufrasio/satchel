@@ -84,7 +84,11 @@ fn approve_shows_the_socket_peer_and_omits_the_recovery_password() {
     assert!(approval.peer_address.ip().is_loopback());
     assert!(!approval.peer_address.to_string().contains("100.64.0.2"));
     assert_ne!(approval.local_interface, "tailscale0");
-    assert_eq!(approval.local_interface, "lo");
+    assert!(
+        approval.local_interface == "lo" || approval.local_interface == "lo0",
+        "local interface {}",
+        approval.local_interface
+    );
     session
         .decide(Decision::Approve(secrets()))
         .expect("decide");
