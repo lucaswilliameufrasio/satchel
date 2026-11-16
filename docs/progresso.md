@@ -12,7 +12,7 @@ capturas de antes e depois estão em [capturas/2026-11-16](capturas/2026-11-16/)
 | 2. Redesenhar a jornada principal | Feito no desktop; pareamento, aprovação e senha nos dois celulares. |
 | 3. Linguagem visual | Direção C aplicada nas três superfícies (cores, raios, ponto de estado na página); falta VoiceOver/TalkBack em aparelho. |
 | 4. Lacunas de confiança | Chave de bucket por aparelho no S3, com remoção que a apaga; B2, R2 e celular principal pendentes. |
-| 5. Preparar a entrega | Feito: commit `9239ac3`, PR #1 atualizada; verificações no fim desta seção. |
+| 5. Preparar a entrega | Feito: commits até `94e7223`, PR #1 atualizada com escopo, provas e o que não foi provado. |
 
 ### 1. Percurso de 2026-11-16
 
@@ -139,7 +139,7 @@ celulares, a fonte (continua a do sistema), VoiceOver e TalkBack num aparelho.
 - Android: `:app:testDebugUnitTest` e `:app:compileReleaseKotlin` saíram 0 (Gradle 8.14 local, offline).
 - `caffeinate -d cargo test --no-fail-fast -- --test-threads=1`: saiu 0, todos os testes passaram (1 ignorado de propósito), com o Floci pelo OrbStack.
 - iOS em Release no simulador: a primeira abertura sem repositório não mostra amostra ([captura](capturas/2026-11-16/depois-ios-release-primeira-abertura.png)).
-- Entregue no commit `9239ac3`, enviado para `feat/open-on-both-devices`; a descrição da PR #1 foi atualizada com o escopo real, as provas e o que não foi provado. Os testes de interface do iOS rodaram antes de a amostra sair do Release; em Debug o comportamento não mudou.
+- Entregue nos commits `9239ac3`, `91e9727` e `94e7223` (a suíte completa, `fmt` e `clippy` repetidos no último, todos com saída 0), enviado para `feat/open-on-both-devices`; a descrição da PR #1 foi atualizada com o escopo real, as provas e o que não foi provado. Os testes de interface do iOS rodaram antes de a amostra sair do Release; em Debug o comportamento não mudou.
 
 Decisões de 2026-11-16: o catálogo de exemplo sai da produção (só builds de teste/Debug); referências visuais candidatas em [referencias-visuais.md](referencias-visuais.md), aguardando a escolha. Revogação: ver a recomendação abaixo, ainda sem decisão final.
 
