@@ -106,6 +106,10 @@ internal fun CreateScreen(
                 Field(R.string.field_maintenance_secret, form.secretAccessKey, enabled, plain, secret = true) { onForm(form.copy(secretAccessKey = it, failed = false)) }
                 Field(R.string.field_device_key, form.deviceAccessKeyId, enabled, plain) { onForm(form.copy(deviceAccessKeyId = it, failed = false)) }
                 Field(R.string.field_device_secret, form.deviceSecretAccessKey, enabled, plain, secret = true) { onForm(form.copy(deviceSecretAccessKey = it, failed = false)) }
+                if (form.storage == StorageChoice.R2) {
+                    Field(R.string.field_cloudflare_token, form.cloudflareToken, enabled, plain, secret = true) { onForm(form.copy(cloudflareToken = it, failed = false)) }
+                    Text(stringResource(R.string.cloudflare_token_note), color = satchel.secondary, modifier = Modifier.padding(top = 8.dp))
+                }
             }
             if (form.failed) {
                 FailureText(stringResource(createFailureCopy(form.reason)), modifier = Modifier.padding(top = 12.dp))

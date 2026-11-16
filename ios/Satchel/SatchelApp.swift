@@ -826,6 +826,12 @@ struct CreatePage: View {
                     ProductField(title: String(localized: "Maintenance secret", bundle: .copy, locale: .copy), text: bind(\.secretAccessKey), suppressesAutocorrection: true, secure: true)
                     ProductField(title: String(localized: "Device access key", bundle: .copy, locale: .copy), text: bind(\.deviceAccessKeyId), suppressesAutocorrection: true)
                     ProductField(title: String(localized: "Device secret", bundle: .copy, locale: .copy), text: bind(\.deviceSecretAccessKey), suppressesAutocorrection: true, secure: true)
+                    if draft.storage == "r2" {
+                        ProductField(title: String(localized: "Cloudflare API token (optional)", bundle: .copy, locale: .copy), text: bind(\.cloudflareToken), suppressesAutocorrection: true, secure: true)
+                        Text(String(localized: "With a token that may create API tokens, each device gets its own R2 key, scoped to this bucket, and removing a device deletes it. Without it, devices share the device key.", bundle: .copy, locale: .copy))
+                            .font(.footnote)
+                            .foregroundStyle(SatchelInk.secondary)
+                    }
                 }
             }
             if draft.failed {

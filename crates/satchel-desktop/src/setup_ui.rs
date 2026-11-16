@@ -211,8 +211,18 @@ fn manage<S: SecretStore>(
                         secret_access_key: field(form, "secret_access_key").to_string(),
                     })
                 };
+                let cloudflare_token = field(form, "cloudflare_token").to_string();
                 desktop
                     .become_main(&*shared.secrets, field(form, "recovery"), maintenance)
+                    .and_then(|()| {
+                        if cloudflare_token.is_empty() {
+                            Ok(())
+                        } else {
+                            shared
+                                .secrets
+                                .put(crate::Account::CloudflareToken, &cloudflare_token)
+                        }
+                    })
                     .map(|()| {
                         t(
                             "This is now a main device: it removes devices and changes the \
@@ -916,9 +926,20 @@ fn main_card<S>(shared: &Shared<S>, language: Language, profile: &crate::Profile
     }
     let base = format!("/{}/", shared.token);
     let keys = if profile.object_store.is_some() {
+        let cloudflare = if profile.kind == StorageKind::R2 {
+            format!(
+                "<label>{} <input name=\"cloudflare_token\" type=\"password\" autocomplete=\"off\"></label>",
+                t(
+                    "Cloudflare API token (optional, for one R2 key per device)",
+                    "Token da API da Cloudflare (opcional, para uma chave do R2 por aparelho)",
+                ),
+            )
+        } else {
+            String::new()
+        };
         format!(
             "<label>{} <input name=\"access_key_id\" autocomplete=\"off\" required></label>\
-             <label>{} <input name=\"secret_access_key\" type=\"password\" autocomplete=\"off\" required></label>",
+             <label>{} <input name=\"secret_access_key\" type=\"password\" autocomplete=\"off\" required></label>{cloudflare}",
             t("Maintenance access key", "Chave de acesso de manutenção"),
             t("Maintenance secret", "Segredo de manutenção"),
         )
@@ -1362,6 +1383,13 @@ fn create_from_form<S: SecretStore>(
     let created = desktop
         .create_repository(&*shared.secrets, folder, setup, device_access)
         .map_err(|err| describe(language, &err))?;
+    let cloudflare_token = field(form, "cloudflare_token");
+    if kind == StorageKind::R2 && !cloudflare_token.is_empty() {
+        shared
+            .secrets
+            .put(crate::Account::CloudflareToken, cloudflare_token)
+            .map_err(|err| describe(language, &err))?;
+    }
     let next = if kind == StorageKind::Directory {
         t(
             "This folder syncs on its own every two minutes; the Satchel menu shows when. The \
@@ -1613,7 +1641,9 @@ fn form_page<S: SecretStore>(
 <label>{maint_key} <input name=\"access_key_id\"{v_access_key_id} autocomplete=\"off\"></label>
 <label>{maint_secret} <input name=\"secret_access_key\" type=\"password\" autocomplete=\"off\"></label>
 <label>{device_key} <input name=\"device_access_key_id\"{v_device_access_key_id} autocomplete=\"off\"></label>
-<label>{device_secret} <input name=\"device_secret_access_key\" type=\"password\" autocomplete=\"off\"></label></div>
+<label>{device_secret} <input name=\"device_secret_access_key\" type=\"password\" autocomplete=\"off\"></label>
+<label>{cf_token} <input name=\"cloudflare_token\" type=\"password\" autocomplete=\"off\"></label>
+<p class=\"hint\">{cf_hint}</p></div>
 <button>{create}</button></form></section>
 <section class=\"card\" id=\"join\"><h2>{join_title}</h2>
 <p class=\"hint\">{join_hint}</p>{join_notice}
@@ -1744,6 +1774,19 @@ finally{{b.disabled=false;b.textContent=label;}}}});}}
                 "Chave de acesso dos aparelhos (listar, ler, gravar, próprios locks)",
             ),
             device_secret = t("Device secret", "Segredo dos aparelhos"),
+            cf_token = t(
+                "Cloudflare API token (R2 only, optional)",
+                "Token da API da Cloudflare (só R2, opcional)",
+            ),
+            cf_hint = t(
+                "With a token that may create API tokens (User → API Tokens → Edit), each device \
+                 gets its own R2 key, scoped to this bucket, and removing a device deletes it. \
+                 Without it, devices share the device key. It stays in this computer's keychain.",
+                "Com um token que possa criar tokens de API (Usuário → API Tokens → Edit), cada \
+                 aparelho recebe a própria chave do R2, limitada a este bucket, e remover um \
+                 aparelho a apaga. Sem ele, os aparelhos dividem a chave dos aparelhos. Ele fica no \
+                 chaveiro deste computador.",
+            ),
             create = t("Create", "Criar"),
             join_title = t("Join with a code", "Entrar com um código"),
             join_hint = t(

@@ -734,8 +734,10 @@ impl Desktop {
     /// True where each device can get its own bucket key: IAM on S3, application keys on B2.
     pub fn per_device_bucket_keys(&self) -> bool {
         self.profile.as_ref().is_some_and(|profile| {
-            matches!(profile.kind, StorageKind::S3 | StorageKind::B2)
-                && profile.object_store.is_some()
+            matches!(
+                profile.kind,
+                StorageKind::S3 | StorageKind::B2 | StorageKind::R2
+            ) && profile.object_store.is_some()
         })
     }
 
@@ -765,9 +767,13 @@ impl Desktop {
         }
         let object_store = profile.object_store.as_ref()?;
         let maintenance = store.get(Account::BucketCredential).ok()??;
-        let access: AccessKey = serde_json::from_str(&maintenance).ok()?;
+        let mut access: AccessKey = serde_json::from_str(&maintenance).ok()?;
         if access.access_key_id.is_empty() || access.secret_access_key.is_empty() {
             return None;
+        }
+        // R2 makes device keys with a Cloudflare token, kept apart from the S3 key.
+        if profile.kind == StorageKind::R2 {
+            access.cloudflare_token = store.get(Account::CloudflareToken).ok()??;
         }
         Some((object_store.endpoint.clone(), access))
     }
@@ -793,6 +799,7 @@ impl Desktop {
             s3_endpoint: &endpoint,
             access_key_id: &access.access_key_id,
             secret_access_key: &access.secret_access_key,
+            cloudflare_token: &access.cloudflare_token,
         };
         match satchel_core::own_key_exists(self.kind(), &admin, &user) {
             Some(Ok(true)) => BucketKey::Own,
@@ -876,6 +883,7 @@ impl Desktop {
                 s3_endpoint: &endpoint,
                 access_key_id: &access.access_key_id,
                 secret_access_key: &access.secret_access_key,
+                cloudflare_token: &access.cloudflare_token,
             };
             match satchel_core::own_key_revoke(self.kind(), &admin, &user) {
                 None | Some(Ok(())) | Some(Err(satchel_core::Error::KeysDenied)) => {}
@@ -1222,6 +1230,7 @@ impl Desktop {
                 s3_endpoint: &endpoint,
                 access_key_id: &access.access_key_id,
                 secret_access_key: &access.secret_access_key,
+                cloudflare_token: &access.cloudflare_token,
             };
             match satchel_core::own_key_issue(
                 profile.kind,
@@ -1252,6 +1261,7 @@ impl Desktop {
                     s3_endpoint: endpoint,
                     access_key_id: &access.access_key_id,
                     secret_access_key: &access.secret_access_key,
+                    cloudflare_token: &access.cloudflare_token,
                 };
                 let _ = satchel_core::own_key_revoke(profile.kind, &admin, user);
             }
@@ -1638,6 +1648,7 @@ fn forget_all(store: &dyn SecretStore) {
     let _ = store.delete(Account::BucketCredential);
     let _ = store.delete(Account::PhoneCredential);
     let _ = store.delete(Account::DeviceKeyPassword);
+    let _ = store.delete(Account::CloudflareToken);
 }
 
 #[derive(Deserialize)]
@@ -1760,6 +1771,9 @@ pub fn phone_grant_secret(
 struct AccessKey {
     access_key_id: String,
     secret_access_key: String,
+    /// Not in the stored document: filled from the keystore on R2.
+    #[serde(skip)]
+    cloudflare_token: String,
 }
 
 impl Desktop {

@@ -161,4 +161,6 @@
     <string name="recovery_spaces">The spaces are only for reading. The password has none; Copy copies it without them.</string>
     <string name="sample_note">Example: these files are a sample kept on this phone. Yours show up here after you create or join a repository.</string>
     <string name="catalog_empty_unpaired">Your files show up here after you create a repository or join one that already exists.</string>
+    <string name="field_cloudflare_token">Cloudflare API token (optional)</string>
+    <string name="cloudflare_token_note">With a token that may create API tokens, each device gets its own R2 key, scoped to this bucket, and removing a device deletes it. Without it, devices share the device key.</string>
 </resources>

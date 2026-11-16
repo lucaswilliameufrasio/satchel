@@ -7,6 +7,7 @@ mod format;
 mod iam;
 mod mirror;
 mod probe;
+mod r2keys;
 mod setup;
 mod storage;
 mod sync;
@@ -28,6 +29,9 @@ pub use iam::{
 };
 pub use mirror::{DirectoryTree, FolderTree, MirrorReport, TreeFile, sync_mirrored};
 pub use probe::{ObjectProtection, probe_object_protection, probe_storage};
+pub use r2keys::{
+    CLOUDFLARE_API, issue_r2_device_key, r2_account, r2_device_key_exists, revoke_r2_device_key,
+};
 pub use setup::{
     CreatedRepository, ProvisionedKey, StorageSetup, check_storage, create_repository,
     generate_recovery_password, provision_device_key,

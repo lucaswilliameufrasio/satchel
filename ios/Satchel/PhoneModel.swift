@@ -680,6 +680,8 @@ struct CreateDraft: Equatable {
     var secretAccessKey: String = ""
     var deviceAccessKeyId: String = ""
     var deviceSecretAccessKey: String = ""
+    /// R2 only, optional: lets the main device give each device its own R2 key.
+    var cloudflareToken: String = ""
     var busy: Bool = false
     var failed: Bool = false
     var reason: String = ""
@@ -713,6 +715,10 @@ struct CreateDraft: Equatable {
             object["device_access_key_id"] = deviceAccessKeyId.trimmingCharacters(in: .whitespaces)
             object["device_secret_access_key"] =
                 deviceSecretAccessKey.trimmingCharacters(in: .whitespaces)
+            let token = cloudflareToken.trimmingCharacters(in: .whitespaces)
+            if storage == "r2" && !token.isEmpty {
+                object["cloudflare_token"] = token
+            }
         }
         guard let data = try? JSONSerialization.data(withJSONObject: object),
               let text = String(data: data, encoding: .utf8)

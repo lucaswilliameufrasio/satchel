@@ -148,4 +148,6 @@
     <string name="recovery_spaces">Os espaços são só para ler. A senha não tem espaços; Copiar copia sem eles.</string>
     <string name="sample_note">Exemplo: estes arquivos são uma amostra guardada neste celular. Os seus aparecem aqui depois de criar ou entrar num repositório.</string>
     <string name="catalog_empty_unpaired">Os seus arquivos aparecem aqui depois de criar um repositório ou entrar num que já existe.</string>
+    <string name="field_cloudflare_token">Token da API da Cloudflare (opcional)</string>
+    <string name="cloudflare_token_note">Com um token que possa criar tokens de API, cada aparelho recebe a própria chave do R2, limitada a este bucket, e remover um aparelho a apaga. Sem ele, os aparelhos dividem a chave dos aparelhos.</string>
 </resources>

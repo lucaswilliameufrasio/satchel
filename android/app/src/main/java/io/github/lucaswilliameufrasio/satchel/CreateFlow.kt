@@ -22,6 +22,7 @@ internal data class CreateForm(
     val secretAccessKey: String = "",
     val deviceAccessKeyId: String = "",
     val deviceSecretAccessKey: String = "",
+    val cloudflareToken: String = "",
     val apelido: String = "",
     val busy: Boolean = false,
     val failed: Boolean = false,
@@ -44,6 +45,9 @@ internal fun createSpecJson(form: CreateForm, directory: String, deviceId: Strin
         fields.add("\"secret_access_key\":" + jsonString(form.secretAccessKey.trim()))
         fields.add("\"device_access_key_id\":" + jsonString(form.deviceAccessKeyId.trim()))
         fields.add("\"device_secret_access_key\":" + jsonString(form.deviceSecretAccessKey.trim()))
+        if (form.storage == StorageChoice.R2 && form.cloudflareToken.isNotBlank()) {
+            fields.add("\"cloudflare_token\":" + jsonString(form.cloudflareToken.trim()))
+        }
     }
     return "{" + fields.joinToString(",") + "}"
 }

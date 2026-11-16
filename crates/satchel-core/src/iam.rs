@@ -28,6 +28,8 @@ pub struct KeyAdmin<'a> {
     pub access_key_id: &'a str,
     /// Maintenance secret.
     pub secret_access_key: &'a str,
+    /// A Cloudflare API token allowed to create tokens; only R2 uses it. May be empty.
+    pub cloudflare_token: &'a str,
 }
 
 /// A bucket key that belongs to one device.

@@ -52,6 +52,9 @@ struct CreateSpec {
     /// Opaque id this phone already uses. Generated when absent.
     #[serde(default)]
     device_id: String,
+    /// R2 only, optional: a Cloudflare token that may create tokens, for one key per device.
+    #[serde(default)]
+    cloudflare_token: String,
 }
 
 /// The typed secrets do not outlive the call that used them.
@@ -61,6 +64,7 @@ impl Drop for CreateSpec {
         self.device_secret_access_key.zeroize();
         self.access_key_id.zeroize();
         self.device_access_key_id.zeroize();
+        self.cloudflare_token.zeroize();
     }
 }
 
@@ -74,6 +78,8 @@ struct CreatorGrant<'a> {
     role: &'a str,
     limited_credential: &'a str,
     kind: &'a str,
+    #[serde(skip_serializing_if = "str::is_empty")]
+    cloudflare_token: &'a str,
 }
 
 fn access_doc(setup: &StorageSetup, key: &str, secret: &str) -> Result<String, CatalogFailure> {
@@ -172,6 +178,11 @@ pub(crate) fn create_phone_repository(
             StorageKind::R2 => "r2",
             StorageKind::B2 => "b2",
             _ => "folder",
+        },
+        cloudflare_token: if kind == StorageKind::R2 {
+            &spec.cloudflare_token
+        } else {
+            ""
         },
     })
     .map_err(|_| fail("fields"))?;
@@ -421,6 +432,7 @@ fn approve_with(
 /// The maintenance key in a main phone's grant.
 struct Maintenance {
     kind: StorageKind,
+    cloudflare_token: String,
     access_key_id: String,
     secret_access_key: String,
     bucket: String,
@@ -434,6 +446,7 @@ impl Maintenance {
             s3_endpoint: endpoint,
             access_key_id: &self.access_key_id,
             secret_access_key: &self.secret_access_key,
+            cloudflare_token: &self.cloudflare_token,
         }
     }
 }
@@ -444,6 +457,7 @@ fn maintenance_of(spec: &GrantSpec) -> Option<Maintenance> {
     let kind = match spec.kind.as_str() {
         "s3" => StorageKind::S3,
         "b2" => StorageKind::B2,
+        "r2" if !spec.cloudflare_token.is_empty() => StorageKind::R2,
         _ => return None,
     };
     if spec.bucket_credential == LOCAL_FOLDER {
@@ -458,6 +472,7 @@ fn maintenance_of(spec: &GrantSpec) -> Option<Maintenance> {
     };
     let maintenance = Maintenance {
         kind,
+        cloudflare_token: spec.cloudflare_token.clone(),
         access_key_id: text("access_key_id"),
         secret_access_key: text("secret_access_key"),
         bucket: text("bucket"),
@@ -1000,6 +1015,7 @@ mod tests {
             s3_endpoint: &endpoint,
             access_key_id: ACCESS_KEY,
             secret_access_key: SECRET_KEY,
+            cloudflare_token: "",
         };
         let user = satchel_core::device_key_user(&bucket, "repo", other.as_str()).expect("user");
         assert!(satchel_core::device_bucket_key_exists(&admin, &user).expect("listed"));

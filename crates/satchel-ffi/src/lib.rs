@@ -267,6 +267,9 @@ struct GrantSpec {
     /// `s3`, `r2`, `b2` or `folder` on a maintainer file written since 2026-11-16.
     #[serde(default)]
     kind: String,
+    /// R2 only: a Cloudflare token that may create tokens, when the person gave one.
+    #[serde(default)]
+    cloudflare_token: String,
 }
 
 #[derive(Deserialize)]

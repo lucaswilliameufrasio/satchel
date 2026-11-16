@@ -14,7 +14,7 @@ use crate::iam::{DeviceBucketKey, KeyAdmin};
 use crate::probe::{exchange, host_header, parse_origin, parse_response};
 
 /// Issue, check or remove a device's own bucket key on the storage that has a key API:
-/// IAM on S3, application keys on B2. Other kinds answer `None`.
+/// IAM on S3, application keys on B2, Cloudflare tokens on R2. Other kinds answer `None`.
 pub fn own_key_issue(
     kind: crate::StorageKind,
     admin: &KeyAdmin<'_>,
@@ -28,6 +28,14 @@ pub fn own_key_issue(
         )),
         crate::StorageKind::B2 if on_backblaze(admin) => Some(issue_b2_device_key(
             B2_API, admin, bucket, prefix, device_id,
+        )),
+        crate::StorageKind::R2 if on_r2(admin) => Some(crate::issue_r2_device_key(
+            crate::CLOUDFLARE_API,
+            admin.cloudflare_token,
+            admin.s3_endpoint,
+            bucket,
+            prefix,
+            device_id,
         )),
         _ => None,
     }
@@ -44,6 +52,11 @@ pub fn own_key_revoke(
         crate::StorageKind::B2 if on_backblaze(admin) => {
             Some(revoke_b2_device_key(B2_API, admin, name))
         }
+        crate::StorageKind::R2 if on_r2(admin) => Some(crate::revoke_r2_device_key(
+            crate::CLOUDFLARE_API,
+            admin.cloudflare_token,
+            name,
+        )),
         _ => None,
     }
 }
@@ -59,8 +72,18 @@ pub fn own_key_exists(
         crate::StorageKind::B2 if on_backblaze(admin) => {
             Some(b2_device_key_exists(B2_API, admin, name))
         }
+        crate::StorageKind::R2 if on_r2(admin) => Some(crate::r2_device_key_exists(
+            crate::CLOUDFLARE_API,
+            admin.cloudflare_token,
+            name,
+        )),
         _ => None,
     }
+}
+
+/// R2 device tokens need a Cloudflare token and an R2 endpoint, which names the account.
+fn on_r2(admin: &KeyAdmin<'_>) -> bool {
+    !admin.cloudflare_token.is_empty() && crate::r2_account(admin.s3_endpoint).is_some()
 }
 
 /// The B2 key API exists only at Backblaze. A B2 profile pointed elsewhere (an
@@ -312,6 +335,7 @@ mod tests {
             s3_endpoint: "http://127.0.0.1:4566",
             access_key_id: "k",
             secret_access_key: "s",
+            cloudflare_token: "",
         };
         let device = "0123456789abcdef0123456789abcdef";
         assert!(own_key_issue(crate::StorageKind::B2, &local, "b", "p", device).is_none());
@@ -320,6 +344,7 @@ mod tests {
             s3_endpoint: "https://s3.us-west-004.backblazeb2.com",
             access_key_id: "k",
             secret_access_key: "s",
+            cloudflare_token: "",
         };
         assert!(on_backblaze(&backblaze));
         assert!(!on_backblaze(&local));
@@ -422,6 +447,7 @@ mod tests {
             s3_endpoint: "",
             access_key_id: "maint",
             secret_access_key: "secret",
+            cloudflare_token: "",
         };
         let phone = "fedcba9876543210fedcba9876543210";
         let laptop = "0123456789abcdef0123456789abcdef";
@@ -448,6 +474,7 @@ mod tests {
             s3_endpoint: "",
             access_key_id: "maint",
             secret_access_key: "wrong",
+            cloudflare_token: "",
         };
         assert!(matches!(
             issue_b2_device_key(&api, &wrong, "bucket", "repo", phone),

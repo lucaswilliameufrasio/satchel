@@ -11,7 +11,7 @@ capturas de antes e depois estão em [capturas/2026-11-16](capturas/2026-11-16/)
 | 1. Diagnosticar a jornada real | Feito no desktop (Firefox), no iOS (simulador) e no Android (emulador arm64), com pareamento real entre o app Android e o desktop. |
 | 2. Redesenhar a jornada principal | Feito no desktop; pareamento, aprovação e senha nos dois celulares. |
 | 3. Linguagem visual | Direção C aplicada nas três superfícies, com o ponto de estado na página e no cartão da pasta dos celulares. VoiceOver e TalkBack num aparelho de verdade ficam com a pessoa. |
-| 4. Lacunas de confiança | Chave de bucket própria por aparelho no S3 e no B2, emitida pelo desktop ou pelo celular principal; remover a apaga. O R2 segue com a chave compartilhada e o aviso. |
+| 4. Lacunas de confiança | Chave de bucket própria por aparelho no S3, no B2 e no R2 (com token da Cloudflare), emitida pelo desktop ou pelo celular principal; remover a apaga. Sem a permissão, chave compartilhada com aviso. |
 | 5. Preparar a entrega | Feito: commits até `94e7223`, PR #1 atualizada com escopo, provas e o que não foi provado. |
 
 ### 1. Percurso de 2026-11-16
@@ -151,9 +151,18 @@ lido por um celular.
   principal agora faz o mesmo ao aprovar, no S3 e no B2; a concessão do
   celular passou a guardar o tipo do armazenamento. Prova:
   `a_main_phone_on_s3_gives_the_joining_device_its_own_bucket_key` (Floci).
-- **R2.** Os tokens do R2 só se criam pela API da Cloudflare, com outra
-  credencial que o Satchel não guarda. Ali o aparelho recebe a chave
-  compartilhada e as telas dizem isso.
+- **R2 (2026-11-16).** As chaves S3 do R2 são tokens da Cloudflare: o id é a
+  chave de acesso e o SHA-256 do valor é o segredo. Com um token da Cloudflare
+  que possa criar tokens, dado de forma opcional ao criar no R2 (desktop,
+  Android e iOS) ou ao tornar um desktop principal, o aparelho principal cria
+  um token por aparelho com “Workers R2 Storage Bucket Item Write”, limitado ao
+  bucket (`com.cloudflare.edge.r2.bucket.<conta>_<jurisdição>_<bucket>`, conta
+  e jurisdição lidas do endpoint), com o mesmo nome determinístico; remover o
+  apaga. O R2 não limita token por prefixo: a chave do aparelho alcança o
+  bucket inteiro. No desktop o token fica no chaveiro (`cloudflare-token`); no
+  celular, na concessão selada. Sem token, o aparelho recebe a chave
+  compartilhada e as telas dizem isso. Prova: `r2keys::tests`, contra um
+  servidor local que imita a API de tokens (não há emulador da Cloudflare).
 - **Várias pastas, aparelhos e bucket reais.** Não validados nesta passada.
 
 ### 5. Verificações em 2026-11-16
@@ -164,7 +173,7 @@ lido por um celular.
 - Android: `:app:testDebugUnitTest` e `:app:compileReleaseKotlin` saíram 0 (Gradle 8.14 local, offline).
 - `caffeinate -d cargo test --no-fail-fast -- --test-threads=1`: saiu 0, todos os testes passaram (1 ignorado de propósito), com o Floci pelo OrbStack.
 - iOS em Release no simulador: a primeira abertura sem repositório não mostra amostra ([captura](capturas/2026-11-16/depois-ios-release-primeira-abertura.png)).
-- Entregue nos commits `9239ac3`, `91e9727`, `94e7223` e no seguinte (B2, celular principal, Android no emulador, ponto nos celulares). Na última rodada `fmt` e `clippy` saíram 0 e a suíte completa passou, exceto `tray_binary_follows_the_connected_display`, que falhou porque o monitor apagou durante a rodada longa e passou sozinho logo depois; enviado para `feat/open-on-both-devices`; a descrição da PR #1 foi atualizada com o escopo real, as provas e o que não foi provado. Os testes de interface do iOS rodaram antes de a amostra sair do Release; em Debug o comportamento não mudou.
+- Entregue nos commits `9239ac3`, `91e9727`, `94e7223` `ec4e1a6` (B2, celular principal, Android no emulador, ponto nos celulares) e no seguinte (R2 com token da Cloudflare), com `fmt`, `clippy` e a suíte completa saindo 0 na última rodada. Na última rodada `fmt` e `clippy` saíram 0 e a suíte completa passou, exceto `tray_binary_follows_the_connected_display`, que falhou porque o monitor apagou durante a rodada longa e passou sozinho logo depois; enviado para `feat/open-on-both-devices`; a descrição da PR #1 foi atualizada com o escopo real, as provas e o que não foi provado. Os testes de interface do iOS rodaram antes de a amostra sair do Release; em Debug o comportamento não mudou.
 
 Decisões de 2026-11-16: o catálogo de exemplo sai da produção (só builds de teste/Debug); referências visuais candidatas em [referencias-visuais.md](referencias-visuais.md), aguardando a escolha. Revogação: ver a recomendação abaixo, ainda sem decisão final.
 

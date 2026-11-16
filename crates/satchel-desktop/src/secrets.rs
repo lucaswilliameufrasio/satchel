@@ -19,6 +19,9 @@ pub enum Account {
     PendingRecoveryPassword,
     /// Password of this device's own key. Only a device that joined holds one.
     DeviceKeyPassword,
+    /// A Cloudflare API token that may create tokens, for one R2 key per device.
+    /// Only a main device of an R2 repository holds one, and only when it was given.
+    CloudflareToken,
 }
 
 impl Account {
@@ -29,6 +32,7 @@ impl Account {
             Self::PendingRecoveryPassword => "recovery-password-pending",
             Self::PhoneCredential => "phone-credential",
             Self::DeviceKeyPassword => "device-key-password",
+            Self::CloudflareToken => "cloudflare-token",
         }
     }
 }

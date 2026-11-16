@@ -345,6 +345,16 @@
         }
       }
     },
+    "Cloudflare API token (optional)": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token da API da Cloudflare (opcional)"
+          }
+        }
+      }
+    },
     "Code": {
       "localizations": {
         "pt-BR": {
@@ -1241,6 +1251,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Esperando o outro aparelho digitar o código."
+          }
+        }
+      }
+    },
+    "With a token that may create API tokens, each device gets its own R2 key, scoped to this bucket, and removing a device deletes it. Without it, devices share the device key.": {
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com um token que possa criar tokens de API, cada aparelho recebe a própria chave do R2, limitada a este bucket, e remover um aparelho a apaga. Sem ele, os aparelhos dividem a chave dos aparelhos."
           }
         }
       }

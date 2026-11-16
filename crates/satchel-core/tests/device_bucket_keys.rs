@@ -23,6 +23,7 @@ fn each_device_gets_its_own_key_and_removing_one_leaves_the_other() {
         s3_endpoint: floci.endpoint(),
         access_key_id: "maintenance",
         secret_access_key: "maintenance-secret",
+        cloudflare_token: "",
     };
     let phone = issue_device_bucket_key(&admin, "bucket", "repo", PHONE).expect("phone key");
     let laptop = issue_device_bucket_key(&admin, "bucket", "repo", LAPTOP).expect("laptop key");
