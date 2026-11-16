@@ -10,7 +10,7 @@ capturas de antes e depois estão em [capturas/2026-11-16](capturas/2026-11-16/)
 | --- | --- |
 | 1. Diagnosticar a jornada real | Feito no desktop e no iOS (simulador). Android só por código. |
 | 2. Redesenhar a jornada principal | Feito no desktop; pareamento, aprovação e senha nos dois celulares. |
-| 3. Linguagem visual | Direção C escolhida em 2026-11-16 ([referencias-visuais.md](referencias-visuais.md)); aplicação em andamento. |
+| 3. Linguagem visual | Direção C aplicada nas três superfícies (cores, raios, ponto de estado na página); falta VoiceOver/TalkBack em aparelho. |
 | 4. Lacunas de confiança | Chave de bucket por aparelho no S3, com remoção que a apaga; B2, R2 e celular principal pendentes. |
 | 5. Preparar a entrega | Feito: commit `9239ac3`, PR #1 atualizada; verificações no fim desta seção. |
 
@@ -80,6 +80,23 @@ no desktop e no celular, o que desliga Adicionar aparelho; o código do
 convite no iOS e no Android não é grande e o QR do iOS fica à esquerda; a
 entrada de quem está esperando aprovação não distingue “o pedido não chegou”
 de “esperando aprovar”. Ficam para a passada visual do item 3.
+
+### 3. Linguagem visual
+
+Em 2026-11-16 a pessoa escolheu a direção C de
+[referencias-visuais.md](referencias-visuais.md). [identidade-visual.md](identidade-visual.md)
+foi reescrita com ela: neutros levemente azulados e acento `#4B5FE0` (escuro
+`#9CB4E8`), cartões de raio 12, campos de 8, botões de 10, e o ponto de estado
+do Geist antes da frase de sincronização na página (verde, vermelho ou neutro,
+sempre com o texto). Os mesmos tokens foram para `SatchelColors` (Android) e
+`SatchelInk` (iOS). O contraste foi medido: todos os pares de texto passam AA,
+o menor é 4,64. Capturas da página e do iOS em
+`capturas/2026-11-16/direcao-c-*`. No simulador, `testFirstRunJourneyScreens`,
+`testSampleCatalogThenDownloadOnce` e
+`testScreensPassTheAccessibilityAuditAtTheLargestTextSize` passaram com a
+paleta nova. O projeto iOS ganhou `SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG`
+na configuração Debug, para a amostra existir só nas builds de teste. Não feito: o ponto de estado nos
+celulares, a fonte (continua a do sistema), VoiceOver e TalkBack num aparelho.
 
 ### 4. Confiança
 

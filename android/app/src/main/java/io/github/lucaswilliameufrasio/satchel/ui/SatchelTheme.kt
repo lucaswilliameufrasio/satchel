@@ -57,27 +57,27 @@ data class SatchelColors(
 )
 
 internal val LightSatchel = SatchelColors(
-    canvas = Color(0xFFF3EEE4),
-    card = Color(0xFFFFFCF7),
-    ink = Color(0xFF241C16),
-    secondary = Color(0xFF6B5E52),
-    accent = Color(0xFF8C4A24),
-    field = Color(0xFFEBE4D8),
-    line = Color(0xFF241C16).copy(alpha = 0.14f),
-    danger = Color(0xFFA3261B),
-    selected = Color(0xFF8C4A24).copy(alpha = 0.14f),
+    canvas = Color(0xFFFBFCFD),
+    card = Color(0xFFFFFFFF),
+    ink = Color(0xFF272735),
+    secondary = Color(0xFF666673),
+    accent = Color(0xFF4B5FE0),
+    field = Color(0xFFF0F1F5),
+    line = Color(0xFFDDDDE5),
+    danger = Color(0xFFC02868),
+    selected = Color(0xFF4B5FE0).copy(alpha = 0.12f),
 )
 
 internal val DarkSatchel = SatchelColors(
-    canvas = Color(0xFF17130F),
-    card = Color(0xFF221C17),
-    ink = Color(0xFFF2ECE3),
-    secondary = Color(0xFFB8AB9C),
-    accent = Color(0xFFE0A070),
-    field = Color(0xFF2D261F),
-    line = Color(0xFFF2ECE3).copy(alpha = 0.14f),
-    danger = Color(0xFFF08A7E),
-    selected = Color(0xFFE0A070).copy(alpha = 0.18f),
+    canvas = Color(0xFF10101A),
+    card = Color(0xFF1C1C28),
+    ink = Color(0xFFEDEDF3),
+    secondary = Color(0xFFA3A3AE),
+    accent = Color(0xFF9CB4E8),
+    field = Color(0xFF2A2A38),
+    line = Color(0xFF363644),
+    danger = Color(0xFFFC92B4),
+    selected = Color(0xFF9CB4E8).copy(alpha = 0.18f),
 )
 
 internal val LocalSatchelColors = staticCompositionLocalOf { LightSatchel }
@@ -167,7 +167,7 @@ fun ProductCard(
     enabled: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(12.dp)
     Surface(
         shape = shape,
         color = satchel.card,
@@ -203,7 +203,7 @@ fun PrimaryButton(text: String, onClick: () -> Unit, enabled: Boolean = true, mo
     Button(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(10.dp),
         colors = ButtonDefaults.buttonColors(containerColor = satchel.accent, contentColor = satchel.card),
         modifier = modifier.fillMaxWidth().heightIn(min = 48.dp),
     ) {
@@ -241,7 +241,7 @@ fun ProductTextField(
         label = { Text(label) },
         keyboardOptions = keyboardOptions,
         visualTransformation = visualTransformation,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(8.dp),
         colors = TextFieldDefaults.colors(
             focusedContainerColor = satchel.field,
             unfocusedContainerColor = satchel.field,

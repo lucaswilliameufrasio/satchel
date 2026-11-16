@@ -564,10 +564,21 @@ fn status_card(language: Language, lines: &[crate::SyncLine], may_add: bool, bas
     for (index, line) in lines.iter().enumerate() {
         let class = match (index, line.tone) {
             (_, crate::Tone::Warn) => "warn",
-            (0, crate::Tone::Plain) => "state",
+            (0, _) => "state",
             _ => "hint",
         };
-        rows.push_str(&format!("<p class=\"{class}\">{}</p>", escape(&line.text)));
+        // The first line carries a dot: green when it synced, red when it failed. The words
+        // say the same, so the color is never the only sign.
+        let dot = match (index, line.tone) {
+            (0, crate::Tone::Good) => "<span class=\"dot ok\" aria-hidden=\"true\"></span>",
+            (0, crate::Tone::Warn) => "<span class=\"dot bad\" aria-hidden=\"true\"></span>",
+            (0, crate::Tone::Plain) => "<span class=\"dot\" aria-hidden=\"true\"></span>",
+            _ => "",
+        };
+        rows.push_str(&format!(
+            "<p class=\"{class}\">{dot}{}</p>",
+            escape(&line.text)
+        ));
     }
     let add = if !may_add {
         String::new()
@@ -1779,10 +1790,11 @@ fn page(language: Language, body: &str) -> String {
         "<!doctype html><html lang=\"{}\"><head><meta charset=\"utf-8\">\
 <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
 <meta name=\"color-scheme\" content=\"light dark\"><title>Satchel</title><style>\
-:root{{--canvas:#F3EEE4;--card:#FFFCF7;--ink:#241C16;--secondary:#6B5E52;--accent:#8C4A24;\
---field:#EBE4D8;--line:rgba(36,28,22,.14);--danger:#A3261B}}\
-@media (prefers-color-scheme:dark){{:root{{--canvas:#17130F;--card:#221C17;--ink:#F2ECE3;\
---secondary:#B8AB9C;--accent:#E0A070;--field:#2D261F;--line:rgba(242,236,227,.14);--danger:#F08A7E}}}}\
+:root{{--canvas:#FBFCFD;--card:#FFFFFF;--ink:#272735;--secondary:#666673;--accent:#4B5FE0;\
+--field:#F0F1F5;--line:#DDDDE5;--danger:#C02868;--success:#187A4E;--warning:#B34900}}\
+@media (prefers-color-scheme:dark){{:root{{--canvas:#10101A;--card:#1C1C28;--ink:#EDEDF3;\
+--secondary:#A3A3AE;--accent:#9CB4E8;--field:#2A2A38;--line:#363644;--danger:#FC92B4;\
+--success:#77C599;--warning:#FC9B6F}}}}\
 *{{box-sizing:border-box}}\
 body{{margin:0;background:var(--canvas);color:var(--ink);font:1rem/1.5 system-ui,-apple-system,sans-serif}}\
 main{{max-width:34rem;margin:0 auto;padding:1.5rem 1.25rem 3rem}}\
@@ -1791,19 +1803,19 @@ main{{max-width:34rem;margin:0 auto;padding:1.5rem 1.25rem 3rem}}\
 h1{{font-size:2rem;font-weight:600;margin:1rem 0 .5rem;letter-spacing:-.01em}}\
 h2{{font-size:1.06rem;font-weight:600;margin:0 0 .25rem}}\
 p{{margin:.5rem 0}}.lead,.hint{{color:var(--secondary)}}.hint{{font-size:.94rem}}\
-.card{{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:1rem;margin:.75rem 0}}\
+.card{{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:1rem;margin:.75rem 0}}\
 label{{display:block;margin:.75rem 0 0;font-size:.82rem;font-weight:600;color:var(--secondary)}}\
 input,select,textarea{{display:block;width:100%;margin-top:.3rem;padding:.7rem .75rem;border:0;\
-border-radius:12px;background:var(--field);color:var(--ink);font:400 1rem/1.4 system-ui,-apple-system,sans-serif}}\
+border-radius:8px;background:var(--field);color:var(--ink);font:400 1rem/1.4 system-ui,-apple-system,sans-serif}}\
 input:focus,select:focus,textarea:focus,button:focus-visible{{outline:2px solid var(--accent);outline-offset:2px}}\
-button{{display:block;width:100%;min-height:48px;margin-top:1rem;border:0;border-radius:14px;\
+button{{display:block;width:100%;min-height:48px;margin-top:1rem;border:0;border-radius:10px;\
 background:var(--accent);color:var(--card);font:inherit;font-weight:600;cursor:pointer}}\
-button:disabled{{opacity:.6;cursor:progress}}a{{color:var(--accent)}}a.button{{display:block;min-height:48px;margin-top:1rem;padding:.75rem 1rem;border-radius:14px;background:var(--accent);color:var(--card);font-weight:600;text-align:center;text-decoration:none}}a.button.secondary{{background:var(--field);color:var(--ink);border:1px solid var(--line)}}a.button:focus-visible{{outline:2px solid var(--accent);outline-offset:2px}}.state{{font-size:1.06rem;font-weight:600}}.choice{{display:grid;gap:.75rem;margin:1rem 0}}.choice button{{margin:0;padding:.9rem 1rem;text-align:left;display:flex;flex-direction:column;gap:.2rem}}.choice button span{{font-weight:400;color:var(--secondary);font-size:.94rem}}.choice button[aria-pressed=true]{{outline:2px solid var(--accent);outline-offset:-2px}}details{{margin-top:.75rem}}summary{{cursor:pointer;color:var(--accent);font-weight:600}}\
+button:disabled{{opacity:.6;cursor:progress}}a{{color:var(--accent)}}a.button{{display:block;min-height:48px;margin-top:1rem;padding:.75rem 1rem;border-radius:10px;background:var(--accent);color:var(--card);font-weight:600;text-align:center;text-decoration:none}}a.button.secondary{{background:var(--field);color:var(--ink);border:1px solid var(--line)}}a.button:focus-visible{{outline:2px solid var(--accent);outline-offset:2px}}.state{{font-size:1.06rem;font-weight:600}}.choice{{display:grid;gap:.75rem;margin:1rem 0}}.choice button{{margin:0;padding:.9rem 1rem;text-align:left;display:flex;flex-direction:column;gap:.2rem}}.choice button span{{font-weight:400;color:var(--secondary);font-size:.94rem}}.choice button[aria-pressed=true]{{outline:2px solid var(--accent);outline-offset:-2px}}details{{margin-top:.75rem}}summary{{cursor:pointer;color:var(--accent);font-weight:600}}\
 .row{{display:flex;gap:.5rem;align-items:center}}.row input{{flex:1;min-width:0}}\
 button.pick{{width:auto;flex:none;min-height:44px;margin-top:.3rem;padding:0 1rem;background:var(--field);\
 color:var(--ink);border:1px solid var(--line)}}\
 .toasts{{position:fixed;right:1rem;bottom:1rem;left:1rem;display:flex;flex-direction:column;align-items:flex-end;gap:.5rem;pointer-events:none;z-index:10}}\
-.toast{{pointer-events:auto;display:flex;gap:.75rem;align-items:flex-start;max-width:24rem;padding:.75rem 1rem;border-radius:14px;\
+.toast{{pointer-events:auto;display:flex;gap:.75rem;align-items:flex-start;max-width:24rem;padding:.75rem 1rem;border-radius:10px;\
 background:var(--ink);color:var(--canvas);box-shadow:0 8px 24px rgba(0,0,0,.2);opacity:0;transform:translateY(.5rem);\
 transition:opacity .2s,transform .2s;font-size:.94rem}}.toast.in{{opacity:1;transform:none}}.toast.bad{{background:var(--danger);color:var(--card)}}\
 .toast .close{{display:inline;width:auto;min-height:0;margin:0 0 0 auto;padding:0 .25rem;background:none;color:inherit;font-size:1.1rem;line-height:1}}\
@@ -1820,8 +1832,8 @@ img.qr{{display:block;width:min(100%,18rem);aspect-ratio:1;margin:1rem auto;imag
 background:#fff;border-radius:12px;padding:.75rem}}\
 .code-inline{{font:600 1.1rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.06em}}.code{{font:600 2.25rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;margin:.25rem 0 .75rem}}\
 button.quiet{{display:inline;width:auto;min-height:0;margin:0;padding:.25rem 0;background:none;color:var(--accent)}}\
-.error,.warn{{color:var(--danger);font-weight:600}}\
-.secret{{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:1rem;margin:.75rem 0}}\
+.error{{color:var(--danger);font-weight:600}}.warn{{color:var(--warning);font-weight:600}}.dot{{flex:none;display:inline-block;width:.6rem;height:.6rem;margin-right:.5rem;border-radius:50%;background:var(--secondary)}}.dot.ok{{background:var(--success)}}.dot.bad{{background:var(--danger)}}code,.code,.code-inline{{font-variant-numeric:tabular-nums}}\
+.secret{{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:1rem;margin:.75rem 0}}\
 .secret code{{display:block;font:1.05rem/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}}\
 code{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}}\
 </style></head><body><main><div class=\"brand\"><img src=\"mark.png\" alt=\"\">Satchel</div>\

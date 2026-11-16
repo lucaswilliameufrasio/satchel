@@ -604,7 +604,7 @@ struct PairForm: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(SatchelInk.accent)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(busy)
@@ -652,7 +652,7 @@ struct ScannerPage: View {
                     .foregroundStyle(SatchelInk.secondary)
                 QrScannerView(onCode: onCode)
                     .aspectRatio(1, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .accessibilityElement()
                     .accessibilityLabel(copy("Camera viewfinder"))
             case .missing:
@@ -732,9 +732,9 @@ private struct WideButton: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
                 .background(primary ? SatchelInk.accent : SatchelInk.card)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .stroke(primary ? Color.clear : SatchelInk.line, lineWidth: 1)
                 )
         }

@@ -230,6 +230,8 @@ pub struct SyncLine {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Tone {
     Plain,
+    /// The last sync ended well.
+    Good,
     Warn,
 }
 
@@ -1284,11 +1286,14 @@ impl Desktop {
                 t("Not synced yet", "Ainda não sincronizado").to_string(),
             )),
             Some(SyncStatus::Done { unix, unprotected }) => {
-                items.push(info(format!(
-                    "{} {}",
-                    t("Synced at", "Sincronizado às"),
-                    local_clock(*unix)
-                )));
+                items.push(SyncLine {
+                    tone: Tone::Good,
+                    text: format!(
+                        "{} {}",
+                        t("Synced at", "Sincronizado às"),
+                        local_clock(*unix)
+                    ),
+                });
                 if *unprotected {
                     let place = storage_label(self.language, profile);
                     items.push(warn(match self.language {

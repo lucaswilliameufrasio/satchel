@@ -112,7 +112,7 @@ internal fun QrScanner(onCode: (String) -> Unit, onClose: () -> Unit) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(1f)
-                            .clip(RoundedCornerShape(18.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .semantics { contentDescription = viewfinder },
                     ) {
                         CameraPreview(onCode)

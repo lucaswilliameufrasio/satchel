@@ -10,17 +10,17 @@ enum ProductSurface {
 
 /// The palette in docs/identidade-visual.md. Every color follows the system's light or dark mode.
 enum SatchelInk {
-    static let canvas = adaptive(0xF3EEE4, 0x17130F)
-    static let card = adaptive(0xFFFCF7, 0x221C17)
-    static let ink = adaptive(0x241C16, 0xF2ECE3)
-    static let secondary = adaptive(0x6B5E52, 0xB8AB9C)
-    static let accent = adaptive(0x8C4A24, 0xE0A070)
+    static let canvas = adaptive(0xFBFCFD, 0x10101A)
+    static let card = adaptive(0xFFFFFF, 0x1C1C28)
+    static let ink = adaptive(0x272735, 0xEDEDF3)
+    static let secondary = adaptive(0x666673, 0xA3A3AE)
+    static let accent = adaptive(0x4B5FE0, 0x9CB4E8)
     /// Text on an `accent` fill.
     static let onAccent = card
-    static let line = adaptive(0x241C16, 0xF2ECE3, alpha: 0.14)
-    static let field = adaptive(0xEBE4D8, 0x2D261F)
-    static let danger = adaptive(0xA3261B, 0xF08A7E)
-    static let selected = adaptive(0x8C4A24, 0xE0A070, alpha: 0.14, darkAlpha: 0.18)
+    static let line = adaptive(0xDDDDE5, 0x363644)
+    static let field = adaptive(0xF0F1F5, 0x2A2A38)
+    static let danger = adaptive(0xC02868, 0xFC92B4)
+    static let selected = adaptive(0x4B5FE0, 0x9CB4E8, alpha: 0.12, darkAlpha: 0.18)
 
     private static func adaptive(
         _ light: UInt32,
@@ -115,9 +115,9 @@ struct ProductCard<Content: View>: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(SatchelInk.card)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(SatchelInk.line, lineWidth: 1)
         )
     }
@@ -146,7 +146,7 @@ struct ProductField: View {
                 .foregroundStyle(SatchelInk.ink)
                 .padding(12)
                 .background(SatchelInk.field)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
     }
 }
