@@ -298,11 +298,11 @@ pub fn describe(language: Language, err: &Error) -> String {
                 "The storage refused the maintenance key when it managed device keys. On AWS it \
                  needs iam:CreateUser, iam:PutUserPolicy, iam:CreateAccessKey, \
                  iam:ListAccessKeys, iam:DeleteAccessKey, iam:DeleteUserPolicy and \
-                 iam:DeleteUser.",
+                 iam:DeleteUser; on B2, the writeKeys capability.",
                 "O armazenamento recusou a chave de manutenção ao administrar as chaves dos \
                  aparelhos. No AWS ela precisa de iam:CreateUser, iam:PutUserPolicy, \
                  iam:CreateAccessKey, iam:ListAccessKeys, iam:DeleteAccessKey, \
-                 iam:DeleteUserPolicy e iam:DeleteUser.",
+                 iam:DeleteUserPolicy e iam:DeleteUser; no B2, a permissão writeKeys.",
             ),
             Core::Keys => l(
                 "Couldn't manage the device's bucket key. Check the network and try again.",

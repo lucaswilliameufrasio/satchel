@@ -20,6 +20,8 @@ enum SatchelInk {
     static let line = adaptive(0xDDDDE5, 0x363644)
     static let field = adaptive(0xF0F1F5, 0x2A2A38)
     static let danger = adaptive(0xC02868, 0xFC92B4)
+    static let success = adaptive(0x187A4E, 0x77C599)
+    static let warning = adaptive(0xB34900, 0xFC9B6F)
     static let selected = adaptive(0x4B5FE0, 0x9CB4E8, alpha: 0.12, darkAlpha: 0.18)
 
     private static func adaptive(

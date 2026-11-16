@@ -1,5 +1,6 @@
 //! Create and write a restic repository without putting the machine name in the key file.
 
+mod b2keys;
 mod credential;
 mod error;
 mod format;
@@ -11,6 +12,10 @@ mod storage;
 mod sync;
 mod wake;
 
+pub use b2keys::{
+    B2_API, b2_device_key_exists, b2_key_name, issue_b2_device_key, own_key_exists, own_key_issue,
+    own_key_revoke, revoke_b2_device_key,
+};
 pub use credential::{phone_credential_policy, phone_may_delete};
 pub use error::Error;
 pub use format::{

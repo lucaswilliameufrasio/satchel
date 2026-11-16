@@ -73,6 +73,7 @@ struct CreatorGrant<'a> {
     work: &'a str,
     role: &'a str,
     limited_credential: &'a str,
+    kind: &'a str,
 }
 
 fn access_doc(setup: &StorageSetup, key: &str, secret: &str) -> Result<String, CatalogFailure> {
@@ -166,6 +167,12 @@ pub(crate) fn create_phone_repository(
         work: work_text,
         role: "maintainer",
         limited_credential: &limited,
+        kind: match kind {
+            StorageKind::S3 => "s3",
+            StorageKind::R2 => "r2",
+            StorageKind::B2 => "b2",
+            _ => "folder",
+        },
     })
     .map_err(|_| fail("fields"))?;
     if let Err(err) = create_repository(&setup, &device_id, &password) {
@@ -383,16 +390,106 @@ fn approve_with(
     let other = DeviceId::parse(&pending.device_id).map_err(|_| CatalogFailure)?;
     let provisioned = provision_device_key(&location, &spec.device_key_password, &other)
         .map_err(|_| CatalogFailure)?;
+    // On S3 the other device gets a bucket key of its own, so removing it later cuts the
+    // bucket too. Without IAM rights, or on R2, B2 and a local folder, it gets the shared key.
+    let own = own_bucket_key(spec, &other);
+    let bucket_credential = match &own {
+        Some((credential, _)) => credential.clone(),
+        None => spec.limited_credential.clone(),
+    };
     let secrets = DeviceSecrets {
         endpoint: spec.endpoint.clone(),
-        bucket_credential: spec.limited_credential.clone(),
+        bucket_credential,
         device_key_password: provisioned.device_key_password,
     };
     if session.decide(Decision::Approve(secrets)).is_err() {
         let _ = remove_device_key(&location, &spec.device_key_password, &provisioned.key_id);
+        if let Some((_, user)) = own
+            && let Some(maintenance) = maintenance_of(spec)
+        {
+            let _ = satchel_core::own_key_revoke(
+                maintenance.kind,
+                &maintenance.admin(&spec.endpoint),
+                &user,
+            );
+        }
         return Err(CatalogFailure);
     }
     Ok(())
+}
+
+/// The maintenance key in a main phone's grant.
+struct Maintenance {
+    kind: StorageKind,
+    access_key_id: String,
+    secret_access_key: String,
+    bucket: String,
+    region: String,
+    prefix: String,
+}
+
+impl Maintenance {
+    fn admin<'a>(&'a self, endpoint: &'a str) -> satchel_core::KeyAdmin<'a> {
+        satchel_core::KeyAdmin {
+            s3_endpoint: endpoint,
+            access_key_id: &self.access_key_id,
+            secret_access_key: &self.secret_access_key,
+        }
+    }
+}
+
+fn maintenance_of(spec: &GrantSpec) -> Option<Maintenance> {
+    // S3 has IAM and B2 application keys; R2, a folder and a grant from before `kind`
+    // keep the shared device key.
+    let kind = match spec.kind.as_str() {
+        "s3" => StorageKind::S3,
+        "b2" => StorageKind::B2,
+        _ => return None,
+    };
+    if spec.bucket_credential == LOCAL_FOLDER {
+        return None;
+    }
+    let doc: serde_json::Value = serde_json::from_str(&spec.bucket_credential).ok()?;
+    let text = |name: &str| {
+        doc.get(name)
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    let maintenance = Maintenance {
+        kind,
+        access_key_id: text("access_key_id"),
+        secret_access_key: text("secret_access_key"),
+        bucket: text("bucket"),
+        region: text("region"),
+        prefix: text("prefix"),
+    };
+    if maintenance.access_key_id.is_empty() || maintenance.bucket.is_empty() {
+        return None;
+    }
+    Some(maintenance)
+}
+
+/// A new bucket key for `other`, as the grant's credential document, and its IAM user.
+fn own_bucket_key(spec: &GrantSpec, other: &DeviceId) -> Option<(String, String)> {
+    let maintenance = maintenance_of(spec)?;
+    let issued = satchel_core::own_key_issue(
+        maintenance.kind,
+        &maintenance.admin(&spec.endpoint),
+        &maintenance.bucket,
+        &maintenance.prefix,
+        other.as_str(),
+    )?
+    .ok()?;
+    let credential = serde_json::to_string(&serde_json::json!({
+        "access_key_id": issued.access_key_id,
+        "secret_access_key": issued.secret_access_key,
+        "bucket": maintenance.bucket,
+        "region": maintenance.region,
+        "prefix": maintenance.prefix,
+    }))
+    .ok()?;
+    Some((credential, issued.user_name))
 }
 
 /// Stop listening without a decision.
@@ -821,6 +918,91 @@ mod tests {
             "[]"
         );
         assert!(!is_maintainer(Path::new(&member_grant)));
+    }
+
+    #[test]
+    fn a_main_phone_on_s3_gives_the_joining_device_its_own_bucket_key() {
+        use super::floci_support::{ACCESS_KEY, LocalFloci, SECRET_KEY, aws};
+        let _guard = ONE_AT_A_TIME.lock().unwrap_or_else(|p| p.into_inner());
+        let floci = LocalFloci::start();
+        let endpoint = floci.endpoint().to_string();
+        let bucket = format!("satchel-own-{}", std::process::id());
+        aws(
+            &endpoint,
+            &["s3api", "create-bucket", "--bucket", bucket.as_str()],
+        );
+        aws(
+            &endpoint,
+            &[
+                "s3api",
+                "put-bucket-versioning",
+                "--bucket",
+                bucket.as_str(),
+                "--versioning-configuration",
+                "Status=Enabled",
+            ],
+        );
+        let root = Temp::new("own-key");
+        let spec = serde_json::json!({
+            "kind": "s3",
+            "endpoint": endpoint,
+            "bucket": bucket,
+            "region": "us-east-1",
+            "prefix": "repo",
+            "access_key_id": ACCESS_KEY,
+            "secret_access_key": SECRET_KEY,
+            "device_access_key_id": "shared-device-key",
+            "device_secret_access_key": "shared-device-secret",
+        })
+        .to_string();
+        let created = create_phone_repository(&spec, &root.0.join("work")).expect("create");
+        let (_, grant_text) = created.split_once('\n').expect("two parts");
+        let grant = Path::new(grant_text);
+        let offer = hold_start(grant, "127.0.0.1:0", Duration::from_secs(60)).expect("start");
+        let offer: serde_json::Value = serde_json::from_str(&offer).expect("offer");
+        let address = offer["address"].as_str().expect("address").to_string();
+        let code = offer["code"].as_str().expect("code").to_string();
+        let fingerprint = offer["fingerprint"].as_str().expect("fp").to_string();
+        let other = DeviceId::generate();
+        let other_text = other.as_str().to_string();
+        let joiner = thread::spawn(move || {
+            join_pairing(
+                &address,
+                &code,
+                &fingerprint,
+                "Laptop",
+                "macos",
+                &other_text,
+                Duration::from_secs(60),
+            )
+        });
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let mut shown = String::new();
+        while shown.is_empty() && Instant::now() < deadline {
+            shown = hold_poll().expect("poll");
+            thread::sleep(Duration::from_millis(20));
+        }
+        hold_decide(grant, true).expect("approve");
+        let joined = joiner.join().expect("thread").expect("joined");
+        assert!(!joined.contains("shared-device-key"), "got the shared key");
+        assert!(!joined.contains(ACCESS_KEY));
+        let member_grant = assemble_grant_json(
+            &joined,
+            other.as_str(),
+            root.0.join("member-work").to_str().expect("work"),
+        )
+        .expect("assemble");
+        assert_eq!(
+            catalog_grant(Path::new(&member_grant)).expect("member opens with its own key"),
+            "[]"
+        );
+        let admin = satchel_core::KeyAdmin {
+            s3_endpoint: &endpoint,
+            access_key_id: ACCESS_KEY,
+            secret_access_key: SECRET_KEY,
+        };
+        let user = satchel_core::device_key_user(&bucket, "repo", other.as_str()).expect("user");
+        assert!(satchel_core::device_bucket_key_exists(&admin, &user).expect("listed"));
     }
 
     #[test]

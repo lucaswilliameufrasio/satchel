@@ -216,7 +216,7 @@ class CatalogSessionTest {
         assertEquals(
             listOf(
                 "Desk",
-                "System macos",
+                "System macOS",
                 "Registered 2023-11-14 22:13 UTC",
                 "Last sent 2023-11-14 22:13 UTC",
                 groupedDeviceId(publisher),

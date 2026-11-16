@@ -54,6 +54,8 @@ data class SatchelColors(
     val line: Color,
     val danger: Color,
     val selected: Color,
+    val success: Color,
+    val warning: Color,
 )
 
 internal val LightSatchel = SatchelColors(
@@ -66,6 +68,8 @@ internal val LightSatchel = SatchelColors(
     line = Color(0xFFDDDDE5),
     danger = Color(0xFFC02868),
     selected = Color(0xFF4B5FE0).copy(alpha = 0.12f),
+    success = Color(0xFF187A4E),
+    warning = Color(0xFFB34900),
 )
 
 internal val DarkSatchel = SatchelColors(
@@ -78,6 +82,8 @@ internal val DarkSatchel = SatchelColors(
     line = Color(0xFF363644),
     danger = Color(0xFFFC92B4),
     selected = Color(0xFF9CB4E8).copy(alpha = 0.18f),
+    success = Color(0xFF77C599),
+    warning = Color(0xFFFC9B6F),
 )
 
 internal val LocalSatchelColors = staticCompositionLocalOf { LightSatchel }

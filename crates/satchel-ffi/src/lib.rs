@@ -264,6 +264,9 @@ struct GrantSpec {
     /// Credential sent to a device that joins. Only a maintainer file carries it.
     #[serde(default)]
     limited_credential: String,
+    /// `s3`, `r2`, `b2` or `folder` on a maintainer file written since 2026-11-16.
+    #[serde(default)]
+    kind: String,
 }
 
 #[derive(Deserialize)]

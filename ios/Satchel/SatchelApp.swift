@@ -235,6 +235,7 @@ struct CatalogList: View {
                         String(localized: "Phone folder: \(name)", bundle: .copy, locale: .copy),
                         folder.status ?? folderReadyNote,
                         id: "folder-sync",
+                        dot: folderDot(folder),
                         action: onSyncFolder
                     )
                     .disabled(folder.busy)
@@ -301,6 +302,7 @@ extension CatalogList {
         _ title: String,
         _ detail: String,
         id: String,
+        dot: Color? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -310,9 +312,18 @@ extension CatalogList {
                         Text(title)
                             .font(.headline)
                             .foregroundStyle(SatchelInk.ink)
-                        Text(detail)
-                            .font(.subheadline)
-                            .foregroundStyle(SatchelInk.secondary)
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            // The words say the same as the color: the dot is never the only sign.
+                            if let dot {
+                                Circle()
+                                    .fill(dot)
+                                    .frame(width: 8, height: 8)
+                                    .accessibilityHidden(true)
+                            }
+                            Text(detail)
+                                .font(.subheadline)
+                                .foregroundStyle(SatchelInk.secondary)
+                        }
                     }
                     Spacer(minLength: 12)
                     TrailingChevron()
@@ -487,7 +498,7 @@ struct DeviceFacts: View {
                     .foregroundStyle(SatchelInk.secondary)
             }
             if let os = card?.os {
-                Text(String(localized: "System \(os)", bundle: .copy, locale: .copy))
+                Text(String(localized: "System \(osLabel(os))", bundle: .copy, locale: .copy))
                     .font(.subheadline)
                     .foregroundStyle(SatchelInk.secondary)
             }
@@ -913,7 +924,7 @@ struct HoldPage: View {
             if let approval = state.approval {
                 ProductCard {
                     Text(String(localized: "Device \(approval.deviceName)", bundle: .copy, locale: .copy))
-                    Text(String(localized: "System \(approval.os)", bundle: .copy, locale: .copy))
+                    Text(String(localized: "System \(osLabel(approval.os))", bundle: .copy, locale: .copy))
                     Text(String(localized: "Address \(approval.peerAddress)", bundle: .copy, locale: .copy))
                     Text(String(localized: "Code typed: \(approval.code)", bundle: .copy, locale: .copy))
                 }
@@ -987,4 +998,34 @@ func groupedHex(_ hex: String) -> String {
         rest = rest.dropFirst(4)
     }
     return groups.joined(separator: " ")
+}
+
+/// The color of the folder card's dot: amber while it syncs, red when the last round
+/// failed, green when it ended well, none before the first round.
+func folderDot(_ folder: FolderCardState) -> Color? {
+    if folder.busy {
+        return SatchelInk.warning
+    }
+    guard let status = folder.status else {
+        return nil
+    }
+    if status == folderLost || status == folderSyncFailed || status == folderUnavailable {
+        return SatchelInk.danger
+    }
+    if status == folderSyncing {
+        return SatchelInk.warning
+    }
+    return SatchelInk.success
+}
+
+/// The system as people write it: “macOS”, not Rust's “macos”.
+func osLabel(_ os: String) -> String {
+    switch os {
+    case "macos": return "macOS"
+    case "ios": return "iOS"
+    case "linux": return "Linux"
+    case "android": return "Android"
+    case "windows": return "Windows"
+    default: return os
+    }
 }

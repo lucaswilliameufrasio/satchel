@@ -148,9 +148,10 @@ fn serve<S: SecretStore>(mut stream: TcpStream, shared: &Shared<S>) -> std::io::
         ("POST", "create") => create(shared, language, &parse_form(&request.body)),
         ("POST", "recovery") => change_recovery(shared, language),
         ("POST", "join") => join(shared, language, &parse_form(&request.body)),
-        ("POST", "folders/add" | "folders/receive" | "folders/stop" | "disconnect" | "main") => {
-            manage(shared, language, route, &parse_form(&request.body))
-        }
+        (
+            "POST",
+            "folders/add" | "folders/receive" | "folders/stop" | "disconnect" | "main" | "sync",
+        ) => manage(shared, language, route, &parse_form(&request.body)),
         _ => return not_found(&mut stream, language),
     };
     respond(&mut stream, 200, "text/html; charset=utf-8", &page)
@@ -177,6 +178,10 @@ fn manage<S: SecretStore>(
     let result = {
         let mut desktop = lock(&shared.desktop);
         match route {
+            "sync" => desktop
+                .publish(&*shared.secrets)
+                .map(|_| t("Synced.", "Sincronizado.").to_string())
+                .map_err(|err| describe(language, &err)),
             "folders/add" => required_path(language, form, "path").and_then(|path| {
                 let name = folder_name_of(&path, field(form, "name"));
                 desktop
@@ -590,7 +595,11 @@ fn status_card(language: Language, lines: &[crate::SyncLine], may_add: bool, bas
     };
     format!(
         "<section class=\"card\" aria-labelledby=\"sync-title\"><h2 id=\"sync-title\">{title}</h2>\
-         {rows}<p class=\"hint\">{how}</p>{add}</section>",
+         {rows}<p class=\"hint\">{how}</p>\
+         <form method=\"post\" action=\"{base}sync\" onsubmit=\"busy(this,'{syncing}')\">\
+         <button class=\"secondary\">{sync}</button></form>{add}</section>",
+        syncing = t("Syncing…", "Sincronizando…"),
+        sync = t("Sync now", "Sincronizar agora"),
         title = t("Sync on this device", "Sincronização neste aparelho"),
         how = t(
             "The Satchel menu syncs every two minutes and shows the same state. This page shows \
@@ -1712,9 +1721,9 @@ finally{{b.disabled=false;b.textContent=label;}}}});}}
                  maintenance key manages the bucket (on R2, an API token with Admin Read & \
                  Write). The device key is a second one, limited to listing, reading and \
                  writing; it can only delete its own locks where the store applies per-key \
-                 policy (AWS S3, MinIO, RustFS). On R2 and B2 it can delete everything. On S3, \
-                 when the maintenance key may also manage IAM users, each device gets its own key \
-                 instead, and removing a device deletes it.",
+                 policy (AWS S3, MinIO, RustFS). On R2 and B2 it can delete everything. On S3 (when \
+                 the maintenance key may manage IAM users) and on B2 (when it has writeKeys), each \
+                 device gets its own key instead, and removing a device deletes it.",
                 "No S3 e no B2, o bucket precisa de versionamento ligado e de nenhuma regra de \
                  ciclo de vida que apague objetos. O R2 não tem versionamento: o Satchel aceita, \
                  avisa que uma cópia sobrescrita não volta, e continua recusando uma regra que \
@@ -1722,9 +1731,9 @@ finally{{b.disabled=false;b.textContent=label;}}}});}}
                  API com Admin Read & Write). A chave dos aparelhos é outra, só para listar, ler \
                  e gravar; ela só fica limitada a apagar os próprios locks quando o armazenamento \
                  aplica política por chave (AWS S3, MinIO, RustFS). No R2 e no B2 ela pode \
-                 apagar tudo. No S3, quando a chave de manutenção também pode administrar \
-                 usuários do IAM, cada aparelho recebe a própria chave, e remover um aparelho a \
-                 apaga.",
+                 apagar tudo. No S3 (quando a chave de manutenção pode administrar usuários \
+                 do IAM) e no B2 (quando ela tem writeKeys), cada aparelho recebe a própria chave, \
+                 e remover um aparelho a apaga.",
             ),
             region = t("Region", "Região"),
             prefix = t("Prefix (may be empty)", "Prefixo (pode ficar vazio)"),

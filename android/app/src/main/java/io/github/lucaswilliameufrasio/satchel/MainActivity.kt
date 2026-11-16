@@ -3,6 +3,9 @@
 package io.github.lucaswilliameufrasio.satchel
 
 import android.content.pm.ApplicationInfo
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -934,10 +937,29 @@ private fun CatalogScreen(
                         }
                     } else {
                         ProductCard(onClick = onSyncFolder, enabled = !folder.busy) {
-                            CardText(
-                                stringResource(R.string.folder_card_title, folder.name),
-                                folder.status ?: stringResource(R.string.folder_ready_note),
+                            val failed = setOf(
+                                stringResource(R.string.folder_lost),
+                                stringResource(R.string.folder_sync_failed),
+                                stringResource(R.string.folder_unavailable),
                             )
+                            // The words say the same as the color: the dot is never the only sign.
+                            val dot = when {
+                                folder.busy -> satchel.warning
+                                folder.status == null -> null
+                                folder.status in failed -> satchel.danger
+                                else -> satchel.success
+                            }
+                            Text(stringResource(R.string.folder_card_title, folder.name), style = MaterialTheme.typography.titleMedium, color = satchel.ink)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (dot != null) {
+                                    Box(Modifier.padding(end = 8.dp).size(8.dp).clip(CircleShape).background(dot))
+                                }
+                                Text(
+                                    folder.status ?: stringResource(R.string.folder_ready_note),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = satchel.secondary,
+                                )
+                            }
                             Text(
                                 stringResource(if (folder.busy) R.string.folder_syncing_short else R.string.folder_sync),
                                 color = if (folder.busy) satchel.secondary else satchel.accent,

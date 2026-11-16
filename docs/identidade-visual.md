@@ -6,7 +6,7 @@ Direção C de [referencias-visuais.md](referencias-visuais.md), escolhida em 20
 
 ## Cores
 
-Os nomes são os mesmos nos três frontends: `SatchelInk` no iOS, `SatchelColors` no Android e variáveis CSS na página de setup. `success` e `warning` existem por enquanto só na página.
+Os nomes são os mesmos nos três frontends: `SatchelInk` no iOS, `SatchelColors` no Android e variáveis CSS na página de setup. `success` e `warning` existem nas três superfícies.
 
 | Papel | Claro | Escuro | Uso |
 | --- | --- | --- | --- |
@@ -50,7 +50,7 @@ A bolsa de couro sobre verde-escuro (`SatchelMark` no iOS, mipmap no Android). A
 
 ## Estado da sincronização
 
-Como o Status Dot do Geist: um ponto antes da frase de estado, verde (`success`) quando sincronizou, vermelho (`danger`) quando falhou e neutro (`secondary`) antes da primeira rodada. A frase diz o mesmo, com a hora (“Sincronizado às 14:02”); a cor nunca é o único sinal. Números, horas, tamanhos e códigos usam algarismos tabulares. Hoje o ponto está na página do desktop; nos celulares ainda não.
+Como o Status Dot do Geist: um ponto antes da frase de estado, verde (`success`) quando sincronizou, vermelho (`danger`) quando falhou e neutro (`secondary`) antes da primeira rodada. A frase diz o mesmo, com a hora (“Sincronizado às 14:02”); a cor nunca é o único sinal. Números, horas, tamanhos e códigos usam algarismos tabulares. O ponto está na página do desktop e no cartão da pasta do iOS e do Android, onde fica âmbar enquanto sincroniza.
 
 ## Estados
 

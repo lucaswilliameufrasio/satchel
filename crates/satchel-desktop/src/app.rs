@@ -731,11 +731,18 @@ impl Desktop {
         Ok(())
     }
 
-    /// True where each device can get its own bucket key: S3, through IAM.
+    /// True where each device can get its own bucket key: IAM on S3, application keys on B2.
     pub fn per_device_bucket_keys(&self) -> bool {
         self.profile.as_ref().is_some_and(|profile| {
-            profile.kind == StorageKind::S3 && profile.object_store.is_some()
+            matches!(profile.kind, StorageKind::S3 | StorageKind::B2)
+                && profile.object_store.is_some()
         })
+    }
+
+    fn kind(&self) -> StorageKind {
+        self.profile
+            .as_ref()
+            .map_or(StorageKind::Directory, |profile| profile.kind)
     }
 
     /// Whether this device may open Add device: only a main device of a bucket
@@ -787,10 +794,10 @@ impl Desktop {
             access_key_id: &access.access_key_id,
             secret_access_key: &access.secret_access_key,
         };
-        match satchel_core::device_bucket_key_exists(&admin, &user) {
-            Ok(true) => BucketKey::Own,
-            Ok(false) => BucketKey::Shared,
-            Err(_) => BucketKey::Unknown,
+        match satchel_core::own_key_exists(self.kind(), &admin, &user) {
+            Some(Ok(true)) => BucketKey::Own,
+            Some(Ok(false)) | None => BucketKey::Shared,
+            Some(Err(_)) => BucketKey::Unknown,
         }
     }
 
@@ -870,9 +877,9 @@ impl Desktop {
                 access_key_id: &access.access_key_id,
                 secret_access_key: &access.secret_access_key,
             };
-            match satchel_core::revoke_device_bucket_key(&admin, &user) {
-                Ok(()) | Err(satchel_core::Error::KeysDenied) => {}
-                Err(err) => return Err(err.into()),
+            match satchel_core::own_key_revoke(self.kind(), &admin, &user) {
+                None | Some(Ok(())) | Some(Err(satchel_core::Error::KeysDenied)) => {}
+                Some(Err(err)) => return Err(err.into()),
             }
         }
         self.load_device_keys(store)
@@ -1216,12 +1223,15 @@ impl Desktop {
                 access_key_id: &access.access_key_id,
                 secret_access_key: &access.secret_access_key,
             };
-            match satchel_core::issue_device_bucket_key(
+            match satchel_core::own_key_issue(
+                profile.kind,
                 &admin,
                 &object_store.bucket,
                 &object_store.prefix,
                 device_id.as_str(),
-            ) {
+            )
+            .unwrap_or(Err(satchel_core::Error::Keys))
+            {
                 Ok(issued) => {
                     device_secret = access_json(&issued.access_key_id, &issued.secret_access_key)?;
                     issued_user = Some((endpoint.clone(), access.clone(), issued.user_name));
@@ -1243,7 +1253,7 @@ impl Desktop {
                     access_key_id: &access.access_key_id,
                     secret_access_key: &access.secret_access_key,
                 };
-                let _ = satchel_core::revoke_device_bucket_key(&admin, user);
+                let _ = satchel_core::own_key_revoke(profile.kind, &admin, user);
             }
             // A device key cannot always delete keys; the main device can remove it later.
             if let Err(remove_err) = remove_device_key(&location, &recovery_password, &key_id)

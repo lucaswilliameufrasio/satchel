@@ -316,7 +316,7 @@ fun deviceCardLines(
         }
         val os = card.os
         if (os != null) {
-            lines.add(words.text(R.string.card_system, os))
+            lines.add(words.text(R.string.card_system, osLabel(os)))
         }
         val enrolled = card.enrolledUnix
         if (enrolled != null) {
@@ -505,4 +505,14 @@ private fun affected(marked: String, candidate: String): Boolean {
         return true
     }
     return candidate.startsWith("$marked/")
+}
+
+/** The system as people write it: “macOS”, not Rust's “macos”. */
+fun osLabel(os: String): String = when (os) {
+    "macos" -> "macOS"
+    "ios" -> "iOS"
+    "linux" -> "Linux"
+    "android" -> "Android"
+    "windows" -> "Windows"
+    else -> os
 }

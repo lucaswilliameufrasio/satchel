@@ -6,6 +6,7 @@ import io.github.lucaswilliameufrasio.satchel.ui.PrimaryButton
 import io.github.lucaswilliameufrasio.satchel.ui.ProductTextField
 import io.github.lucaswilliameufrasio.satchel.ui.FailureText
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.Arrangement
@@ -153,7 +154,8 @@ internal fun RecoveryScreen(password: String, @StringRes warning: Int?, onDone: 
         ) {
             Text(stringResource(R.string.recovery_note), color = satchel.secondary)
             if (warning != null) {
-                FailureText(stringResource(warning))
+                // A missing protection is a warning, not a failure: the repository was created.
+                Text(stringResource(warning), color = satchel.warning, fontWeight = FontWeight.SemiBold)
             }
             ProductCard {
                 Text(
@@ -203,7 +205,7 @@ internal fun HoldScreen(
                 Text(stringResource(R.string.invite_note), modifier = Modifier.padding(top = 12.dp))
             } else {
                 Text(stringResource(R.string.invite_device, approval.deviceName))
-                Text(stringResource(R.string.card_system, approval.os))
+                Text(stringResource(R.string.card_system, io.github.lucaswilliameufrasio.satchel.catalog.osLabel(approval.os)))
                 Text(stringResource(R.string.invite_address, approval.peerAddress))
                 Text(stringResource(R.string.invite_code_typed, approval.code))
                 Text(
